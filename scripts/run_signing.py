@@ -170,7 +170,6 @@ def main() -> int:
         signed_ipa = tdir / f"{safe_name}.ipa"
         z_cmd = (
             f"{shlex.quote(str(zsign_path))} "
-            f"--adhoc "
             f"--quiet "
             f"-k apple_dev.p12 "
             f"-p {shlex.quote(apple_pwd)} "
