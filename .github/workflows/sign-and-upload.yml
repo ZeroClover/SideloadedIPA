@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   sign-and-upload:
-    name: Sign and upload per TOML
+    name: Sign & Upload IPAs
     runs-on: ubuntu-latest
     env:
       # Required secrets
