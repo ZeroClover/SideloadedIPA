@@ -138,12 +138,7 @@ def main() -> int:
             if fallback_file.exists():
                 mp_b64 = fallback_file.read_text(encoding="utf-8")
                 print(f"[task {i}] Using fallback mobileprovision file: {fallback_file}")
-
-        if not ent_b64:
-                print(f"[task {i}] Missing mobileprovision base64 in env '{env_key}' and no fallback file found", file=sys.stderr)
-            any_fail = True
-            continue
-
+        
         mobileprov_path = tdir / "profile.mobileprovision"
         try:
             if not mp_b64:
