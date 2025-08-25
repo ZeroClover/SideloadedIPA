@@ -1,0 +1,15 @@
+# Signing tasks configuration (TOML)
+
+# Define one or more signing tasks using the [[tasks]] array.
+# For each task, set:
+# - task_name: Identifier used to look up the provisioning profile from env var "<TASK_NAME>_MOBILEPROVISION"
+# - app_name: Human-friendly app name; used for filenames and scp destination filename
+# - ipa_url:  Direct download URL of the original IPA to sign
+# - asset_server_path: Destination path on the asset server; if it ends with '/', the signed file name will be appended
+# - For mobile provisioning, set env var: <TASK_NAME>_MOBILEPROVISION (Base64 content)
+
+[[tasks]]
+task_name = "JHenTai"
+app_name = "JHenTai"
+ipa_url = "https://glare.root.me/jiangtian616/JHenTai/ipa"
+asset_server_path = "/itms.zeroclover.io/JHenTai/JHenTai.ipa"

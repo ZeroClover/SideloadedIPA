@@ -1,0 +1,75 @@
+name: Sign and Upload IPAs
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Path to the TOML config file
+        required: false
+        default: configs/tasks.toml
+      zsign_url:
+        description: Optional override for ZSIGN_BINARY_URL
+        required: false
+  repository_dispatch:
+    types: [sign_ipas]
+
+permissions:
+  contents: read
+
+jobs:
+  sign-and-upload:
+    name: Sign and upload per TOML
+    runs-on: ubuntu-latest
+    env:
+      # Required secrets
+      ZSIGN_BINARY_URL: ${{ secrets.ZSIGN_BINARY_URL }}
+      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+      ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
+      ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
+      ASSETS_SERVER_CREDENTIALS: ${{ secrets.ASSETS_SERVER_CREDENTIALS }}
+      JHENTAI_MOBILEPROVISION: ${{ secrets.JHENTAI_MOBILEPROVISION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Resolve optional inputs for config and zsign
+        run: |
+          # Prefer workflow_dispatch inputs
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ -n "${{ github.event.inputs.config_path }}" ]]; then
+              echo "CONFIG_TOML=${{ github.event.inputs.config_path }}" >> "$GITHUB_ENV"
+            fi
+            if [[ -n "${{ github.event.inputs.zsign_url }}" ]]; then
+              echo "ZSIGN_BINARY_URL=${{ github.event.inputs.zsign_url }}" >> "$GITHUB_ENV"
+            fi
+          fi
+          # Allow repository_dispatch client payload overrides
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            if [[ -n "${{ github.event.client_payload.config_path }}" ]]; then
+              echo "CONFIG_TOML=${{ github.event.client_payload.config_path }}" >> "$GITHUB_ENV"
+            fi
+            if [[ -n "${{ github.event.client_payload.zsign_url }}" ]]; then
+              echo "ZSIGN_BINARY_URL=${{ github.event.client_payload.zsign_url }}" >> "$GITHUB_ENV"
+            fi
+          fi
+          # Default if not set
+          if ! grep -q '^CONFIG_TOML=' "$GITHUB_ENV" 2>/dev/null; then
+            echo "CONFIG_TOML=configs/tasks.toml" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install tools (sshpass, unzip)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass unzip curl
+
+      - name: Prepare zsign and certificate
+        run: bash scripts/prepare_env.sh
+
+      - name: Run signer
+        run: python scripts/run_signing.py
