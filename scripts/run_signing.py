@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import base64
-import json
 import os
 import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Prefer Python 3.11+'s tomllib; fallback to tomli if needed
 try:
@@ -42,17 +42,35 @@ def decode_b64_to_file(b64: str, out_path: Path) -> None:
         f.write(base64.b64decode(b64))
 
 
-def find_zsign() -> Path:
-    # Prefer local ./zsign
-    here = Path.cwd()
-    candidate = here / "zsign"
-    if candidate.exists():
-        return candidate
-    # Fallback: search within repo
-    for p in here.rglob("zsign"):
-        if p.is_file():
-            return p
-    raise FileNotFoundError("zsign binary not found. Ensure scripts/prepare_env.sh ran successfully.")
+def find_fastlane() -> str:
+    """Return the fastlane executable name, error if not found in PATH."""
+    from shutil import which
+
+    exe = which("fastlane")
+    if not exe:
+        raise FileNotFoundError(
+            "fastlane not found in PATH. Ensure it is installed on the runner."
+        )
+    return exe
+
+
+def discover_codesign_identity(keychain_path: Optional[str]) -> Optional[str]:
+    """Try to discover an Apple codesigning identity from a keychain or default search list."""
+    cmd = ["security", "find-identity", "-v", "-p", "codesigning"]
+    if keychain_path:
+        cmd.append(keychain_path)
+    try:
+        out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+    except Exception:
+        return None
+    # Parse lines like:  1) XXXXXXX "Apple Distribution: Name (TEAMID)"
+    for line in out.splitlines():
+        if "Apple Development" in line or "Apple Distribution" in line or "iPhone" in line:
+            # extract quoted name
+            m = re.search(r'"([^"]+)"', line)
+            if m:
+                return m.group(1)
+    return None
 
 
 def build_remote_dest(base_path: str, filename: str) -> str:
@@ -98,13 +116,21 @@ def main() -> int:
             print(f"[error] Missing required environment variable: {key}", file=sys.stderr)
             return 3
 
-    apple_pwd = os.environ["APPLE_DEV_CERT_PASSWORD"]
     assets_ip = os.environ["ASSETS_SERVER_IP"]
     assets_user = os.environ["ASSETS_SERVER_USER"]
     assets_pass = os.environ["ASSETS_SERVER_CREDENTIALS"]
 
-    zsign_path = find_zsign()
-    print(f"[info] Using zsign at: {zsign_path}")
+    fastlane_bin = find_fastlane()
+    print(f"[info] Using fastlane at: {fastlane_bin}")
+
+    keychain_path = os.getenv("KEYCHAIN_PATH")  # optional; action may set default keychain
+    codesign_identity = os.getenv("CODESIGN_IDENTITY") or discover_codesign_identity(keychain_path)
+    if not codesign_identity:
+        print(
+            "[error] Code signing identity not found. Ensure certificates were imported and CODESIGN_IDENTITY is set.",
+            file=sys.stderr,
+        )
+        return 4
 
     work_root = Path("work").resolve()
     work_root.mkdir(exist_ok=True)
@@ -166,21 +192,48 @@ def main() -> int:
             any_fail = True
             continue
 
-        # Sign with zsign
+        # Resign with fastlane
         signed_ipa = tdir / f"{safe_name}.ipa"
-        z_cmd = (
-            f"{shlex.quote(str(zsign_path))} "
-            f"--quiet "
-            f"-k apple_dev.p12 "
-            f"-p {shlex.quote(apple_pwd)} "
-            f"-m {shlex.quote(str(mobileprov_path))} "
-            f"-o {shlex.quote(str(signed_ipa))} "
-            f"{shlex.quote(str(ori_ipa))}"
-        )
+        resign_params = [
+            shlex.quote(str(ori_ipa)),
+            f"ipa:{shlex.quote(str(ori_ipa))}",
+            f"signing_identity:{shlex.quote(codesign_identity)}",
+            f"provisioning_profile:{shlex.quote(str(mobileprov_path))}",
+        ]
+        if keychain_path:
+            resign_params.append(f"keychain_path:{shlex.quote(keychain_path)}")
+        # fastlane resign writes in-place unless bundle_id/version changes; ensure output path
+        # We'll copy the result to signed_ipa afterwards if needed
+        fl_cmd = f"{shlex.quote(fastlane_bin)} run resign " + " ".join(resign_params)
         try:
-            run(z_cmd)
+            run(fl_cmd)
         except subprocess.CalledProcessError as e:
-            print(f"[task {i}] zsign failed: {e}", file=sys.stderr)
+            print(f"[task {i}] fastlane resign failed: {e}", file=sys.stderr)
+            any_fail = True
+            continue
+
+        # Determine resulting IPA: fastlane resign may create a new ipa alongside or replace original.
+        # If a new ipa with same name exists in current dir, prefer it; else use original as output.
+        result_ipa: Path = ori_ipa
+        # Common pattern: resigns to same path; if so, copy to signed_ipa for upload naming consistency
+        try:
+            if result_ipa.exists():
+                if result_ipa.resolve() != signed_ipa.resolve():
+                    # copy over to signed path
+                    import shutil
+
+                    shutil.copy2(result_ipa, signed_ipa)
+            else:
+                # Fallback: search for any .ipa in tdir newer than original download
+                latest_ipas = sorted(tdir.glob("*.ipa"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if latest_ipas:
+                    result_ipa = latest_ipas[0]
+                    if result_ipa.resolve() != signed_ipa.resolve():
+                        import shutil
+
+                        shutil.copy2(result_ipa, signed_ipa)
+        except Exception as e:
+            print(f"[task {i}] Failed to finalize IPA artifact: {e}", file=sys.stderr)
             any_fail = True
             continue
 

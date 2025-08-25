@@ -3,13 +3,11 @@ name: Sign and Upload IPAs
 on:
   workflow_dispatch:
     inputs:
-      config_path:
-        description: Path to the TOML config file
+      debug:
+        description: Enable SSH Debug
         required: false
-        default: configs/tasks.toml
-      zsign_url:
-        description: Optional override for ZSIGN_BINARY_URL
-        required: false
+        default: false
+        type: boolean
   repository_dispatch:
     types: [sign_ipas]
 
@@ -19,10 +17,9 @@ permissions:
 jobs:
   sign-and-upload:
     name: Sign & Upload IPAs
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     env:
       # Required secrets
-      ZSIGN_BINARY_URL: ${{ secrets.ZSIGN_BINARY_URL }}
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
       ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
@@ -38,38 +35,88 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Resolve optional inputs for config and zsign
+      - name: Import Apple signing certs into Keychain
+        id: import-certs
+        uses: apple-actions/import-codesign-certs@v5
+        with:
+          # Uses default keychain name 'signing_temp' and create-keychain: true
+          p12-file-base64: ${{ env.APPLE_DEV_CERT_P12_ENCODED }}
+          p12-password: ${{ env.APPLE_DEV_CERT_PASSWORD }}
+
+      - name: Resolve keychain path and discover identity
         run: |
-          # Prefer workflow_dispatch inputs
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ -n "${{ github.event.inputs.config_path }}" ]]; then
-              echo "CONFIG_TOML=${{ github.event.inputs.config_path }}" >> "$GITHUB_ENV"
-            fi
-            if [[ -n "${{ github.event.inputs.zsign_url }}" ]]; then
-              echo "ZSIGN_BINARY_URL=${{ github.event.inputs.zsign_url }}" >> "$GITHUB_ENV"
-            fi
-          fi
-          # Allow repository_dispatch client payload overrides
-          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            if [[ -n "${{ github.event.client_payload.config_path }}" ]]; then
-              echo "CONFIG_TOML=${{ github.event.client_payload.config_path }}" >> "$GITHUB_ENV"
-            fi
-            if [[ -n "${{ github.event.client_payload.zsign_url }}" ]]; then
-              echo "ZSIGN_BINARY_URL=${{ github.event.client_payload.zsign_url }}" >> "$GITHUB_ENV"
-            fi
-          fi
-          # Default if not set
-          if ! grep -q '^CONFIG_TOML=' "$GITHUB_ENV" 2>/dev/null; then
-            echo "CONFIG_TOML=configs/tasks.toml" >> "$GITHUB_ENV"
+          # Export the generated password and keychain name for downstream steps (if needed)
+          echo "KEYCHAIN_PASSWORD=${{ steps.import-certs.outputs.keychain-password }}" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_NAME=signing_temp" >> "$GITHUB_ENV"
+          
+          # Construct the keychain path based on the default naming convention
+          kc_path="$HOME/Library/Keychains/signing_temp.keychain-db"
+          echo "KEYCHAIN_PATH=$kc_path" >> "$GITHUB_ENV"
+          
+          # Debug: Show keychain path and check if file exists
+          echo "Using keychain path: $kc_path"
+          echo "Keychain exists: $(test -f "$kc_path" && echo 'yes' || echo 'no')"
+          echo "Keychain permissions: $(ls -la "$kc_path" 2>/dev/null || echo 'file not found')"
+
+          # Ensure keychain is unlocked (action should do this, but be safe)
+          if [[ -n "${{ steps.import-certs.outputs.keychain-password }}" && -f "$kc_path" ]]; then
+            security unlock-keychain -p "${{ steps.import-certs.outputs.keychain-password }}" "$kc_path" || true
           fi
 
-      - name: Install tools
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y sshpass unzip curl
+          # Discover a valid codesigning identity from that keychain specifically
+          echo "Searching for identities in: $kc_path"
+          ident=$(security find-identity -v -p codesigning "$kc_path" | awk -F '"' '/Apple (Development|Distribution)|iPhone/{print $2; exit}')
+          if [[ -z "$ident" ]]; then
+            echo "No code signing identity found in $kc_path" >&2
+            echo "Full output from security find-identity:"
+            security find-identity -v -p codesigning "$kc_path" || true
+            exit 1
+          fi
+          echo "Found identity: $ident"
+          echo "CODESIGN_IDENTITY=$ident" >> "$GITHUB_ENV"
 
-      - name: Prepare zsign and certificate
-        run: bash scripts/prepare_env.sh
+      - name: Install fastlane and sshpass
+        run: |
+          brew update
+          brew install fastlane hudochenkov/sshpass/sshpass
 
       - name: Run signer
         run: python scripts/run_signing.py
+
+      - name: "Debug: Configure SSH public key for runner"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
+        env:
+          PUBKEY: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PUBKEY:-}" ]]; then
+            echo "DEBUG_SSH_PUBLIC_KEY is required when debug is enabled." >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          echo "$PUBKEY" > "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+
+      - name: "Debug: Enable SSH Server"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
+        run: |
+          set -euxo pipefail
+          echo "SSH_Port=22" >> "$GITHUB_ENV"
+          # Ensure pubkey auth is enabled and password auth disabled
+          # Enable Remote Login and ensure sshd is loaded and started
+          sudo systemsetup -setremotelogin on
+
+      - name: "Debug: Install cloudflared"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
+        run: |
+          set -euxo pipefail
+          brew install cloudflared
+
+      - name: "Debug: Run cloudflared tunnel"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
+        env:
+          SSH_Port: ${{ env.SSH_Port }}
+        run: |
+          set -euo pipefail
+          cloudflared --no-autoupdate --url "ssh://localhost:${SSH_Port:-22}" 2>&1 | tee cloudflared.log
