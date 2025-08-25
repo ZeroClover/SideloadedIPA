@@ -63,7 +63,7 @@ jobs:
             echo "CONFIG_TOML=configs/tasks.toml" >> "$GITHUB_ENV"
           fi
 
-      - name: Install tools (sshpass, unzip)
+      - name: Install tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y sshpass unzip curl
