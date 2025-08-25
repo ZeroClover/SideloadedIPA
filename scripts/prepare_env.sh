@@ -44,8 +44,17 @@ if [[ -z "$zbin" || ! -f "$zbin" ]]; then
   exit 1
 fi
 
-cp -f "$zbin" "${workdir}/zsign"
-chmod +x "${workdir}/zsign"
+dest="${workdir}/zsign"
+
+# Avoid copying a file onto itself (which makes cp error out)
+# Compare absolute paths and only copy when they differ
+src_abs=$(realpath "$zbin" 2>/dev/null || readlink -f "$zbin" 2>/dev/null || echo "$zbin")
+dest_abs=$(realpath "$dest" 2>/dev/null || readlink -f "$dest" 2>/dev/null || echo "$dest")
+
+if [[ "$src_abs" != "$dest_abs" ]]; then
+  cp -f "$zbin" "$dest"
+fi
+chmod +x "$dest"
 
 # Decode Apple dev certificate
 echo "[prepare_env] Decoding Apple Dev P12 certificate"
