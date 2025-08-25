@@ -13,3 +13,15 @@ task_name = "JHenTai"
 app_name = "JHenTai"
 ipa_url = "https://glare.root.me/jiangtian616/JHenTai/ipa"
 asset_server_path = "/itms.zeroclover.io/JHenTai/JHenTai.ipa"
+
+[[tasks]]
+task_name = "EhPanda"
+app_name = "EhPanda"
+ipa_url = "https://glare.root.me/EhPanda-Team/EhPanda@Pre-release/ipa"
+asset_server_path = "/itms.zeroclover.io/ehpanda/EhPanda.ipa"
+
+[[tasks]]
+task_name = "FEhViewer"
+app_name = "FEhViewer"
+ipa_url = "https://glare.root.me/3003h/Eros-FE/ipa"
+asset_server_path = "/itms.zeroclover.io/fehviewer/Eros-FE.ipa"
