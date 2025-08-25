@@ -26,6 +26,8 @@ jobs:
       ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
       ASSETS_SERVER_CREDENTIALS: ${{ secrets.ASSETS_SERVER_CREDENTIALS }}
       JHENTAI_MOBILEPROVISION: ${{ secrets.JHENTAI_MOBILEPROVISION }}
+      EHPANDA_MOBILEPROVISION: ${{ secrets.EHPANDA_MOBILEPROVISION }}
+      FEHVIEWER_MOBILEPROVISION: ${{ secrets.FEHVIEWER_MOBILEPROVISION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
