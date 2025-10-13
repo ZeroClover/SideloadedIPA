@@ -140,7 +140,8 @@ class ProfileSyncer
       filter: {
         profileType: PROFILE_TYPE,
         name: name
-      }
+      },
+      includes: 'bundleId'
     )
 
     profiles.first
