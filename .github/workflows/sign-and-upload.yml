@@ -78,11 +78,11 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install fastlane hudochenkov/sshpass/sshpass
-          gem install spaceship toml-rb
+          brew install hudochenkov/sshpass/sshpass
+          bundle install
 
       - name: Sync provisioning profiles
-        run: ruby scripts/sync_profiles.rb
+        run: bundle exec ruby scripts/sync_profiles.rb
 
       - name: Run signer
         run: python scripts/run_signing.py

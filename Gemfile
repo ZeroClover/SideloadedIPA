@@ -2,5 +2,5 @@
 
 source 'https://rubygems.org'
 
-gem 'spaceship', '~> 1.0'
+gem 'fastlane'
 gem 'toml-rb', '~> 3.0'
