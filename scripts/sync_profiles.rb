@@ -91,22 +91,12 @@ class ProfileSyncer
 
   def fetch_devices
     puts '[info] Fetching iOS devices...'
-    # Filter iOS devices at API level to avoid fetching incompatible Mac devices
+    # Filter iOS devices at API level
     all_devices = Spaceship::ConnectAPI::Device.all(filter: { platform: DEVICE_PLATFORM })
 
-    enabled_devices = all_devices.select do |device|
+    all_devices.select do |device|
       device.status == 'ENABLED'
     end
-
-    # Debug: Print device classes
-    device_classes = enabled_devices.map(&:device_class).uniq
-    puts "[debug] Device classes found: #{device_classes.inspect}"
-
-    enabled_devices.each do |device|
-      puts "[debug] Device: #{device.name} | Platform: #{device.platform} | Class: #{device.device_class}"
-    end
-
-    enabled_devices
   end
 
   def sync_profile(task, certificates, devices)
@@ -159,12 +149,18 @@ class ProfileSyncer
   def create_profile(name, bundle_id_resource, certificates, devices)
     puts "[info] Creating new profile: #{name}"
 
+    # Filter devices: iOS App Development profiles can only include IPHONE and IPAD
+    # APPLE_WATCH and APPLE_TV require separate provisioning profiles
+    compatible_devices = devices.select { |d| %w[IPHONE IPAD].include?(d.device_class) }
+
+    puts "[info] Using #{compatible_devices.count} compatible devices (#{devices.count - compatible_devices.count} excluded)"
+
     profile = Spaceship::ConnectAPI::Profile.create(
       name: name,
       profile_type: PROFILE_TYPE,
       bundle_id_id: bundle_id_resource.id,
       certificate_ids: certificates.map(&:id),
-      device_ids: devices.map(&:id)
+      device_ids: compatible_devices.map(&:id)
     )
 
     puts "[info] Profile created successfully: #{profile.id}"
