@@ -13,7 +13,8 @@ class ProfileSyncer
     Spaceship::ConnectAPI::Certificate::CertificateType::DEVELOPMENT,
     Spaceship::ConnectAPI::Certificate::CertificateType::IOS_DEVELOPMENT
   ].freeze
-  DEVICE_PLATFORMS = %w[IOS MAC_OS].freeze
+  # Only fetch iOS devices to avoid deviceClass compatibility issues with Mac devices
+  DEVICE_PLATFORM = 'IOS'.freeze
 
   def initialize
     @api_key_path = setup_api_key
@@ -28,7 +29,7 @@ class ProfileSyncer
     devices = fetch_devices
 
     puts "[info] Found #{certificates.count} development certificates"
-    puts "[info] Found #{devices.count} devices (iOS: #{count_platform(devices, 'IOS')}, Mac: #{count_platform(devices, 'MAC_OS')})"
+    puts "[info] Found #{devices.count} iOS devices"
 
     tasks.each do |task|
       sync_profile(task, certificates, devices)
@@ -89,11 +90,12 @@ class ProfileSyncer
   end
 
   def fetch_devices
-    puts '[info] Fetching devices...'
-    all_devices = Spaceship::ConnectAPI::Device.all
+    puts '[info] Fetching iOS devices...'
+    # Filter iOS devices at API level to avoid fetching incompatible Mac devices
+    all_devices = Spaceship::ConnectAPI::Device.all(filter: { platform: DEVICE_PLATFORM })
 
     all_devices.select do |device|
-      DEVICE_PLATFORMS.include?(device.platform) && device.status == 'ENABLED'
+      device.status == 'ENABLED'
     end
   end
 
@@ -198,9 +200,6 @@ class ProfileSyncer
     puts "[info] Profile downloaded to: #{output_path}"
   end
 
-  def count_platform(devices, platform)
-    devices.count { |d| d.platform == platform }
-  end
 end
 
 # Main execution
