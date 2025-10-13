@@ -94,9 +94,19 @@ class ProfileSyncer
     # Filter iOS devices at API level to avoid fetching incompatible Mac devices
     all_devices = Spaceship::ConnectAPI::Device.all(filter: { platform: DEVICE_PLATFORM })
 
-    all_devices.select do |device|
+    enabled_devices = all_devices.select do |device|
       device.status == 'ENABLED'
     end
+
+    # Debug: Print device classes
+    device_classes = enabled_devices.map(&:device_class).uniq
+    puts "[debug] Device classes found: #{device_classes.inspect}"
+
+    enabled_devices.each do |device|
+      puts "[debug] Device: #{device.name} | Platform: #{device.platform} | Class: #{device.device_class}"
+    end
+
+    enabled_devices
   end
 
   def sync_profile(task, certificates, devices)
