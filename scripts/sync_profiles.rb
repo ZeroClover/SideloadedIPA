@@ -170,17 +170,17 @@ class ProfileSyncer
   def update_profile(profile, certificates, devices)
     puts "[info] Updating existing profile: #{profile.name}"
 
-    # Note: Spaceship doesn't have a direct update method for profiles
-    # We need to delete and recreate, or use the lower-level API
-    # For simplicity, we'll delete and recreate
+    # Note: ConnectAPI doesn't have a direct update method for profiles
+    # We need to delete and recreate
+    # IMPORTANT: Save bundle_id reference BEFORE deleting profile
+
+    profile_name = profile.name
+    bundle_id_resource = profile.bundle_id
 
     profile.delete!
     puts "[info] Deleted old profile"
 
-    # Get bundle_id from the profile
-    bundle_id_resource = profile.bundle_id
-
-    create_profile(profile.name, bundle_id_resource, certificates, devices)
+    create_profile(profile_name, bundle_id_resource, certificates, devices)
   end
 
   def download_profile(profile_name, bundle_id, task_name)
