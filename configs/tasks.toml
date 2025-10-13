@@ -21,3 +21,10 @@ app_name = "Eros FE"
 bundle_id = "io.zeroclover.io.apps.eros-fe"
 ipa_url = "https://glare.root.me/3003h/Eros-FE/ipa"
 asset_server_path = "/itms.zeroclover.io/fehviewer/Eros-FE.ipa"
+
+[[task]]
+task_name = "Asspp"
+app_name = "Asspp"
+bundle_id = "io.zeroclover.app.asspp"
+ipa_url = "https://glare.root.me/Lakr233/Asspp/Asspp.ipa"
+asset_server_path = "/itms.zeroclover.io/Asspp/Asspp.ipa"
