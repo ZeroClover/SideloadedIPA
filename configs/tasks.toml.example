@@ -1,0 +1,28 @@
+# Signing tasks configuration (TOML)
+# Define one or more signing tasks using the [[tasks]] array.
+
+[[tasks]]
+# Identifier used to look up the provisioning profile and output files
+task_name = "MyApp"
+
+# Human-friendly app name; used for profile naming (e.g., "MyApp Dev")
+app_name = "MyApp"
+
+# Bundle identifier of the app (required for provisioning profile creation)
+# This must match an existing Bundle ID in your Apple Developer account
+bundle_id = "com.example.myapp"
+
+# Direct download URL of the original IPA to sign
+ipa_url = "https://example.com/path/to/MyApp.ipa"
+
+# Destination path on the asset server
+# If it ends with '/', the signed file name will be appended
+# Otherwise, treated as full destination file path
+asset_server_path = "/var/www/assets/MyApp.ipa"
+
+[[tasks]]
+task_name = "AnotherApp"
+app_name = "Another App"
+bundle_id = "com.example.anotherapp"
+ipa_url = "https://example.com/path/to/AnotherApp.ipa"
+asset_server_path = "/var/www/assets/"

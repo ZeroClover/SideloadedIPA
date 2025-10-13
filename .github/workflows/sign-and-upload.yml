@@ -19,14 +19,17 @@ jobs:
     name: Sign & Upload IPAs
     runs-on: macos-latest
     env:
-      # Required secrets
+      # Apple Developer credentials
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+      # App Store Connect API
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      # Asset server
       ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
       ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
       ASSETS_SERVER_CREDENTIALS: ${{ secrets.ASSETS_SERVER_CREDENTIALS }}
-      JHENTAI_MOBILEPROVISION: ${{ secrets.JHENTAI_MOBILEPROVISION }}
-      FEHVIEWER_MOBILEPROVISION: ${{ secrets.FEHVIEWER_MOBILEPROVISION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -72,10 +75,14 @@ jobs:
           echo "Found identity: $ident"
           echo "CODESIGN_IDENTITY=$ident" >> "$GITHUB_ENV"
 
-      - name: Install fastlane and sshpass
+      - name: Install dependencies
         run: |
           brew update
           brew install fastlane hudochenkov/sshpass/sshpass
+          gem install spaceship toml-rb
+
+      - name: Sync provisioning profiles
+        run: ruby scripts/sync_profiles.rb
 
       - name: Run signer
         run: python scripts/run_signing.py

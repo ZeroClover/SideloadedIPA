@@ -155,28 +155,21 @@ def main() -> int:
         tdir = work_root / safe_name
         tdir.mkdir(parents=True, exist_ok=True)
 
-        # MobileProvision env var (Base64)
-        env_key = f"{str(task_name).upper()}_MOBILEPROVISION"
-        mp_b64 = os.getenv(env_key)
-
-        # Fallback: file-based mobile provisioning if env not set
-        if not mp_b64:
-            fallback_file = Path(f"configs/mobileprovision/{str(task_name).upper()}.mobileprovision.b64")
-            if fallback_file.exists():
-                mp_b64 = fallback_file.read_text(encoding="utf-8")
-                print(f"[task {i}] Using fallback mobileprovision file: {fallback_file}")
-        
+        # Use provisioning profile synced by sync_profiles.rb
+        synced_profile = Path(f"work/profiles/{task_name}.mobileprovision")
         mobileprov_path = tdir / "profile.mobileprovision"
-        try:
-            if not mp_b64:
-                print(f"[task {i}] Missing mobileprovision base64 in env '{env_key}' and no fallback file found", file=sys.stderr)
-                any_fail = True
-                continue
-            decode_b64_to_file(mp_b64.strip(), mobileprov_path)
-        except Exception as e:
-            print(f"[task {i}] Failed to decode mobileprovision: {e}", file=sys.stderr)
+
+        if not synced_profile.exists():
+            print(
+                f"[task {i}] Provisioning profile not found: {synced_profile}\n"
+                f"  Ensure sync_profiles.rb ran successfully and bundle_id is correct.",
+                file=sys.stderr
+            )
             any_fail = True
             continue
+
+        print(f"[task {i}] Using synced profile: {synced_profile}")
+        shutil.copy2(synced_profile, mobileprov_path)
 
         # Download IPA
         ori_ipa = tdir / f"{safe_name}_ori.ipa"

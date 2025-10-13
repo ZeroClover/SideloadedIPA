@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Local configuration
+.claude/settings.local.json
+
+# Serena MCP
+.serena/
+
+# Work directory
+work/
+
+# Temporary files
+*.log
+*.tmp

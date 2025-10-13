@@ -3,48 +3,54 @@
 This repository contains a GitHub Actions workflow and helper scripts to:
 
 - Import Apple Developer signing certificates into a keychain using `apple-actions/import-codesign-certs`.
+- Automatically sync Development provisioning profiles with all registered devices via App Store Connect API.
 - Read a TOML config of signing tasks.
-- For each task: download the IPA, decode a mobile provisioning profile from an environment variable, re-sign with Fastlane `resign`, and upload to an Assets server via `scp`.
+- For each task: download the IPA, re-sign with Fastlane `resign` using synced profiles, and upload to an Assets server via `scp`.
 
 ## File Structure
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual and webhook triggers)
+- `scripts/sync_profiles.rb` — syncs provisioning profiles with all devices via App Store Connect API
 - `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, uploads
-- `configs/tasks.toml` — placeholder TOML config defining tasks
-- `configs/mobileprovision/<TASK_NAME>.mobileprovision.b64` — optional fallback base64 mobile provisioning files
+- `configs/tasks.toml` — TOML config defining signing tasks
+- `configs/tasks.toml.example` — example configuration file
+- `.env.example` — example environment variables
+- `Gemfile` — Ruby dependencies (spaceship, toml-rb)
 
 ## Required Secrets / Variables
 
 Set these at Repository → Settings → Secrets and variables → Actions:
 
-- `APPLE_DEV_CERT_P12_ENCODED` — Base64-encoded Apple Developer signing P12
-- `APPLE_DEV_CERT_PASSWORD` — Password for the P12
-- `ASSETS_SERVER_IP` — SSH server IP
+### Apple Developer Credentials
+
+- `APPLE_DEV_CERT_P12_ENCODED` — Base64-encoded Apple Developer signing P12 certificate
+- `APPLE_DEV_CERT_PASSWORD` — Password for the P12 certificate
+
+### App Store Connect API (for automatic profile sync)
+
+- `ASC_KEY_ID` — App Store Connect API Key ID (e.g., `ABC123XYZ`)
+- `ASC_ISSUER_ID` — App Store Connect API Issuer ID (UUID format)
+- `ASC_PRIVATE_KEY` — Base64-encoded `.p8` private key content
+
+> Generate API keys at: https://appstoreconnect.apple.com/access/api (requires "Developer" role)
+
+### Asset Server
+
+- `ASSETS_SERVER_IP` — SSH server IP or hostname
 - `ASSETS_SERVER_USER` — SSH username
 - `ASSETS_SERVER_CREDENTIALS` — SSH password
 
-Required for debug mode when `debug=true`:
+### Optional
 
-- `DEBUG_SSH_PUBLIC_KEY` — SSH public key string to authorize for the `runner` user during debug sessions.
+- `DEBUG_SSH_PUBLIC_KEY` — SSH public key for debug mode (only required when `debug=true`)
 
-Per-task mobile provisioning profiles (Base64) must be provided via environment variables named `<TASK_NAME>_MOBILEPROVISION`, for example:
+## Provisioning Profile Management
 
-- `ABC_MOBILEPROVISION` — Base64 content of the provisioning profile for task `ABC`
-- `DEF_MOBILEPROVISION` — Base64 content for task `DEF`
+The workflow automatically creates/updates Development provisioning profiles via App Store Connect API, including:
+- All registered iOS and macOS devices
+- All available Development certificates
 
-Because GitHub Actions does not auto-expose arbitrary secrets as environment variables, you have two options:
-
-1) Explicitly map them in the workflow (recommended):
-
-```yaml
-jobs:
-  sign-and-upload:
-    env:
-      ABC_MOBILEPROVISION: ${{ secrets.ABC_MOBILEPROVISION }}
-      DEF_MOBILEPROVISION: ${{ secrets.DEF_MOBILEPROVISION }}
-```
-
-2) Place base64 files at `configs/mobileprovision/<TASK_NAME>.mobileprovision.b64` as a fallback (the script will use them only if the env var is not set).
+Provisioning profiles are downloaded to `work/profiles/` and used directly for signing. If profile sync fails, the entire workflow will fail.
 
 ## TOML Config
 
@@ -52,13 +58,21 @@ Edit `configs/tasks.toml` and add entries like:
 
 ```toml
 [[tasks]]
-task_name = "ABC"
-app_name = "ExampleApp"
-ipa_url = "https://example.com/path/to/ExampleApp.ipa"
+task_name = "MyApp"
+app_name = "My App"
+bundle_id = "com.example.myapp"
+ipa_url = "https://example.com/path/to/MyApp.ipa"
 asset_server_path = "/var/www/assets/ipas/"
 ```
 
-- `asset_server_path`: If it ends with `/`, the signed file name is appended. Otherwise, it is treated as a full destination file path.
+**Required fields**:
+- `task_name` — Identifier for this task (used for profile lookup)
+- `app_name` — Human-friendly name (used for profile naming: "{app_name} Dev")
+- `bundle_id` — iOS Bundle Identifier (must exist in Apple Developer Portal)
+- `ipa_url` — Direct download URL of the IPA
+- `asset_server_path` — Destination path on asset server (if ends with `/`, filename is appended)
+
+See `configs/tasks.toml.example` for more details.
 
 ## Triggers
 
@@ -75,18 +89,26 @@ Example `repository_dispatch` payload:
 }
 ```
 
+## How It Works
+
+1. **Import Certificates**: Uses `apple-actions/import-codesign-certs` to import P12 into temporary keychain
+2. **Sync Profiles**: Ruby script (`sync_profiles.rb`) via Spaceship:
+   - Fetches all Development certificates
+   - Fetches all enabled iOS and macOS devices
+   - Creates/updates provisioning profiles for each app
+   - Downloads profiles to `work/profiles/`
+3. **Sign IPAs**: Python script (`run_signing.py`):
+   - Downloads IPA from specified URL
+   - Re-signs with Fastlane using synced profile
+   - Uploads to asset server via `scp`
+
 ## Requirements and Notes
 
-- Runner: `macos-latest`
-- Tools installed: `fastlane`, `sshpass`, `curl` (via Homebrew)
-- Apple signing certificates are imported via `apple-actions/import-codesign-certs` into a temporary keychain.
-- The signing step uses Fastlane `resign`, e.g.:
-
-```
-fastlane run resign ipa:"path/to/app.ipa" signing_identity:"Apple Distribution: Your Name (TEAMID)" provisioning_profile:"path/to/profile.mobileprovision" keychain_path:"$KEYCHAIN_PATH"
-```
-
-- Upload uses password-based `scp` as requested.
+- **Runner**: `macos-latest`
+- **Tools installed**: `fastlane`, `sshpass`, `curl` (Homebrew), Ruby gems (`spaceship`, `toml-rb`)
+- **Signing**: Uses Fastlane `resign` action with discovered identity and synced profile
+- **Upload**: Password-based `scp` to asset server
+- **Bundle IDs**: Must be pre-registered in Apple Developer Portal
 
 ### Debug Mode (Cloudflare Tunnel)
 
