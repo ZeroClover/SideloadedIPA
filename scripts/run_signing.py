@@ -3,6 +3,7 @@ import base64
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -220,8 +221,6 @@ def main() -> int:
             if result_ipa.exists():
                 if result_ipa.resolve() != signed_ipa.resolve():
                     # copy over to signed path
-                    import shutil
-
                     shutil.copy2(result_ipa, signed_ipa)
             else:
                 # Fallback: search for any .ipa in tdir newer than original download
@@ -229,8 +228,6 @@ def main() -> int:
                 if latest_ipas:
                     result_ipa = latest_ipas[0]
                     if result_ipa.resolve() != signed_ipa.resolve():
-                        import shutil
-
                         shutil.copy2(result_ipa, signed_ipa)
         except Exception as e:
             print(f"[task {i}] Failed to finalize IPA artifact: {e}", file=sys.stderr)

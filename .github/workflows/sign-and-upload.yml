@@ -46,10 +46,6 @@ jobs:
 
       - name: Resolve keychain path and discover identity
         run: |
-          # Export the generated password and keychain name for downstream steps (if needed)
-          echo "KEYCHAIN_PASSWORD=${{ steps.import-certs.outputs.keychain-password }}" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_NAME=signing_temp" >> "$GITHUB_ENV"
-          
           # Construct the keychain path based on the default naming convention
           kc_path="$HOME/Library/Keychains/signing_temp.keychain-db"
           echo "KEYCHAIN_PATH=$kc_path" >> "$GITHUB_ENV"
@@ -103,7 +99,6 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
         run: |
           set -euxo pipefail
-          echo "SSH_Port=22" >> "$GITHUB_ENV"
           # Ensure pubkey auth is enabled and password auth disabled
           # Enable Remote Login and ensure sshd is loaded and started
           sudo systemsetup -setremotelogin on
@@ -116,8 +111,6 @@ jobs:
 
       - name: "Debug: Run cloudflared tunnel"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        env:
-          SSH_Port: ${{ env.SSH_Port }}
         run: |
           set -euo pipefail
-          cloudflared --no-autoupdate --url "ssh://localhost:${SSH_Port:-22}" 2>&1 | tee cloudflared.log
+          cloudflared --no-autoupdate --url "ssh://localhost:22" 2>&1 | tee cloudflared.log
