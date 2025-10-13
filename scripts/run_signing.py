@@ -43,16 +43,16 @@ def decode_b64_to_file(b64: str, out_path: Path) -> None:
         f.write(base64.b64decode(b64))
 
 
-def find_fastlane() -> str:
-    """Return the fastlane executable name, error if not found in PATH."""
+def find_bundle_exec() -> str:
+    """Return the bundle exec command prefix."""
     from shutil import which
 
-    exe = which("fastlane")
-    if not exe:
+    bundle_exe = which("bundle")
+    if not bundle_exe:
         raise FileNotFoundError(
-            "fastlane not found in PATH. Ensure it is installed on the runner."
+            "bundle not found in PATH. Ensure bundler is installed on the runner."
         )
-    return exe
+    return f"{bundle_exe} exec"
 
 
 def discover_codesign_identity(keychain_path: Optional[str]) -> Optional[str]:
@@ -121,8 +121,8 @@ def main() -> int:
     assets_user = os.environ["ASSETS_SERVER_USER"]
     assets_pass = os.environ["ASSETS_SERVER_CREDENTIALS"]
 
-    fastlane_bin = find_fastlane()
-    print(f"[info] Using fastlane at: {fastlane_bin}")
+    bundle_exec_cmd = find_bundle_exec()
+    print(f"[info] Using bundle exec: {bundle_exec_cmd}")
 
     keychain_path = os.getenv("KEYCHAIN_PATH")  # optional; action may set default keychain
     codesign_identity = os.getenv("CODESIGN_IDENTITY") or discover_codesign_identity(keychain_path)
@@ -198,7 +198,7 @@ def main() -> int:
             resign_params.append(f"keychain_path:{shlex.quote(keychain_path)}")
         # fastlane resign writes in-place unless bundle_id/version changes; ensure output path
         # We'll copy the result to signed_ipa afterwards if needed
-        fl_cmd = f"{shlex.quote(fastlane_bin)} run resign " + " ".join(resign_params)
+        fl_cmd = f"{bundle_exec_cmd} fastlane run resign " + " ".join(resign_params)
         try:
             run(fl_cmd)
         except subprocess.CalledProcessError as e:

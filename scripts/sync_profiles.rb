@@ -196,12 +196,16 @@ class ProfileSyncer
     profile = profiles.first
     raise "Profile '#{profile_name}' not found after creation" unless profile
 
-    # Download profile content
+    # Download profile content (returns base64 encoded string from API)
     profile_content = profile.profile_content
+
+    # Decode base64 content before writing to file
+    # App Store Connect API returns profileContent as base64 encoded string
+    decoded_content = Base64.decode64(profile_content)
 
     # Save to output directory with task name for easy lookup
     output_path = File.join(@output_dir, "#{task_name}.mobileprovision")
-    File.write(output_path, profile_content)
+    File.write(output_path, decoded_content)
 
     puts "[info] Profile downloaded to: #{output_path}"
   end
