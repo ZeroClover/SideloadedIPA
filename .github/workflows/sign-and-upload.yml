@@ -122,18 +122,18 @@ jobs:
           set -euo pipefail
           cloudflared --no-autoupdate --url "ssh://localhost:22" 2>&1 | tee cloudflared.log
 
-      - name: Notify webhook on failure
-        if: ${{ failure() }}
-        uses: distributhor/workflow-webhook@v3
-        with:
-          webhook_url: ${{ secrets.Instatus_Webhook_URL }}
-          webhook_type: 'json'
-          data: '{ "trigger": "down" }'
-
-      - name: Notify webhook on success
-        if: ${{ success() }}
-        uses: distributhor/workflow-webhook@v3
-        with:
-          webhook_url: ${{ secrets.Instatus_Webhook_URL }}
-          webhook_type: 'json'
-          data: '{ "trigger": "up" }'
+      - name: Notify webhook
+        if: ${{ always() && (job.status == 'success' || job.status == 'failure') }}
+        env:
+          WEBHOOK_URL: ${{ secrets.Instatus_Webhook_URL }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          payload='{"trigger":"down"}'
+          if [[ "${JOB_STATUS}" == "success" ]]; then
+            payload='{"trigger":"up"}'
+          fi
+          curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "$WEBHOOK_URL"
