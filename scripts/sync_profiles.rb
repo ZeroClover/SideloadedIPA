@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'spaceship/connect_api'
+require 'spaceship'
 require 'toml-rb'
 require 'base64'
 require 'fileutils'
