@@ -28,3 +28,10 @@ app_name = "Asspp"
 bundle_id = "io.zeroclover.app.asspp"
 ipa_url = "https://glare.root.me/Lakr233/Asspp/Asspp.ipa"
 asset_server_path = "/itms.zeroclover.io/Asspp/Asspp.ipa"
+
+[[tasks]]
+task_name = "PiliPlus"
+app_name = "PiliPlus"
+bundle_id = "io.zeroclover.app.piliplus"
+ipa_url = "https://glare.root.me/bggRGjQaUbCoE/PiliPlus/PiliPlus_ios"
+asset_server_path = "/itms.zeroclover.io/PiliPlus/PiliPlus.ipa"
