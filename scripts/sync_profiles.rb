@@ -1,8 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'fastlane'
-require 'spaceship'
+require 'spaceship/connect_api'
 require 'toml-rb'
 require 'base64'
 require 'fileutils'
