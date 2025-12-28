@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'fastlane'
+require 'spaceship'
 require 'toml-rb'
 require 'base64'
 require 'fileutils'
