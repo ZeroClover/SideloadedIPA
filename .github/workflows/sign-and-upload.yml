@@ -138,15 +138,20 @@ jobs:
           uv run python scripts/check_changes.py
 
       - name: Sync Entitlements Profile
+        if: ${{ steps.check-version.outputs.rebuild_all == 'true' || steps.check-version.outputs.rebuild_tasks != '[]' }}
         env:
           DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
           ALL_PROFILES_PRESENT: ${{ steps.check-entitlements.outputs.all_profiles_present }}
           MISSING_PROFILES: ${{ steps.check-entitlements.outputs.missing_profiles }}
+          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
+          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
         run: |
           set -euo pipefail
           echo "DEVICES_CHANGED=${DEVICES_CHANGED}"
           echo "ALL_PROFILES_PRESENT=${ALL_PROFILES_PRESENT}"
           echo "MISSING_PROFILES=${MISSING_PROFILES}"
+          echo "REBUILD_ALL=${REBUILD_ALL}"
+          echo "REBUILD_TASKS=${REBUILD_TASKS}"
           if [[ "${DEVICES_CHANGED}" == "true" ]]; then
             echo "Device list changed - regenerating all provisioning profiles"
             bundle exec ruby scripts/sync_profiles.rb

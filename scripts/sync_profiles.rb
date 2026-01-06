@@ -84,6 +84,13 @@ class ProfileSyncer
 
   def sync_all
     tasks = load_tasks
+    tasks = filter_tasks_for_sync(tasks)
+
+    if tasks.empty?
+      puts '[info] No tasks selected for profile sync - skipping'
+      puts '[summary] Profile sync completed'
+      return
+    end
 
     if @skip_regeneration
       puts '[info] SKIP_PROFILE_REGENERATION=true - downloading existing profiles only'
@@ -114,6 +121,39 @@ class ProfileSyncer
   end
 
   private
+  def truthy?(value)
+    %w[1 true yes on].include?(value.to_s.strip.downcase)
+  end
+
+  def selected_task_names_from_env
+    return nil if truthy?(ENV['REBUILD_ALL'])
+
+    raw = ENV['REBUILD_TASKS']
+    return nil if raw.nil? || raw.strip.empty?
+
+    parsed = JSON.parse(raw)
+    return nil unless parsed.is_a?(Array)
+
+    parsed.map(&:to_s)
+  rescue JSON::ParserError => e
+    puts "[warn] Invalid REBUILD_TASKS JSON: #{e.message}"
+    nil
+  end
+
+  def filter_tasks_for_sync(tasks)
+    task_names = selected_task_names_from_env
+    return tasks unless task_names
+
+    desired = task_names.to_set
+    filtered = tasks.select { |t| desired.include?(t['task_name'].to_s) }
+
+    found = filtered.map { |t| t['task_name'].to_s }.to_set
+    missing = desired - found
+    puts "[warn] REBUILD_TASKS includes unknown task(s): #{missing.to_a.sort.join(', ')}" if missing.any?
+
+    filtered
+  end
+
   def write_github_outputs(outputs)
     github_output = ENV['GITHUB_OUTPUT']
     return unless github_output && !github_output.empty?
