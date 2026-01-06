@@ -12,26 +12,26 @@
 task_name = "JHenTai"
 app_name = "JHenTai"
 bundle_id = "io.zeroclover.app.jhentai"
-ipa_url = "https://glare.root.me/jiangtian616/JHenTai/ipa"
+repo_url = "https://github.com/jiangtian616/JHenTai"
 asset_server_path = "/itms.zeroclover.io/JHenTai/JHenTai.ipa"
 
 [[tasks]]
 task_name = "Eros FE"
 app_name = "Eros FE"
 bundle_id = "io.zeroclover.io.apps.eros-fe"
-ipa_url = "https://glare.root.me/3003h/Eros-FE/ipa"
+repo_url = "https://github.com/3003h/Eros-FE"
 asset_server_path = "/itms.zeroclover.io/fehviewer/Eros-FE.ipa"
 
 [[tasks]]
 task_name = "Asspp"
 app_name = "Asspp"
 bundle_id = "io.zeroclover.app.asspp"
-ipa_url = "https://glare.root.me/Lakr233/Asspp/Asspp.ipa"
+repo_url = "https://github.com/Lakr233/Asspp"
 asset_server_path = "/itms.zeroclover.io/Asspp/Asspp.ipa"
 
 [[tasks]]
 task_name = "PiliPlus"
 app_name = "PiliPlus"
 bundle_id = "io.zeroclover.app.piliplus"
-ipa_url = "https://glare.root.me/bggRGjQaUbCoE/PiliPlus/PiliPlus_ios"
+repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 asset_server_path = "/itms.zeroclover.io/PiliPlus/PiliPlus.ipa"

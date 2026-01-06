@@ -4,11 +4,18 @@ __pycache__/
 *$py.class
 *.so
 .Python
+/.coverage
+/.coverage.*
+/htmlcov/
+/coverage.xml
+/.pytest_cache/
+/.mypy_cache/
 
 # Virtual environments
 venv/
 env/
 ENV/
+.venv/
 
 # IDE
 .vscode/
@@ -18,7 +25,8 @@ ENV/
 .DS_Store
 
 # Local configuration
-.claude/settings.local.json
+/.claude/
+/.python-version
 
 # Serena MCP
 .serena/

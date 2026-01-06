@@ -1,10 +1,17 @@
 name: Sign and Upload IPAs
 
 on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 02:00 UTC
   workflow_dispatch:
     inputs:
       debug:
         description: Enable SSH Debug
+        required: false
+        default: false
+        type: boolean
+      force_rebuild:
+        description: Force full rebuild (ignore cache)
         required: false
         default: false
         type: boolean
@@ -13,6 +20,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: sign-and-upload
+  cancel-in-progress: false
 
 jobs:
   sign-and-upload:
@@ -30,18 +41,50 @@ jobs:
       ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
       ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
       ASSETS_SERVER_CREDENTIALS: ${{ secrets.ASSETS_SERVER_CREDENTIALS }}
+      # GitHub Token for API access (authenticated rate limits)
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Enable verbose logging in scripts (used for GitHub API rate limit debug)
+      DEBUG: ${{ github.event.inputs.debug || 'false' }}
+      # Force rebuild flag
+      FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v7
         with:
-          python-version: '3.11'
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Restore cache
+        id: cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            work/cache
+          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
+          restore-keys: |
+            ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-
+            ci-cache-v1-${{ github.ref_name }}-
+            ci-cache-v1-
+
+      - name: Preserve cached device list for comparison
+        run: |
+          mkdir -p work/cache-old
+          if [ -f work/cache/device-list.json ]; then
+            cp work/cache/device-list.json work/cache-old/device-list.json
+            echo "Preserved cached device list for comparison"
+          else
+            echo "No cached device list found (first run)"
+          fi
 
       - name: Import Apple signing certs into Keychain
         id: import-certs
-        uses: apple-actions/import-codesign-certs@v5
+        uses: apple-actions/import-codesign-certs@v6
         with:
           # Uses default keychain name 'signing_temp' and create-keychain: true
           p12-file-base64: ${{ env.APPLE_DEV_CERT_P12_ENCODED }}
@@ -52,7 +95,7 @@ jobs:
           # Construct the keychain path based on the default naming convention
           kc_path="$HOME/Library/Keychains/signing_temp.keychain-db"
           echo "KEYCHAIN_PATH=$kc_path" >> "$GITHUB_ENV"
-          
+
           # Debug: Show keychain path and check if file exists
           echo "Using keychain path: $kc_path"
           echo "Keychain exists: $(test -f "$kc_path" && echo 'yes' || echo 'no')"
@@ -82,11 +125,36 @@ jobs:
           gem install bundler:2.5.23
           bundle _2.5.23_ install
 
-      - name: Sync provisioning profiles
+      - name: Fetch device list and preserve for comparison
+        env:
+          SKIP_PROFILE_REGENERATION: 'true'
         run: bundle exec ruby scripts/sync_profiles.rb
 
+      - name: Detect changes (device list comparison)
+        id: check-changes
+        run: |
+          uv run python scripts/check_changes.py
+
+      - name: Regenerate profiles if devices changed
+        if: steps.check-changes.outputs.rebuild_all == 'true'
+        run: |
+          echo "Device list changed - regenerating all provisioning profiles"
+          bundle exec ruby scripts/sync_profiles.rb
+
       - name: Run signer
-        run: python scripts/run_signing.py
+        env:
+          REBUILD_ALL: ${{ steps.check-changes.outputs.rebuild_all }}
+          REBUILD_TASKS: ${{ steps.check-changes.outputs.rebuild_tasks }}
+        run: uv run python scripts/run_signing.py
+
+      - name: Save cache
+        if: always()
+        uses: actions/cache/save@v5
+        continue-on-error: true
+        with:
+          path: |
+            work/cache
+          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
 
       - name: "Debug: Configure SSH public key for runner"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}

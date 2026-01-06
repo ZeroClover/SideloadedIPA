@@ -5,6 +5,9 @@ require 'spaceship'
 require 'toml-rb'
 require 'base64'
 require 'fileutils'
+require 'json'
+require 'digest'
+require 'time'
 
 # Sync development provisioning profiles with all devices and certificates
 class ProfileSyncer
@@ -21,18 +24,37 @@ class ProfileSyncer
     authenticate
     @output_dir = File.expand_path('../work/profiles', __dir__)
     FileUtils.mkdir_p(@output_dir)
+    @cache_dir = File.expand_path('../work/cache', __dir__)
+    FileUtils.mkdir_p(@cache_dir)
+    # Check if we should skip regeneration (only fetch device list and download existing profiles)
+    @skip_regeneration = ENV['SKIP_PROFILE_REGENERATION']&.downcase == 'true'
+    @devices = nil
+    @certificates = nil
   end
 
   def sync_all
     tasks = load_tasks
-    certificates = fetch_certificates
     devices = fetch_devices
+    @devices = devices
 
-    puts "[info] Found #{certificates.count} development certificates"
     puts "[info] Found #{devices.count} iOS devices"
 
-    tasks.each do |task|
-      sync_profile(task, certificates, devices)
+    # Save device list to cache for change detection
+    save_device_list_cache(devices)
+
+    if @skip_regeneration
+      puts '[info] SKIP_PROFILE_REGENERATION=true - downloading existing profiles only'
+      tasks.each do |task|
+        download_existing_profile(task)
+      end
+    else
+      puts '[info] Regenerating all provisioning profiles'
+      certificates = fetch_certificates
+      puts "[info] Found #{certificates.count} development certificates"
+
+      tasks.each do |task|
+        sync_profile(task, certificates, devices)
+      end
     end
 
     puts '[summary] Profile sync completed'
@@ -89,6 +111,14 @@ class ProfileSyncer
     end
   end
 
+  def fetch_certificates_once
+    return @certificates if @certificates
+
+    @certificates = fetch_certificates
+    puts "[info] Found #{@certificates.count} development certificates"
+    @certificates
+  end
+
   def fetch_devices
     puts '[info] Fetching iOS devices...'
     # Filter iOS devices at API level
@@ -121,6 +151,33 @@ class ProfileSyncer
 
     # Download profile
     download_profile(profile_name, bundle_id, task['task_name'])
+  end
+
+  def download_existing_profile(task)
+    bundle_id = task['bundle_id']
+    app_name = task['app_name']
+    task_name = task['task_name']
+    profile_name = "#{app_name} Dev"
+
+    puts "=" * 80
+    puts "[task] Downloading existing profile for #{app_name} (#{bundle_id})"
+
+    # Find or create bundle ID (just to validate it exists)
+    bundle_id_resource = find_or_fail_bundle_id(bundle_id)
+
+    # Find existing profile
+    existing_profile = find_profile(profile_name, bundle_id)
+
+    if existing_profile
+      puts "[info] Found existing profile: #{profile_name}"
+      download_profile(profile_name, bundle_id, task_name)
+    else
+      puts "[warn] No existing profile found for #{profile_name}"
+      puts "[info] Creating missing profile for new task: #{task_name}"
+      certificates = fetch_certificates_once
+      create_profile(profile_name, bundle_id_resource, certificates, @devices || fetch_devices)
+      download_profile(profile_name, bundle_id, task_name)
+    end
   end
 
   def find_or_fail_bundle_id(identifier)
@@ -211,6 +268,45 @@ class ProfileSyncer
     puts "[info] Profile downloaded to: #{output_path}"
   end
 
+  def save_device_list_cache(devices)
+    puts '[info] Saving device list cache...'
+
+    # Convert devices to serializable format
+    device_data = devices.map do |device|
+      {
+        'id' => device.id,
+        'name' => device.name,
+        'platform' => device.platform,
+        'device_class' => device.device_class,
+        'udid' => device.udid,
+        'status' => device.status
+      }
+    end
+
+    # Calculate checksum for quick comparison
+    checksum = calculate_device_checksum(device_data)
+
+    cache_data = {
+      'devices' => device_data,
+      'last_updated' => Time.now.utc.iso8601,
+      'checksum' => checksum
+    }
+
+    cache_path = File.join(@cache_dir, 'device-list.json')
+    File.write(cache_path, JSON.pretty_generate(cache_data))
+
+    puts "[info] Device list cache saved to: #{cache_path}"
+    puts "[info] Checksum: #{checksum}"
+  end
+
+  def calculate_device_checksum(device_data)
+    # Sort by device ID for deterministic ordering
+    normalized = device_data.sort_by { |d| d['id'] }
+    json_str = JSON.generate(normalized, { space: '', object_nl: '', array_nl: '' })
+    digest = Digest::SHA256.hexdigest(json_str)
+    "sha256:#{digest}"
+  end
+
 end
 
 # Main execution
@@ -221,7 +317,7 @@ if __FILE__ == $PROGRAM_NAME
     exit 0
   rescue StandardError => e
     puts "[error] #{e.class}: #{e.message}"
-    puts e.backtrace.join("\n") if ENV['DEBUG']
+    puts e.backtrace.join("\n") if ENV['DEBUG']&.downcase == 'true'
     exit 1
   end
 end

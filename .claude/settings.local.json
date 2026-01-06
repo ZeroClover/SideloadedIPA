@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": ["WebFetch", "mcp__serena", "mcp__context7", "WebSearch"],
-    "deny": [],
-    "ask": []
-  }
-}

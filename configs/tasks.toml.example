@@ -1,6 +1,12 @@
 # Signing tasks configuration (TOML)
 # Define one or more signing tasks using the [[tasks]] array.
 
+# ========================================
+# Option 1: Direct IPA URL (Legacy)
+# ========================================
+# Tasks with ipa_url will always rebuild on every run.
+# No version tracking or caching.
+
 [[tasks]]
 # Identifier used to look up the provisioning profile and output files
 task_name = "MyApp"
@@ -20,9 +26,45 @@ ipa_url = "https://example.com/path/to/MyApp.ipa"
 # Otherwise, treated as full destination file path
 asset_server_path = "/var/www/assets/MyApp.ipa"
 
+# ========================================
+# Option 2: GitHub Release Tracking (New, with Caching)
+# ========================================
+# Tasks with repo_url will track GitHub releases and only rebuild
+# when the release version or timestamp changes.
+
 [[tasks]]
 task_name = "AnotherApp"
 app_name = "Another App"
 bundle_id = "com.example.anotherapp"
-ipa_url = "https://example.com/path/to/AnotherApp.ipa"
+
+# GitHub repository URL (mutually exclusive with ipa_url)
+repo_url = "https://github.com/owner/repo"
+
+# Glob pattern to match release assets (optional, default: "*.ipa")
+# Uses Python fnmatch syntax
+release_glob = "*.ipa"
+
+# Whether to use prerelease versions (optional, default: false)
+# If true: fetches latest prerelease, falls back to stable if none exist
+# If false: fetches only latest stable release
+use_prerelease = false
+
+# Destination path (same as ipa_url)
 asset_server_path = "/var/www/assets/"
+
+# ========================================
+# Example: Tracking a Specific Asset Pattern
+# ========================================
+[[tasks]]
+task_name = "SpecialApp"
+app_name = "Special App"
+bundle_id = "com.example.specialapp"
+repo_url = "https://github.com/specialorg/specialapp"
+
+# Match only assets with "universal" in the filename
+release_glob = "*universal*.ipa"
+
+# Use prerelease versions for beta testing
+use_prerelease = true
+
+asset_server_path = "/var/www/beta/SpecialApp.ipa"
