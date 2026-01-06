@@ -8,6 +8,7 @@ require 'fileutils'
 require 'json'
 require 'digest'
 require 'time'
+require 'set'
 
 # Sync development provisioning profiles with all devices and certificates
 class ProfileSyncer
@@ -26,28 +27,80 @@ class ProfileSyncer
     FileUtils.mkdir_p(@output_dir)
     @cache_dir = File.expand_path('../work/cache', __dir__)
     FileUtils.mkdir_p(@cache_dir)
+    @cache_old_dir = File.expand_path('../work/cache-old', __dir__)
+    FileUtils.mkdir_p(@cache_old_dir)
     # Check if we should skip regeneration (only fetch device list and download existing profiles)
     @skip_regeneration = ENV['SKIP_PROFILE_REGENERATION']&.downcase == 'true'
     @devices = nil
     @certificates = nil
   end
 
-  def sync_all
+  def check_entitlements
     tasks = load_tasks
     devices = fetch_devices
-    @devices = devices
 
     puts "[info] Found #{devices.count} iOS devices"
 
     # Save device list to cache for change detection
     save_device_list_cache(devices)
 
+    devices_changed = compare_cached_device_lists
+
+    missing = []
+
+    tasks.each do |task|
+      bundle_id = task['bundle_id']
+      app_name = task['app_name']
+      task_name = task['task_name']
+      profile_name = "#{app_name} Dev"
+
+      puts "=" * 80
+      puts "[task] Checking profile for #{app_name} (#{bundle_id})"
+
+      # Validate Bundle ID exists (fail fast if not)
+      bundle_id_resource = find_or_fail_bundle_id(bundle_id)
+
+      profile = find_profile(profile_name, bundle_id_resource)
+      if profile
+        puts "[info] Found profile: #{profile_name}"
+      else
+        puts "[warn] Missing profile: #{profile_name} (task: #{task_name})"
+        missing << task_name
+      end
+    end
+
+    all_profiles_present = missing.empty?
+
+    write_github_outputs(
+      'devices_changed' => devices_changed ? 'true' : 'false',
+      'all_profiles_present' => all_profiles_present ? 'true' : 'false',
+      'missing_profiles' => JSON.generate(missing)
+    )
+
+    puts '[summary] Entitlements profile check completed'
+    puts "[summary] Devices changed: #{devices_changed ? 'yes' : 'no'}"
+    puts "[summary] Missing profiles: #{missing.count}"
+  end
+
+  def sync_all
+    tasks = load_tasks
+
     if @skip_regeneration
       puts '[info] SKIP_PROFILE_REGENERATION=true - downloading existing profiles only'
       tasks.each do |task|
         download_existing_profile(task)
       end
+      puts '[summary] Profile sync completed'
+      return
     else
+      devices = fetch_devices
+      @devices = devices
+
+      puts "[info] Found #{devices.count} iOS devices"
+
+      # Save device list to cache for change detection
+      save_device_list_cache(devices)
+
       puts '[info] Regenerating all provisioning profiles'
       certificates = fetch_certificates
       puts "[info] Found #{certificates.count} development certificates"
@@ -61,6 +114,82 @@ class ProfileSyncer
   end
 
   private
+  def write_github_outputs(outputs)
+    github_output = ENV['GITHUB_OUTPUT']
+    return unless github_output && !github_output.empty?
+
+    File.open(github_output, 'a') do |f|
+      outputs.each do |key, value|
+        f.puts "#{key}=#{value}"
+      end
+    end
+  end
+
+  def load_device_list_cache(path)
+    return nil unless File.exist?(path)
+
+    JSON.parse(File.read(path))
+  rescue JSON::ParserError => e
+    puts "[warn] Failed to parse #{path}: #{e.message}"
+    nil
+  end
+
+  def compare_cached_device_lists
+    cached_path = File.join(@cache_old_dir, 'device-list.json')
+    current_path = File.join(@cache_dir, 'device-list.json')
+
+    cached = load_device_list_cache(cached_path)
+    current = load_device_list_cache(current_path)
+
+    if cached.nil?
+      puts '[info] No cached device list found - first run, devices considered changed'
+      return true
+    end
+
+    if current.nil?
+      puts '[error] No current device list found - devices considered changed'
+      return true
+    end
+
+    cached_checksum = cached['checksum'] || calculate_device_checksum(cached['devices'] || [])
+    current_checksum = current['checksum'] || calculate_device_checksum(current['devices'] || [])
+
+    if cached_checksum != current_checksum
+      puts '[info] Device list changed:'
+      puts "  Cached checksum:  #{cached_checksum}"
+      puts "  Current checksum: #{current_checksum}"
+
+      cached_devices = (cached['devices'] || []).to_h { |d| [d['id'], d] }
+      current_devices = (current['devices'] || []).to_h { |d| [d['id'], d] }
+
+      cached_ids = cached_devices.keys.to_set
+      current_ids = current_devices.keys.to_set
+
+      added_ids = (current_ids - cached_ids).to_a.sort
+      removed_ids = (cached_ids - current_ids).to_a.sort
+
+      if added_ids.any?
+        puts "  → #{added_ids.count} device(s) added:"
+        added_ids.each do |device_id|
+          device = current_devices[device_id]
+          puts "     + #{device['name']} (#{device['device_class']})"
+        end
+      end
+
+      if removed_ids.any?
+        puts "  → #{removed_ids.count} device(s) removed:"
+        removed_ids.each do |device_id|
+          device = cached_devices[device_id]
+          puts "     - #{device['name']} (#{device['device_class']})"
+        end
+      end
+
+      return true
+    end
+
+    puts '[info] Device list unchanged'
+    false
+  end
 
   def setup_api_key
     key_id = ENV['ASC_KEY_ID']
@@ -141,7 +270,7 @@ class ProfileSyncer
     bundle_id_resource = find_or_fail_bundle_id(bundle_id)
 
     # Find existing profile
-    existing_profile = find_profile(profile_name, bundle_id)
+    existing_profile = find_profile(profile_name, bundle_id_resource)
 
     if existing_profile
       update_profile(existing_profile, certificates, devices)
@@ -166,7 +295,7 @@ class ProfileSyncer
     bundle_id_resource = find_or_fail_bundle_id(bundle_id)
 
     # Find existing profile
-    existing_profile = find_profile(profile_name, bundle_id)
+    existing_profile = find_profile(profile_name, bundle_id_resource)
 
     if existing_profile
       puts "[info] Found existing profile: #{profile_name}"
@@ -175,7 +304,9 @@ class ProfileSyncer
       puts "[warn] No existing profile found for #{profile_name}"
       puts "[info] Creating missing profile for new task: #{task_name}"
       certificates = fetch_certificates_once
-      create_profile(profile_name, bundle_id_resource, certificates, @devices || fetch_devices)
+      devices = @devices || fetch_devices
+      @devices ||= devices
+      create_profile(profile_name, bundle_id_resource, certificates, devices)
       download_profile(profile_name, bundle_id, task_name)
     end
   end
@@ -191,7 +322,7 @@ class ProfileSyncer
     bundle_ids.first
   end
 
-  def find_profile(name, bundle_id)
+  def find_profile(name, bundle_id_resource)
     puts "[info] Checking for existing profile: #{name}"
     profiles = Spaceship::ConnectAPI::Profile.all(
       filter: {
@@ -201,7 +332,9 @@ class ProfileSyncer
       includes: 'bundleId'
     )
 
-    profiles.first
+    return profiles.first unless bundle_id_resource
+
+    profiles.find { |p| p.bundle_id&.id == bundle_id_resource.id }
   end
 
   def create_profile(name, bundle_id_resource, certificates, devices)
@@ -313,7 +446,12 @@ end
 if __FILE__ == $PROGRAM_NAME
   begin
     syncer = ProfileSyncer.new
-    syncer.sync_all
+    case ARGV[0]
+    when 'check'
+      syncer.check_entitlements
+    else
+      syncer.sync_all
+    end
     exit 0
   rescue StandardError => e
     puts "[error] #{e.class}: #{e.message}"

@@ -120,17 +120,18 @@ Example `repository_dispatch` payload:
 
 1. **Restore Cache**: Restores cached device lists and release versions from previous runs
 2. **Import Certificates**: Uses `apple-actions/import-codesign-certs` to import P12 into temporary keychain
-3. **Sync Profiles**: Ruby script (`sync_profiles.rb`) via Spaceship:
-   - Fetches all Development certificates
+3. **Check Entitlements Profile**: Ruby script (`sync_profiles.rb check`) via Spaceship:
    - Fetches all enabled iOS devices
-   - Creates/updates provisioning profiles for each app
-   - Downloads profiles to `work/profiles/`
    - Saves device list snapshot to cache for change detection
-4. **Check Changes**: Python script (`check_changes.py`):
-   - Compares current device list with cached version
-   - If devices changed → triggers full rebuild of all IPAs
-   - Otherwise → continues to version check
-5. **Sign IPAs**: Python script (`run_signing.py`):
+   - Compares with cached device list to detect changes
+   - Verifies `tasks.toml` apps have corresponding provisioning profiles
+4. **Check App Version**: Python script (`check_changes.py`):
+   - Uses device-change status + `force_rebuild` to decide whether to rebuild all
+   - Checks GitHub release versions vs cache to decide which tasks need rebuilding
+5. **Sync Entitlements Profile**: Ruby script (`sync_profiles.rb`) via Spaceship:
+   - If device list changed → regenerates all provisioning profiles and downloads them
+   - If device list unchanged → downloads existing profiles and creates missing ones if needed
+6. **Sign IPAs**: Python script (`run_signing.py`):
    - For `ipa_url` tasks: Always downloads and rebuilds
    - For `repo_url` tasks:
      - Fetches latest release via authenticated GitHub API
@@ -139,7 +140,7 @@ Example `repository_dispatch` payload:
    - Re-signs with Fastlane using synced profile
    - Uploads to asset server via `scp`
    - Updates release cache with new versions
-6. **Save Cache**: Saves updated cache state for next run
+7. **Save Cache**: Saves updated cache state for next run
 
 ## Caching Behavior
 

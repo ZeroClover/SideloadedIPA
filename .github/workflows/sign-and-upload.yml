@@ -125,26 +125,40 @@ jobs:
           gem install bundler:2.5.23
           bundle _2.5.23_ install
 
-      - name: Fetch device list and preserve for comparison
-        env:
-          SKIP_PROFILE_REGENERATION: 'true'
-        run: bundle exec ruby scripts/sync_profiles.rb
+      - name: Check Entitlements Profile
+        id: check-entitlements
+        run: |
+          bundle exec ruby scripts/sync_profiles.rb check
 
-      - name: Detect changes (device list comparison)
-        id: check-changes
+      - name: Check App Version
+        id: check-version
+        env:
+          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
         run: |
           uv run python scripts/check_changes.py
 
-      - name: Regenerate profiles if devices changed
-        if: steps.check-changes.outputs.rebuild_all == 'true'
+      - name: Sync Entitlements Profile
+        env:
+          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
+          ALL_PROFILES_PRESENT: ${{ steps.check-entitlements.outputs.all_profiles_present }}
+          MISSING_PROFILES: ${{ steps.check-entitlements.outputs.missing_profiles }}
         run: |
-          echo "Device list changed - regenerating all provisioning profiles"
-          bundle exec ruby scripts/sync_profiles.rb
+          set -euo pipefail
+          echo "DEVICES_CHANGED=${DEVICES_CHANGED}"
+          echo "ALL_PROFILES_PRESENT=${ALL_PROFILES_PRESENT}"
+          echo "MISSING_PROFILES=${MISSING_PROFILES}"
+          if [[ "${DEVICES_CHANGED}" == "true" ]]; then
+            echo "Device list changed - regenerating all provisioning profiles"
+            bundle exec ruby scripts/sync_profiles.rb
+          else
+            echo "Device list unchanged - downloading existing profiles (create missing if needed)"
+            SKIP_PROFILE_REGENERATION=true bundle exec ruby scripts/sync_profiles.rb
+          fi
 
       - name: Run signer
         env:
-          REBUILD_ALL: ${{ steps.check-changes.outputs.rebuild_all }}
-          REBUILD_TASKS: ${{ steps.check-changes.outputs.rebuild_tasks }}
+          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
+          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
         run: uv run python scripts/run_signing.py
 
       - name: Save cache

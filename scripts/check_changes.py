@@ -362,8 +362,15 @@ def main() -> int:
     tasks = load_tasks(toml_path)
     has_repo_tasks = any(task.get("repo_url") for task in tasks)
 
-    # Compare device lists
-    devices_changed, _, _ = compare_device_lists(cached_device_list, current_device_list)
+    # Determine device list change status:
+    # - Prefer DEVICES_CHANGED provided by previous workflow step (Check Entitlements Profile)
+    # - Fallback to local cache comparison for standalone usage
+    devices_changed_env = os.getenv("DEVICES_CHANGED")
+    if devices_changed_env is not None and devices_changed_env.strip() != "":
+        devices_changed = devices_changed_env.strip().lower() in ("1", "true", "yes", "on")
+        print(f"[info] DEVICES_CHANGED provided by workflow: {devices_changed}")
+    else:
+        devices_changed, _, _ = compare_device_lists(cached_device_list, current_device_list)
 
     rebuild_all = force_rebuild or devices_changed
 
