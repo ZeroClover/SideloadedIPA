@@ -85,7 +85,7 @@ jobs:
 
       - name: Import Apple signing certs into Keychain
         id: import-certs
-        uses: apple-actions/import-codesign-certs@v7
+        uses: apple-actions/import-codesign-certs@v3
         with:
           # Uses default keychain name 'signing_temp' and create-keychain: true
           p12-file-base64: ${{ env.APPLE_DEV_CERT_P12_ENCODED }}
