@@ -36,13 +36,11 @@ To test the new script locally:
 brew tap rudrankriyam/tap
 brew install asc
 
-# Authenticate
-echo "$ASC_PRIVATE_KEY" | base64 -d > /tmp/asc_key.p8
-asc auth login \
-  --name "Local" \
-  --key-id "$ASC_KEY_ID" \
-  --issuer-id "$ASC_ISSUER_ID" \
-  --private-key /tmp/asc_key.p8
+# Set environment variables (asc CLI reads these automatically)
+export ASC_KEY_ID="your_key_id"
+export ASC_ISSUER_ID="your_issuer_id"
+export ASC_PRIVATE_KEY_B64="$(base64 -i AuthKey_XXXX.p8 -o -)"
+export ASC_BYPASS_KEYCHAIN=1
 
 # Run check
 uv run python scripts/sync_profiles_asc.py check
