@@ -49,10 +49,10 @@ jobs:
       FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -62,7 +62,7 @@ jobs:
 
       - name: Restore cache
         id: cache-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             work/cache
@@ -84,7 +84,7 @@ jobs:
 
       - name: Import Apple signing certs into Keychain
         id: import-certs
-        uses: apple-actions/import-codesign-certs@v6
+        uses: apple-actions/import-codesign-certs@v7
         with:
           # Uses default keychain name 'signing_temp' and create-keychain: true
           p12-file-base64: ${{ env.APPLE_DEV_CERT_P12_ENCODED }}
@@ -123,8 +123,8 @@ jobs:
           brew update
           brew tap rudrankriyam/tap
           brew install hudochenkov/sshpass/sshpass asc
-          gem install bundler:2.5.23
-          bundle _2.5.23_ install --jobs 4 --retry 3
+          gem install bundler
+          bundle install --jobs 4 --retry 3
 
       - name: Authenticate with App Store Connect
         run: |
@@ -179,7 +179,7 @@ jobs:
 
       - name: Save cache
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         continue-on-error: true
         with:
           path: |
