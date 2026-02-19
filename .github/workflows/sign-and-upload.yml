@@ -33,10 +33,11 @@ jobs:
       # Apple Developer credentials
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-      # App Store Connect API
+      # App Store Connect API (env-based auth, no temp key file needed)
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_BYPASS_KEYCHAIN: "1"
       # Asset server
       ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
       ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
@@ -126,15 +127,8 @@ jobs:
           gem install bundler
           bundle install --jobs 4 --retry 3
 
-      - name: Authenticate with App Store Connect
-        run: |
-          echo "${{ secrets.ASC_PRIVATE_KEY }}" | base64 -d > /tmp/asc_key.p8
-          chmod 600 /tmp/asc_key.p8
-          asc auth login \
-            --name "CI" \
-            --key-id "${{ secrets.ASC_KEY_ID }}" \
-            --issuer-id "${{ secrets.ASC_ISSUER_ID }}" \
-            --private-key /tmp/asc_key.p8
+      - name: Verify App Store Connect credentials
+        run: asc devices list --limit 1 --output json > /dev/null
 
       - name: Check Entitlements Profile
         id: check-entitlements
