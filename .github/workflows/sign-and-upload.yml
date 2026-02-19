@@ -121,18 +121,15 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install hudochenkov/sshpass/sshpass
+          brew tap rudrankriyam/tap
+          brew install hudochenkov/sshpass/sshpass asc
           gem install bundler:2.5.23
           bundle _2.5.23_ install --jobs 4 --retry 3
-
-      - name: Install App Store Connect CLI
-        run: |
-          brew tap rudrankriyam/tap
-          brew install asc
 
       - name: Authenticate with App Store Connect
         run: |
           echo "${{ secrets.ASC_PRIVATE_KEY }}" | base64 -d > /tmp/asc_key.p8
+          chmod 600 /tmp/asc_key.p8
           asc auth login \
             --name "CI" \
             --key-id "${{ secrets.ASC_KEY_ID }}" \
