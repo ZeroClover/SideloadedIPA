@@ -3,7 +3,7 @@
 This repository contains a GitHub Actions workflow and helper scripts to:
 
 - Import Apple Developer signing certificates into a keychain using `apple-actions/import-codesign-certs`.
-- Automatically sync Development provisioning profiles with all registered devices via App Store Connect API.
+- Automatically sync Development provisioning profiles with all registered devices via App Store Connect CLI (`asc`).
 - Read a TOML config of signing tasks.
 - For each task: download the IPA (from direct URL or GitHub Release), re-sign with Fastlane `resign` using synced profiles, and upload to an Assets server via `scp`.
 - **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
@@ -11,13 +11,13 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 ## File Structure
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
-- `scripts/sync_profiles.rb` — syncs provisioning profiles with all devices via App Store Connect API
+- `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
 - `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, uploads (with GitHub API integration)
 - `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
 - `configs/tasks.toml` — TOML config defining signing tasks
 - `configs/tasks.toml.example` — example configuration file
 - `.env.example` — example environment variables
-- `Gemfile` — Ruby dependencies (spaceship, toml-rb)
+- `Gemfile` — Ruby dependencies (fastlane for resign)
 
 ## Required Secrets / Variables
 
@@ -48,8 +48,8 @@ Set these at Repository → Settings → Secrets and variables → Actions:
 
 ## Provisioning Profile Management
 
-The workflow automatically creates/updates Development provisioning profiles via App Store Connect API, including:
-- All registered iOS and macOS devices
+The workflow automatically creates/updates Development provisioning profiles via App Store Connect CLI (`asc`), including:
+- All enabled iOS devices (iPhone and iPad classes)
 - All available Development certificates
 
 Provisioning profiles are downloaded to `work/profiles/` and used directly for signing. If profile sync fails, the entire workflow will fail.
@@ -120,7 +120,7 @@ Example `repository_dispatch` payload:
 
 1. **Restore Cache**: Restores cached device lists and release versions from previous runs
 2. **Import Certificates**: Uses `apple-actions/import-codesign-certs` to import P12 into temporary keychain
-3. **Check Entitlements Profile**: Ruby script (`sync_profiles.rb check`) via Spaceship:
+3. **Check Entitlements Profile**: Python script (`sync_profiles_asc.py check`) via App Store Connect CLI:
    - Fetches all enabled iOS devices
    - Saves device list snapshot to cache for change detection
    - Compares with cached device list to detect changes
@@ -128,7 +128,7 @@ Example `repository_dispatch` payload:
 4. **Check App Version**: Python script (`check_changes.py`):
    - Uses device-change status + `force_rebuild` to decide whether to rebuild all
    - Checks GitHub release versions vs cache to decide which tasks need rebuilding
-5. **Sync Entitlements Profile**: Ruby script (`sync_profiles.rb`) via Spaceship:
+5. **Sync Entitlements Profile**: Python script (`sync_profiles_asc.py`) via App Store Connect CLI:
    - If device list changed → regenerates all provisioning profiles and downloads them
    - If device list unchanged → downloads existing profiles and creates missing ones if needed
 6. **Sign IPAs**: Python script (`run_signing.py`):
@@ -163,7 +163,7 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 ## Requirements and Notes
 
 - **Runner**: `macos-latest`
-- **Tools installed**: `fastlane`, `sshpass`, `curl` (Homebrew), Ruby gems (`spaceship`, `toml-rb`)
+- **Tools installed**: `bundler`, `fastlane`, `sshpass`, `asc` (App Store Connect CLI)
 - **Signing**: Uses Fastlane `resign` action with discovered identity and synced profile
 - **Upload**: Password-based `scp` to asset server
 - **Bundle IDs**: Must be pre-registered in Apple Developer Portal

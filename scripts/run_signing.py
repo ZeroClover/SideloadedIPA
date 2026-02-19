@@ -619,14 +619,14 @@ def main() -> int:
         tdir = work_root / safe_name
         tdir.mkdir(parents=True, exist_ok=True)
 
-        # Use provisioning profile synced by sync_profiles.rb
+        # Use provisioning profile synced by sync_profiles_asc.py
         synced_profile = Path(f"work/profiles/{task_name}.mobileprovision")
         mobileprov_path = tdir / "profile.mobileprovision"
 
         if not synced_profile.exists():
             print(
                 f"[task {i}] Provisioning profile not found: {synced_profile}\n"
-                f"  Ensure sync_profiles.rb ran successfully and bundle_id is correct.",
+                f"  Ensure sync_profiles_asc.py ran successfully and bundle_id is correct.",
                 file=sys.stderr,
             )
             any_fail = True

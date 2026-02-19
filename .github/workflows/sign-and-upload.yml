@@ -123,12 +123,26 @@ jobs:
           brew update
           brew install hudochenkov/sshpass/sshpass
           gem install bundler:2.5.23
-          bundle _2.5.23_ install
+          bundle _2.5.23_ install --jobs 4 --retry 3
+
+      - name: Install App Store Connect CLI
+        run: |
+          brew tap rudrankriyam/tap
+          brew install asc
+
+      - name: Authenticate with App Store Connect
+        run: |
+          echo "${{ secrets.ASC_PRIVATE_KEY }}" | base64 -d > /tmp/asc_key.p8
+          asc auth login \
+            --name "CI" \
+            --key-id "${{ secrets.ASC_KEY_ID }}" \
+            --issuer-id "${{ secrets.ASC_ISSUER_ID }}" \
+            --private-key /tmp/asc_key.p8
 
       - name: Check Entitlements Profile
         id: check-entitlements
         run: |
-          bundle exec ruby scripts/sync_profiles.rb check
+          uv run python scripts/sync_profiles_asc.py check
 
       - name: Check App Version
         id: check-version
@@ -154,10 +168,10 @@ jobs:
           echo "REBUILD_TASKS=${REBUILD_TASKS}"
           if [[ "${DEVICES_CHANGED}" == "true" ]]; then
             echo "Device list changed - regenerating all provisioning profiles"
-            bundle exec ruby scripts/sync_profiles.rb
+            uv run python scripts/sync_profiles_asc.py
           else
             echo "Device list unchanged - downloading existing profiles (create missing if needed)"
-            SKIP_PROFILE_REGENERATION=true bundle exec ruby scripts/sync_profiles.rb
+            SKIP_PROFILE_REGENERATION=true uv run python scripts/sync_profiles_asc.py
           fi
 
       - name: Run signer
