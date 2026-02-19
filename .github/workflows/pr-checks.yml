@@ -1,0 +1,48 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate-setup:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      
+      - name: Install Python dependencies
+        run: uv sync --frozen
+      
+      - name: Install dependencies
+        run: |
+          brew update
+          brew tap rudrankriyam/tap
+          brew install hudochenkov/sshpass/sshpass asc
+          gem install bundler:2.5.23
+          bundle _2.5.23_ install --jobs 4 --retry 3
+      
+      - name: Validate ASC authentication
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          echo "$ASC_PRIVATE_KEY" | base64 -d > /tmp/asc_key.p8
+          chmod 600 /tmp/asc_key.p8
+          asc auth login \
+            --name "CI" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --private-key /tmp/asc_key.p8
+          rm -f /tmp/asc_key.p8
+      
+      - name: Validate config syntax
+        run: uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
