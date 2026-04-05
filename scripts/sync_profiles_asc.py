@@ -120,7 +120,7 @@ def get_profile_bundle_id(profile_id: str) -> str | None:
     if not profile_id:
         return None
 
-    result = run_asc(["profiles", "relationships", "bundle-id", "--id", profile_id])
+    result = run_asc(["profiles", "links", "bundle-id", "--id", profile_id])
     data = (result or {}).get("data", {})
     if isinstance(data, dict):
         return data.get("id")
