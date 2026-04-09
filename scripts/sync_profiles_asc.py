@@ -185,7 +185,7 @@ def download_profile(profile_id: str, output_path: Path):
     print(f"[info] Downloading profile to: {output_path}")
     
     # Get profile with content
-    result = run_asc(["profiles", "get", "--id", profile_id])
+    result = run_asc(["profiles", "view", "--id", profile_id])
     profile_content = result["data"]["attributes"]["profileContent"]
     
     # Decode base64 and write
