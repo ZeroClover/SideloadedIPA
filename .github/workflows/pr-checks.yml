@@ -22,12 +22,14 @@ jobs:
         run: uv sync --frozen
       
       - name: Install dependencies
+        env:
+          BUNDLE_FROZEN: "true"
         run: |
           brew update
           brew tap rudrankriyam/tap
           brew install hudochenkov/sshpass/sshpass asc
-          gem install bundler:2.5.23
-          bundle _2.5.23_ install --jobs 4 --retry 3
+          gem install bundler:4.0.13
+          bundle _4.0.13_ install --jobs 4 --retry 3
       
       - name: Validate ASC authentication
         env:

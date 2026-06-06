@@ -34,6 +34,10 @@ ENV/
 # Work directory
 work/
 
+# Ruby / Bundler
+/.bundle/
+/vendor/bundle/
+
 # Temporary files
 *.log
 *.tmp

@@ -120,12 +120,14 @@ jobs:
           echo "CODESIGN_IDENTITY=$ident" >> "$GITHUB_ENV"
 
       - name: Install dependencies
+        env:
+          BUNDLE_FROZEN: "true"
         run: |
           brew update
           brew tap rudrankriyam/tap
           brew install hudochenkov/sshpass/sshpass asc
-          gem install bundler
-          bundle install --jobs 4 --retry 3
+          gem install bundler:4.0.13
+          bundle _4.0.13_ install --jobs 4 --retry 3
 
       - name: Verify App Store Connect credentials
         run: asc devices list --limit 1 --output json > /dev/null
