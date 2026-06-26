@@ -35,3 +35,10 @@ app_name = "PiliPlus"
 bundle_id = "io.zeroclover.app.piliplus"
 repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 asset_server_path = "/itms.zeroclover.io/PiliPlus/PiliPlus.ipa"
+
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.zeroclover.app.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+asset_server_path = "/itms.zeroclover.io/LiveContainer/LiveContainer.ipa"
