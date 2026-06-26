@@ -123,6 +123,9 @@ jobs:
         env:
           BUNDLE_FROZEN: "true"
         run: |
+          # Homebrew now ignores formulae from untrusted third-party taps;
+          # trust the ones we rely on (asc, sshpass) plus the runner's aws/tap.
+          brew trust --tap rudrankriyam/tap hudochenkov/sshpass aws/tap
           brew update
           brew tap rudrankriyam/tap
           brew install hudochenkov/sshpass/sshpass asc
