@@ -42,3 +42,10 @@ app_name = "LiveContainer"
 bundle_id = "io.zeroclover.app.livecontainer"
 repo_url = "https://github.com/LiveContainer/LiveContainer"
 asset_server_path = "/itms.zeroclover.io/LiveContainer/LiveContainer.ipa"
+
+[[tasks]]
+task_name = "StikDebug"
+app_name = "StikDebug"
+bundle_id = "io.zeroclover.app.stikdebug"
+repo_url = "https://github.com/StephenDev0/StikDebug"
+asset_server_path = "/itms.zeroclover.io/StikDebug/StikDebug.ipa"
