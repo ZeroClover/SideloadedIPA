@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from run_signing import (
     GitHubAPIClient,
     build_itms_plist,
+    build_p12_normalize_commands,
     build_zsign_argv,
     extract_ipa_metadata,
     find_zsign,
@@ -836,6 +837,46 @@ class TestBuildZsignArgv:
         """Every element is a plain string suitable for shell-less subprocess."""
         argv = self._argv(tmp_path)
         assert all(isinstance(part, str) for part in argv)
+
+
+class TestBuildP12NormalizeCommands:
+    """Tests for the Apple-P12 -> modern-AES-P12 openssl command builder."""
+
+    def _cmds(self, tmp_path: Path, openssl_bin: str = "openssl"):
+        return build_p12_normalize_commands(
+            tmp_path / "apple.p12",
+            tmp_path / "cert.pem",
+            tmp_path / "cert.p12",
+            "PW",
+            openssl_bin,
+        )
+
+    def test_extract_uses_legacy_provider(self, tmp_path: Path) -> None:
+        """First command must enable the legacy provider to read RC2-encrypted P12."""
+        extract, _ = self._cmds(tmp_path)
+        assert extract[:3] == ["openssl", "pkcs12", "-legacy"]
+        assert "-nodes" in extract
+        assert extract[extract.index("-in") + 1] == str(tmp_path / "apple.p12")
+        assert extract[extract.index("-out") + 1] == str(tmp_path / "cert.pem")
+
+    def test_repack_exports_modern_p12(self, tmp_path: Path) -> None:
+        """Second command re-exports with OpenSSL 3 defaults (no -legacy)."""
+        _, repack = self._cmds(tmp_path)
+        assert repack[:3] == ["openssl", "pkcs12", "-export"]
+        assert "-legacy" not in repack
+        assert repack[repack.index("-in") + 1] == str(tmp_path / "cert.pem")
+        assert repack[repack.index("-out") + 1] == str(tmp_path / "cert.p12")
+
+    def test_password_passed_via_env_not_argv(self, tmp_path: Path) -> None:
+        """The password is referenced via env:, never embedded as a literal."""
+        extract, repack = self._cmds(tmp_path)
+        assert extract[extract.index("-passin") + 1] == "env:PW"
+        assert repack[repack.index("-passout") + 1] == "env:PW"
+
+    def test_custom_openssl_bin(self, tmp_path: Path) -> None:
+        extract, repack = self._cmds(tmp_path, openssl_bin="/opt/ossl/bin/openssl")
+        assert extract[0] == "/opt/ossl/bin/openssl"
+        assert repack[0] == "/opt/ossl/bin/openssl"
 
 
 class TestFindZsign:
