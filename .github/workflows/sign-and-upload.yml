@@ -31,6 +31,8 @@ jobs:
     name: Sign & Upload IPAs
     runs-on: macos-latest
     env:
+      # zsign release whose prebuilt macOS binary we download (https://github.com/zhlynn/zsign)
+      ZSIGN_VERSION: v1.0.4
       # Apple Developer credentials
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
@@ -84,54 +86,30 @@ jobs:
             echo "No cached device list found (first run)"
           fi
 
-      - name: Import Apple signing certs into Keychain
-        id: import-certs
-        uses: apple-actions/import-codesign-certs@v6
-        with:
-          # Uses default keychain name 'signing_temp' and create-keychain: true
-          p12-file-base64: ${{ env.APPLE_DEV_CERT_P12_ENCODED }}
-          p12-password: ${{ env.APPLE_DEV_CERT_PASSWORD }}
-
-      - name: Resolve keychain path and discover identity
-        run: |
-          # Construct the keychain path based on the default naming convention
-          kc_path="$HOME/Library/Keychains/signing_temp.keychain-db"
-          echo "KEYCHAIN_PATH=$kc_path" >> "$GITHUB_ENV"
-
-          # Debug: Show keychain path and check if file exists
-          echo "Using keychain path: $kc_path"
-          echo "Keychain exists: $(test -f "$kc_path" && echo 'yes' || echo 'no')"
-          echo "Keychain permissions: $(ls -la "$kc_path" 2>/dev/null || echo 'file not found')"
-
-          # Ensure keychain is unlocked (action should do this, but be safe)
-          if [[ -n "${{ steps.import-certs.outputs.keychain-password }}" && -f "$kc_path" ]]; then
-            security unlock-keychain -p "${{ steps.import-certs.outputs.keychain-password }}" "$kc_path" || true
-          fi
-
-          # Discover a valid codesigning identity from that keychain specifically
-          echo "Searching for identities in: $kc_path"
-          ident=$(security find-identity -v -p codesigning "$kc_path" | awk -F '"' '/Apple (Development|Distribution)|iPhone/{print $2; exit}')
-          if [[ -z "$ident" ]]; then
-            echo "No code signing identity found in $kc_path" >&2
-            echo "Full output from security find-identity:"
-            security find-identity -v -p codesigning "$kc_path" || true
-            exit 1
-          fi
-          echo "Found identity: $ident"
-          echo "CODESIGN_IDENTITY=$ident" >> "$GITHUB_ENV"
-
       - name: Install dependencies
-        env:
-          BUNDLE_FROZEN: "true"
         run: |
           # Homebrew now ignores formulae from untrusted third-party taps;
           # trust the ones we rely on (asc, sshpass) plus the runner's aws/tap.
           brew trust --tap rudrankriyam/tap hudochenkov/sshpass aws/tap
           brew update
           brew tap rudrankriyam/tap
-          brew install hudochenkov/sshpass/sshpass asc
-          gem install bundler:4.0.13
-          bundle _4.0.13_ install --jobs 4 --retry 3
+          # openssl@3 provides the libssl/libcrypto dylibs the zsign binary links against.
+          brew install hudochenkov/sshpass/sshpass asc openssl@3
+
+      - name: Install zsign
+        run: |
+          set -euo pipefail
+          # Download zsign's official prebuilt binary plus checksums, and verify
+          # the SHA256 before trusting it.
+          asset="zsign-macos-arm64.tar.gz"
+          base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          curl -fLsS -o "$RUNNER_TEMP/SHA256SUMS.txt" "$base/SHA256SUMS.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asset" SHA256SUMS.txt | shasum -a 256 -c -)
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
+          # Hand the absolute path to run_signing.py (avoids polluting PATH/workspace).
+          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/zsign" -v
 
       - name: Verify App Store Connect credentials
         run: asc devices list --limit 1 --output json > /dev/null

@@ -64,3 +64,51 @@ git rm scripts/sync_profiles_asc.py
 - All functionality remains the same (check, sync, caching, device change detection)
 - Environment variables remain unchanged
 - Profile output format and location unchanged
+
+---
+
+# Migration from fastlane `resign` to zsign
+
+## Summary
+
+IPA re-signing has been migrated from fastlane's `resign` action to
+[`zsign`](https://github.com/zhlynn/zsign). This removes the **last** Ruby
+dependency from the project — there is no longer any `fastlane`, `bundler`, or
+`Gemfile` involved anywhere in the pipeline.
+
+## Changes
+
+### Removed
+- `Gemfile` / `Gemfile.lock` (fastlane was the only remaining gem)
+- `apple-actions/import-codesign-certs` workflow step (no Keychain import needed)
+- The "Resolve keychain path and discover identity" workflow step
+- `find_bundle_exec()` and `discover_codesign_identity()` in `scripts/run_signing.py`
+- `bundler` / `fastlane` installation from both workflows
+
+### Added
+- `Install zsign` workflow step — downloads `zsign`'s official prebuilt macOS
+  arm64 binary (pinned via the `ZSIGN_VERSION` env, currently `v1.0.4`) and
+  verifies its SHA256 checksum before use
+- `find_zsign()` / `build_zsign_argv()` helpers in `scripts/run_signing.py`
+
+### Modified
+- `scripts/run_signing.py` — re-signs via `zsign -k <p12> -p <password> -m
+  <profile> -o <out.ipa> <in.ipa>` instead of `fastlane run resign`. The P12 is
+  decoded from `APPLE_DEV_CERT_P12_ENCODED` and passed straight to `zsign`.
+- `.github/workflows/sign-and-upload.yml`, `.github/workflows/pr-checks.yml`
+- `README.md`
+
+## Why zsign
+
+1. **No Ruby toolchain** — drops `bundler` + `fastlane` (hundreds of gems)
+2. **No Keychain dance** — `zsign` signs directly from the P12 via OpenSSL, so
+   the certificate import and codesign-identity discovery steps are gone
+3. **Faster** — a small C++ binary; signing is quicker than fastlane's resign
+4. **Cross-platform** — builds on macOS and Linux
+
+## Signing credentials
+
+`zsign` reads the P12 and its password directly. The script now requires
+`APPLE_DEV_CERT_P12_ENCODED` (base64 P12) in addition to the existing
+`APPLE_DEV_CERT_PASSWORD`. The password is passed as argv (never echoed to the
+CI log). No other environment variables changed.
