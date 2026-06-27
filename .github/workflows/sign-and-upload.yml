@@ -29,10 +29,12 @@ concurrency:
 jobs:
   sign-and-upload:
     name: Sign & Upload IPAs
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     env:
-      # zsign release whose prebuilt macOS binary we download (https://github.com/zhlynn/zsign)
+      # zsign release whose prebuilt Linux binary we download (https://github.com/zhlynn/zsign)
       ZSIGN_VERSION: v1.0.4
+      # App Store Connect CLI release whose prebuilt Linux binary we download
+      ASC_VERSION: "2.4.0"
       # Apple Developer credentials
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
@@ -88,28 +90,32 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Homebrew now ignores formulae from untrusted third-party taps;
-          # trust the ones we rely on (asc, sshpass) plus the runner's aws/tap.
-          brew trust --tap rudrankriyam/tap hudochenkov/sshpass aws/tap
-          brew update
-          brew tap rudrankriyam/tap
-          # openssl@3 provides the libssl/libcrypto dylibs the zsign binary links against.
-          brew install hudochenkov/sshpass/sshpass asc openssl@3
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          # asc (App Store Connect CLI): official prebuilt Linux binary, checksum-verified.
+          asc_bin="asc_${ASC_VERSION}_linux_amd64"
+          base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          asc --version
 
       - name: Install zsign
         run: |
           set -euo pipefail
-          # Download zsign's official prebuilt binary plus checksums, and verify
-          # the SHA256 before trusting it.
-          asset="zsign-macos-arm64.tar.gz"
+          # zsign's official prebuilt Linux binary is fully static (musl) with no
+          # runtime deps. Download it plus checksums and verify SHA256 before use.
+          asset="zsign-linux-musl-static.tar.gz"
           base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
           curl -fLsS -o "$RUNNER_TEMP/SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asset" SHA256SUMS.txt | shasum -a 256 -c -)
+          (cd "$RUNNER_TEMP" && grep -F "$asset" SHA256SUMS.txt | sha256sum -c -)
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
-          # Hand the absolute path to run_signing.py (avoids polluting PATH/workspace).
-          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/zsign" -v
+          # The tarball contains a single static binary named "zsign-musl".
+          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-musl" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/zsign-musl" -v
 
       - name: Verify App Store Connect credentials
         run: asc devices list --limit 1 --output json > /dev/null
@@ -196,25 +202,34 @@ jobs:
           echo "$PUBKEY" > "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
 
-      - name: "Debug: Enable SSH Server"
+      - name: "Debug: Start dropbear SSH server"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
         run: |
           set -euxo pipefail
-          # Ensure pubkey auth is enabled and password auth disabled
-          # Enable Remote Login and ensure sshd is loaded and started
-          sudo systemsetup -setremotelogin on
+          sudo apt-get install -y dropbear-bin
+          # One-shot, unprivileged dropbear: public-key only (-s disables password
+          # auth), bound to localhost:2222, with a throwaway host key. It forks to
+          # the background so the cloudflared step below can hold the job open.
+          mkdir -p "$RUNNER_TEMP/dropbear"
+          dropbearkey -t ed25519 -f "$RUNNER_TEMP/dropbear/host_key"
+          dropbear -p 127.0.0.1:2222 -r "$RUNNER_TEMP/dropbear/host_key" \
+            -s -g -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
+          echo "dropbear is listening on 127.0.0.1:2222 (login user: $(whoami))"
 
       - name: "Debug: Install cloudflared"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
         run: |
           set -euxo pipefail
-          brew install cloudflared
+          curl -fLsS -o "$RUNNER_TEMP/cloudflared" \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
+          cloudflared --version
 
       - name: "Debug: Run cloudflared tunnel"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
         run: |
           set -euo pipefail
-          cloudflared --no-autoupdate --url "ssh://localhost:22" 2>&1 | tee cloudflared.log
+          cloudflared --no-autoupdate --url "ssh://localhost:2222" 2>&1 | tee cloudflared.log
 
       - name: Notify webhook
         if: ${{ always() && (job.status == 'success' || job.status == 'failure') }}

@@ -112,3 +112,53 @@ dependency from the project — there is no longer any `fastlane`, `bundler`, or
 `APPLE_DEV_CERT_P12_ENCODED` (base64 P12) in addition to the existing
 `APPLE_DEV_CERT_PASSWORD`. The password is passed as argv (never echoed to the
 CI log). No other environment variables changed.
+
+---
+
+# Migration from macOS runner to Linux runner
+
+## Summary
+
+With Keychain and `fastlane` gone, nothing in the pipeline needs macOS anymore —
+`zsign` signs iOS apps via OpenSSL rather than Apple's `codesign`/Security
+framework. Both workflows now run on `ubuntu-latest` instead of `macos-latest`,
+which GitHub bills at **~10× less** than a macOS runner.
+
+## Changes
+
+### Modified
+- `.github/workflows/sign-and-upload.yml`, `.github/workflows/pr-checks.yml` —
+  `runs-on: ubuntu-latest`
+- Dependency install no longer uses Homebrew. Instead:
+  - `sshpass` via `apt-get`
+  - `asc` (App Store Connect CLI) — official prebuilt **Linux** binary
+    (`asc_<ver>_linux_amd64`, pinned via `ASC_VERSION`), checksum-verified
+  - `zsign` — official prebuilt **static musl Linux** binary
+    (`zsign-linux-musl-static`, binary named `zsign-musl`), checksum-verified
+- Checksum verification switched from `shasum -a 256 -c` to `sha256sum -c`
+- Debug SSH: `dropbear` (started one-shot on `127.0.0.1:2222`, public-key only)
+  replaces enabling macOS Remote Login; `cloudflared` is downloaded as a Linux
+  binary instead of via Homebrew
+
+### Removed
+- All Homebrew usage (`brew trust`/`tap`/`install`) and the third-party taps
+  (`rudrankriyam/tap`, `hudochenkov/sshpass`)
+- `openssl@3` install — the static `zsign` binary has no runtime dependencies
+
+## Why Linux
+
+1. **Cost** — `ubuntu-latest` is billed at ~10× less than `macos-latest`; this
+   workflow runs daily plus on demand, so the saving is the main driver
+2. **Faster** — quicker runner startup and `apt`/direct downloads vs `brew update`
+3. **Simpler & more auditable supply chain** — no Homebrew third-party taps;
+   every downloaded binary (`asc`, `zsign`, `cloudflared`) is fetched by pinned
+   version and SHA256-verified before use
+
+## Notes
+
+- `asc` already authenticated via env (`ASC_BYPASS_KEYCHAIN=1`), so its behaviour
+  is identical on Linux. No secrets or environment variables changed.
+- `scripts/run_signing.py` is unchanged — it only consumes `ZSIGN_BIN`/`PATH`.
+- Worth verifying end-to-end once on Linux: that a Linux-`zsign`-signed IPA
+  installs on a real device (zsign produces identical signatures cross-platform,
+  but iOS signing is worth a smoke test).
