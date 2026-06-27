@@ -28,7 +28,7 @@ asset_server_path = "/itms.zeroclover.io/JHenTai/JHenTai.ipa"
 [[tasks]]
 task_name = "Eros FE"
 app_name = "Eros FE"
-bundle_id = "io.zeroclover.io.apps.eros-fe"
+bundle_id = "io.zeroclover.apps.eros-fe"
 repo_url = "https://github.com/erosTeam/eros_fe"
 asset_server_path = "/itms.zeroclover.io/fehviewer/Eros-FE.ipa"
 
