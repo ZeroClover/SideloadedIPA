@@ -4,15 +4,21 @@ import datetime
 import fnmatch
 import json
 import os
+import plistlib
+import posixpath
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
+from xml.sax.saxutils import escape as xml_escape
+
+import site_update
 
 # Prefer Python 3.11+'s tomllib; fallback to tomli if needed
 try:
@@ -99,6 +105,188 @@ def ensure_remote_dir(user: str, host: str, password: str, dest_path: str) -> No
         f"{shlex.quote(f'mkdir -p {shlex.quote(remote_dir)}')}"
     )
     run(ssh_cmd)
+
+
+def scp_upload(user: str, host: str, password: str, local: Path, remote_dest: str) -> None:
+    """Upload a single local file to a remote path via scp."""
+    scp_cmd = (
+        f"sshpass -p {shlex.quote(password)} "
+        f"scp -o StrictHostKeyChecking=no "
+        f"{shlex.quote(str(local))} "
+        f"{shlex.quote(user)}@{shlex.quote(host)}:{shlex.quote(remote_dest)}"
+    )
+    run(scp_cmd)
+
+
+def extract_ipa_metadata(ipa_path: Path) -> tuple[str, Optional[str]]:
+    """Read the *actual* bundle id and short version from a signed IPA.
+
+    Parses the top-level ``Payload/<App>.app/Info.plist`` (binary or XML).
+
+    Returns ``(bundle_id, version)`` where ``version`` prefers
+    ``CFBundleShortVersionString`` and falls back to ``CFBundleVersion``.
+    """
+    info_re = re.compile(r"^Payload/[^/]+\.app/Info\.plist$")
+    with zipfile.ZipFile(ipa_path) as zf:
+        info_names = [name for name in zf.namelist() if info_re.match(name)]
+        if not info_names:
+            raise ValueError(f"No app Info.plist found inside IPA: {ipa_path}")
+        # Shortest path == the app bundle's own Info.plist (not a nested extension).
+        info_name = min(info_names, key=len)
+        with zf.open(info_name) as fh:
+            plist = plistlib.load(fh)
+
+    bundle_id = plist.get("CFBundleIdentifier")
+    if not bundle_id:
+        raise ValueError(f"CFBundleIdentifier missing in {info_name}")
+    version = plist.get("CFBundleShortVersionString") or plist.get("CFBundleVersion")
+    return str(bundle_id), str(version) if version is not None else None
+
+
+def build_itms_plist(ipa_url: str, bundle_id: str, version: str, title: str) -> str:
+    """Build a minimal itms-services distribution manifest (XML plist text).
+
+    Modern iOS only needs a single ``software-package`` asset (HTTPS ``url``) plus
+    four metadata keys — ``bundle-identifier``, ``bundle-version``, ``kind`` and
+    ``title``. The legacy ``display-image`` / ``full-size-image`` icon assets are
+    optional and intentionally omitted. Output matches the docroot's existing
+    hand-written manifests byte-for-byte (4-space indent, no trailing space).
+    """
+
+    def esc(value: str) -> str:
+        return xml_escape(value or "")
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        "<dict>\n"
+        "    <key>items</key>\n"
+        "    <array>\n"
+        "        <dict>\n"
+        "            <key>assets</key>\n"
+        "            <array>\n"
+        "                <dict>\n"
+        "                    <key>kind</key>\n"
+        "                    <string>software-package</string>\n"
+        "                    <key>url</key>\n"
+        f"                    <string>{esc(ipa_url)}</string>\n"
+        "                </dict>\n"
+        "            </array>\n"
+        "            <key>metadata</key>\n"
+        "            <dict>\n"
+        "                <key>bundle-identifier</key>\n"
+        f"                <string>{esc(bundle_id)}</string>\n"
+        "                <key>bundle-version</key>\n"
+        f"                <string>{esc(version)}</string>\n"
+        "                <key>kind</key>\n"
+        "                <string>software</string>\n"
+        "                <key>title</key>\n"
+        f"                <string>{esc(title)}</string>\n"
+        "            </dict>\n"
+        "        </dict>\n"
+        "    </array>\n"
+        "</dict>\n"
+        "</plist>\n"
+    )
+
+
+def _host_from_url(url: str) -> str:
+    match = re.match(r"https?://([^/]+)", url or "")
+    return match.group(1) if match else ""
+
+
+def resolve_site_settings(cfg: dict, tasks: list) -> dict:
+    """Resolve public-URL / deploy settings from the optional ``[site]`` table.
+
+    Sensible defaults are derived from the first path segment of an
+    ``asset_server_path`` (which encodes the public host, e.g.
+    ``/itms.zeroclover.io/...``), so zero configuration is required for the
+    standard deployment.
+    """
+    site = cfg.get("site", {}) or {}
+
+    public_base = (site.get("public_base_url") or "").rstrip("/")
+    host = _host_from_url(public_base)
+    if not host:
+        for task in tasks:
+            segments = [s for s in str(task.get("asset_server_path", "")).split("/") if s]
+            if segments:
+                host = segments[0]
+                break
+        if host and not public_base:
+            public_base = f"https://{host}"
+
+    prefix = (site.get("asset_path_prefix") or (f"/{host}" if host else "")).rstrip("/")
+    deploy_path = site.get("deploy_path") or (f"/{host}/" if host else "")
+
+    return {
+        "public_base_url": public_base,
+        "asset_path_prefix": prefix,
+        "deploy_path": deploy_path,
+    }
+
+
+def resolve_publish_target(remote_ipa_path: str, settings: dict) -> dict:
+    """Map a remote IPA path to its public URLs and the sibling itms.plist path."""
+    remote_dir = posixpath.dirname(remote_ipa_path)
+    ipa_name = posixpath.basename(remote_ipa_path)
+
+    prefix = settings.get("asset_path_prefix", "")
+    rel_dir = remote_dir
+    if prefix and (rel_dir == prefix or rel_dir.startswith(prefix + "/")):
+        rel_dir = rel_dir[len(prefix) :]
+    rel_dir = rel_dir.strip("/")
+
+    base = settings.get("public_base_url", "").rstrip("/")
+    url_dir = f"{base}/{rel_dir}" if rel_dir else base
+
+    return {
+        "remote_dir": remote_dir,
+        "remote_plist_path": posixpath.join(remote_dir, "itms.plist"),
+        "ipa_url": f"{url_dir}/{ipa_name}",
+        "plist_url": f"{url_dir}/itms.plist",
+        "site_dir": rel_dir,
+    }
+
+
+def deploy_site(
+    settings: dict,
+    user: str,
+    host: str,
+    password: str,
+    site_dir: Path,
+) -> bool:
+    """Deploy the download-page files to the server docroot.
+
+    Returns ``True`` on a successful upload, ``False`` if there was nothing to do.
+    """
+    deploy_path = settings.get("deploy_path")
+    if not deploy_path:
+        print("[warn] No deploy_path resolved - skipping download page deploy", file=sys.stderr)
+        return False
+
+    file_names = ["index.html", "styles.css", "apps.js", "app-card.js", "app.js"]
+    local_files = [site_dir / name for name in file_names if (site_dir / name).exists()]
+    if not local_files:
+        print(
+            f"[warn] No download page files found in {site_dir} - skipping deploy", file=sys.stderr
+        )
+        return False
+
+    # Ensure docroot exists, then upload all files in a single scp connection.
+    ensure_remote_dir(user, host, password, posixpath.join(deploy_path, "_"))
+    file_args = " ".join(shlex.quote(str(f)) for f in local_files)
+    scp_cmd = (
+        f"sshpass -p {shlex.quote(password)} "
+        f"scp -o StrictHostKeyChecking=no "
+        f"{file_args} "
+        f"{shlex.quote(user)}@{shlex.quote(host)}:{shlex.quote(deploy_path)}"
+    )
+    run(scp_cmd)
+    print(f"[info] Deployed {len(local_files)} download page file(s) to {deploy_path}")
+    return True
 
 
 # GitHub API integration
@@ -529,6 +717,11 @@ def main() -> int:
     release_cache_path = cache_dir / "release-versions.json"
     release_cache = load_release_cache(release_cache_path)
 
+    # Resolve download-page / public-URL settings (optional [site] table in TOML)
+    site_settings = resolve_site_settings(cfg, tasks)
+    # Collected per-app results used to refresh the download page after signing.
+    site_updates: list[dict] = []
+
     any_fail = False
     processed_count = 0
     skipped_count = 0
@@ -717,6 +910,51 @@ def main() -> int:
 
         print(f"[task {i}] Completed: {app_name} -> {remote_dest}")
 
+        # Generate and upload the itms-services manifest (itms.plist) next to the
+        # IPA, using the app's ACTUAL bundle id and version read from the signed
+        # IPA (authoritative — independent of what the TOML declares).
+        target = resolve_publish_target(remote_dest, site_settings)
+        try:
+            bundle_id_actual, version_actual = extract_ipa_metadata(signed_ipa)
+        except Exception as e:
+            # Fall back to the declared bundle id; keep going so the IPA stays usable.
+            bundle_id_actual = task.get("bundle_id", "")
+            version_actual = None
+            print(
+                f"[task {i}] Could not read IPA metadata ({e}); "
+                f"falling back to declared bundle id '{bundle_id_actual}'",
+                file=sys.stderr,
+            )
+
+        manifest_version = version_actual or "1.0"
+        plist_text = build_itms_plist(
+            target["ipa_url"], bundle_id_actual, manifest_version, app_name
+        )
+        plist_local = tdir / "itms.plist"
+        plist_local.write_text(plist_text, encoding="utf-8")
+        try:
+            scp_upload(
+                assets_user, assets_ip, assets_pass, plist_local, target["remote_plist_path"]
+            )
+            print(
+                f"[task {i}] Uploaded manifest: {target['plist_url']} "
+                f"({bundle_id_actual} v{manifest_version})"
+            )
+            # Only advertise the new version on the download page once its install
+            # manifest is in place (skip if the dir couldn't be resolved).
+            if target["site_dir"]:
+                site_updates.append(
+                    {
+                        "name": app_name,
+                        "dir": target["site_dir"],
+                        "bundleId": bundle_id_actual,
+                        "version": manifest_version,
+                    }
+                )
+        except subprocess.CalledProcessError as e:
+            print(f"[task {i}] Failed to upload itms.plist: {e}", file=sys.stderr)
+            any_fail = True
+
         # Update release cache ONLY after successful signing and upload
         if version_info:
             release_cache["tasks"][task_name] = version_info
@@ -725,6 +963,25 @@ def main() -> int:
     # Save release cache
     if github_client:
         save_release_cache(release_cache_path, release_cache)
+
+    # Refresh and (re)deploy the download page when any app's listing changed.
+    if site_updates:
+        site_root = Path(__file__).resolve().parent.parent / "site"
+        try:
+            page_changed = site_update.apply_site_updates(site_root, site_updates)
+        except Exception as e:
+            print(f"[error] Failed to update download page: {e}", file=sys.stderr)
+            page_changed = False
+            any_fail = True
+
+        if page_changed:
+            try:
+                deploy_site(site_settings, assets_user, assets_ip, assets_pass, site_root)
+            except subprocess.CalledProcessError as e:
+                print(f"[error] Failed to deploy download page: {e}", file=sys.stderr)
+                any_fail = True
+        else:
+            print("[info] Download page already up to date - no deploy needed")
 
     print("=" * 80)
     print(

@@ -31,18 +31,26 @@
 
 ## 新增 / 更新一个 app
 
-只改一处 —— 在 [`apps.js`](apps.js) 的 `ZC_APPS` 数组追加或修改一条记录：
+**多数情况下无需手动改动。** 签名流水线（[`../configs/tasks.toml`](../configs/tasks.toml)）
+每次重签后会自动维护 [`apps.js`](apps.js)：按 app 实际部署目录（`dir`）匹配，刷新已有 app 的
+`version` / `bundleId`，并为新 app 追加一条记录；同时递增 [`index.html`](index.html) 中
+`apps.js?v=` 缓存版本号，并把改动 commit 回仓库（详见
+[`../scripts/site_update.py`](../scripts/site_update.py)）。流水线**保留**已有条目的显示
+`name`（视为人工策展），只刷新版本与 bundleId。
+
+手动维护仅用于**不经流水线**的 app（无对应 `[[tasks]]`，如 EhPanda / Sonolus）—— 在
+`ZC_APPS` 数组追加或修改一条记录即可：
 
 ```js
 { name: 'Halo', dir: 'Halo', bundleId: 'io.zeroclover.app.halo', version: '1.0.0' },
 ```
 
-- `dir` 必须与 `itms.zeroclover.io` 下的实际目录名一致（大小写敏感）；
+- `dir` 必须与 `itms.zeroclover.io` 下的实际目录名一致（大小写敏感），也是流水线匹配的键；
 - `icon`（`/{dir}/icon.png`）与下载清单（`/{dir}/itms.plist`）链接由 `app.js` 自动按 `dir` 拼接；
 - `bundleId` 显示为卡片副标题，`version` 显示为版本标签（可省略）。
 
-数据应与服务器实际部署的目录保持一致 —— app 目录与 `itms.plist` 由签名流水线
-（[`../configs/tasks.toml`](../configs/tasks.toml)）生成上传，本页面只负责展示。
+数据应与服务器实际部署的目录保持一致 —— app 目录、`itms.plist` 与下载页面均由签名流水线
+生成并上传。
 
 ## 本地预览
 
