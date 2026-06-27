@@ -2,6 +2,28 @@
 # Define one or more signing tasks using the [[tasks]] array.
 
 # ========================================
+# Download page / publishing settings (optional)
+# ========================================
+# After each resign the pipeline:
+#   1. reads the signed IPA's ACTUAL bundle id + version,
+#   2. generates <app dir>/itms.plist (itms-services manifest) next to the IPA,
+#   3. refreshes site/apps.js (versions / new app cards) and bumps the
+#      apps.js?v= cache-buster in site/index.html,
+#   4. deploys the download page to the server.
+#
+# All of [site] is optional: when omitted, values are derived from the first path
+# segment of asset_server_path (which encodes the public host).
+[site]
+# Public base URL where signed assets are served (used to build itms.plist URLs
+# and the download-page card links).
+public_base_url = "https://assets.example.com"
+# Remote directory (on the asset server) where the download page (site/) is deployed.
+deploy_path = "/assets.example.com/"
+# Optional: server path prefix that maps to public_base_url root. Defaults to
+# "/<host-of-public_base_url>". Override only for non-standard chroot layouts.
+# asset_path_prefix = "/assets.example.com"
+
+# ========================================
 # Option 1: Direct IPA URL (Legacy)
 # ========================================
 # Tasks with ipa_url will always rebuild on every run.

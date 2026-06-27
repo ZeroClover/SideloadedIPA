@@ -6,17 +6,21 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 - Automatically sync Development provisioning profiles with all registered devices via App Store Connect CLI (`asc`).
 - Read a TOML config of signing tasks.
 - For each task: download the IPA (from direct URL or GitHub Release), re-sign with Fastlane `resign` using synced profiles, and upload to an Assets server via `scp`.
+- **Generate the itms-services manifest**: after each resign, read the signed IPA's actual bundle id + version and emit `itms.plist` next to the IPA.
+- **Refresh the download page**: update existing app versions / add new app cards in `site/apps.js`, bump the Cloudflare cache-buster, deploy the page, and commit the change back.
 - **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
 
 ## File Structure
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
 - `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
-- `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, uploads (with GitHub API integration)
+- `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, generates `itms.plist`, uploads, refreshes the download page
+- `scripts/site_update.py` — merges signing results into the download page data (`site/apps.js`) and bumps cache-busting versions
 - `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
-- `configs/tasks.toml` — TOML config defining signing tasks
+- `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[site]` publishing settings)
 - `configs/tasks.toml.example` — example configuration file
 - `.env.example` — example environment variables
+- `site/` — the ITMS download page (auto-maintained by the pipeline; see `site/README.md`)
 - `Gemfile` — Ruby dependencies (fastlane for resign)
 
 ## Required Secrets / Variables
@@ -138,9 +142,12 @@ Example `repository_dispatch` payload:
      - Compares version with cache
      - Only rebuilds if version or publish timestamp changed
    - Re-signs with Fastlane using synced profile
-   - Uploads to asset server via `scp`
+   - Uploads the signed IPA to the asset server via `scp`
+   - **Generates `itms.plist`** from the signed IPA's actual bundle id + version and uploads it next to the IPA
+   - **Refreshes the download page** (`site/apps.js` + `index.html` cache-buster) and deploys `site/` to the docroot
    - Updates release cache with new versions
-7. **Save Cache**: Saves updated cache state for next run
+7. **Commit Download Page**: Commits the refreshed `site/apps.js` / `index.html` back to the repo (keeps it the single source of truth)
+8. **Save Cache**: Saves updated cache state for next run
 
 ## Caching Behavior
 

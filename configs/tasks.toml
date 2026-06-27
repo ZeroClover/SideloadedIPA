@@ -8,6 +8,16 @@
 # - ipa_url: Direct download URL of the original IPA to sign
 # - asset_server_path: Destination path on the asset server; if it ends with '/', the signed file name will be appended
 
+# Download-page / publishing settings. Optional: when omitted, these are derived
+# from the first path segment of asset_server_path (the public host). After each
+# resign the pipeline generates <app dir>/itms.plist (itms-services manifest) from
+# the IPA's actual bundle id + version, then refreshes and deploys the download page.
+[site]
+# Public base URL where signed assets are served (used for itms.plist URLs + card links)
+public_base_url = "https://itms.zeroclover.io"
+# Remote directory (on the asset server) where the download page (site/) is deployed
+deploy_path = "/itms.zeroclover.io/"
+
 [[tasks]]
 task_name = "JHenTai"
 app_name = "JHenTai"

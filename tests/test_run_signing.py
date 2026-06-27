@@ -1,7 +1,9 @@
 """Tests for scripts/run_signing.py - GitHub API integration."""
 
 import json
+import plistlib
 import sys
+import zipfile
 from http.client import HTTPMessage
 from io import BytesIO
 from pathlib import Path
@@ -16,8 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from run_signing import (
     GitHubAPIClient,
+    build_itms_plist,
+    extract_ipa_metadata,
     load_release_cache,
     parse_repo_url,
+    resolve_publish_target,
+    resolve_site_settings,
     save_release_cache,
     should_rebuild_task,
     validate_task,
@@ -621,3 +627,169 @@ class TestShouldRebuildTask:
 
         assert should_rebuild is True
         assert version_info is not None
+
+
+def _make_ipa(
+    tmp_path: Path,
+    app_name: str = "Demo",
+    bundle_id: str = "io.zeroclover.app.demo",
+    short_version: str = "1.2.3",
+    build_version: str = "123",
+    nested_ext: bool = True,
+    fmt: int = plistlib.FMT_BINARY,
+) -> Path:
+    """Build a minimal IPA whose .app Info.plist carries the given metadata."""
+    info = {
+        "CFBundleIdentifier": bundle_id,
+        "CFBundleShortVersionString": short_version,
+        "CFBundleVersion": build_version,
+    }
+    ipa_path = tmp_path / f"{app_name}.ipa"
+    with zipfile.ZipFile(ipa_path, "w") as zf:
+        zf.writestr(f"Payload/{app_name}.app/Info.plist", plistlib.dumps(info, fmt=fmt))
+        if nested_ext:
+            # A nested app extension with DIFFERENT metadata that must be ignored.
+            ext_info = {
+                "CFBundleIdentifier": f"{bundle_id}.ext",
+                "CFBundleShortVersionString": "9.9.9",
+            }
+            zf.writestr(
+                f"Payload/{app_name}.app/PlugIns/Helper.appex/Info.plist",
+                plistlib.dumps(ext_info, fmt=fmt),
+            )
+    return ipa_path
+
+
+class TestExtractIpaMetadata:
+    """Tests for reading bundle id / version from a signed IPA."""
+
+    def test_reads_short_version(self, tmp_path: Path) -> None:
+        ipa = _make_ipa(tmp_path, short_version="7.4.11", build_version="741100")
+        bundle_id, version = extract_ipa_metadata(ipa)
+        assert bundle_id == "io.zeroclover.app.demo"
+        assert version == "7.4.11"
+
+    def test_ignores_nested_extension(self, tmp_path: Path) -> None:
+        """The top-level .app Info.plist wins over nested .appex plists."""
+        ipa = _make_ipa(tmp_path, bundle_id="io.zeroclover.app.demo")
+        bundle_id, _ = extract_ipa_metadata(ipa)
+        assert bundle_id == "io.zeroclover.app.demo"  # not ...demo.ext
+
+    def test_falls_back_to_build_version(self, tmp_path: Path) -> None:
+        # IPA without CFBundleShortVersionString
+        info = {"CFBundleIdentifier": "io.zeroclover.app.demo", "CFBundleVersion": "42"}
+        ipa = tmp_path / "Demo.ipa"
+        with zipfile.ZipFile(ipa, "w") as zf:
+            zf.writestr("Payload/Demo.app/Info.plist", plistlib.dumps(info))
+        _, version = extract_ipa_metadata(ipa)
+        assert version == "42"
+
+    def test_xml_plist_supported(self, tmp_path: Path) -> None:
+        ipa = _make_ipa(tmp_path, fmt=plistlib.FMT_XML)
+        bundle_id, version = extract_ipa_metadata(ipa)
+        assert bundle_id == "io.zeroclover.app.demo"
+        assert version == "1.2.3"
+
+    def test_no_info_plist_raises(self, tmp_path: Path) -> None:
+        ipa = tmp_path / "empty.ipa"
+        with zipfile.ZipFile(ipa, "w") as zf:
+            zf.writestr("Payload/README.txt", "no app here")
+        with pytest.raises(ValueError, match="No app Info.plist"):
+            extract_ipa_metadata(ipa)
+
+
+class TestBuildItmsPlist:
+    """Tests for itms-services manifest generation."""
+
+    def test_produces_valid_plist(self) -> None:
+        text = build_itms_plist(
+            "https://itms.zeroclover.io/JHenTai/JHenTai.ipa",
+            "io.zeroclover.app.jhentai",
+            "7.4.11",
+            "JHenTai",
+        )
+        parsed = plistlib.loads(text.encode("utf-8"))
+        item = parsed["items"][0]
+        assert item["assets"][0]["kind"] == "software-package"
+        assert item["assets"][0]["url"] == "https://itms.zeroclover.io/JHenTai/JHenTai.ipa"
+        meta = item["metadata"]
+        assert meta["bundle-identifier"] == "io.zeroclover.app.jhentai"
+        assert meta["bundle-version"] == "7.4.11"
+        assert meta["kind"] == "software"
+        assert meta["title"] == "JHenTai"
+
+    def test_is_minimal(self) -> None:
+        """Only the minimal-effective keys are present (no icon assets / single asset)."""
+        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Demo")
+        parsed = plistlib.loads(text.encode("utf-8"))
+        item = parsed["items"][0]
+        assert len(item["assets"]) == 1
+        assert set(item["metadata"]) == {"bundle-identifier", "bundle-version", "kind", "title"}
+        assert "display-image" not in text
+        assert "full-size-image" not in text
+
+    def test_clean_formatting(self) -> None:
+        """4-space indent, trailing newline, and no trailing whitespace on any line."""
+        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Demo")
+        assert text.endswith("</plist>\n")
+        assert "\t" not in text
+        assert all(not line.endswith(" ") for line in text.splitlines())
+
+    def test_escapes_special_characters(self) -> None:
+        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Tab & Co <beta>")
+        assert "Tab &amp; Co &lt;beta&gt;" in text
+        parsed = plistlib.loads(text.encode("utf-8"))
+        assert parsed["items"][0]["metadata"]["title"] == "Tab & Co <beta>"
+
+
+class TestResolveSiteSettings:
+    """Tests for [site] settings resolution and defaults."""
+
+    def test_derives_defaults_from_asset_path(self) -> None:
+        cfg = {}
+        tasks = [{"asset_server_path": "/itms.zeroclover.io/JHenTai/JHenTai.ipa"}]
+        settings = resolve_site_settings(cfg, tasks)
+        assert settings["public_base_url"] == "https://itms.zeroclover.io"
+        assert settings["asset_path_prefix"] == "/itms.zeroclover.io"
+        assert settings["deploy_path"] == "/itms.zeroclover.io/"
+
+    def test_explicit_site_table_overrides(self) -> None:
+        cfg = {
+            "site": {
+                "public_base_url": "https://cdn.example.com/",
+                "deploy_path": "/srv/www/",
+            }
+        }
+        tasks = [{"asset_server_path": "/itms.zeroclover.io/JHenTai/JHenTai.ipa"}]
+        settings = resolve_site_settings(cfg, tasks)
+        assert settings["public_base_url"] == "https://cdn.example.com"
+        assert settings["asset_path_prefix"] == "/cdn.example.com"
+        assert settings["deploy_path"] == "/srv/www/"
+
+
+class TestResolvePublishTarget:
+    """Tests for mapping remote IPA paths to public URLs."""
+
+    def test_same_name_ipa(self) -> None:
+        settings = {
+            "public_base_url": "https://itms.zeroclover.io",
+            "asset_path_prefix": "/itms.zeroclover.io",
+            "deploy_path": "/itms.zeroclover.io/",
+        }
+        target = resolve_publish_target("/itms.zeroclover.io/JHenTai/JHenTai.ipa", settings)
+        assert target["ipa_url"] == "https://itms.zeroclover.io/JHenTai/JHenTai.ipa"
+        assert target["plist_url"] == "https://itms.zeroclover.io/JHenTai/itms.plist"
+        assert target["remote_plist_path"] == "/itms.zeroclover.io/JHenTai/itms.plist"
+        assert target["site_dir"] == "JHenTai"
+
+    def test_filename_differs_from_dir(self) -> None:
+        """IPA filename can differ from the directory (e.g. Eros-FE in fehviewer)."""
+        settings = {
+            "public_base_url": "https://itms.zeroclover.io",
+            "asset_path_prefix": "/itms.zeroclover.io",
+            "deploy_path": "/itms.zeroclover.io/",
+        }
+        target = resolve_publish_target("/itms.zeroclover.io/fehviewer/Eros-FE.ipa", settings)
+        assert target["ipa_url"] == "https://itms.zeroclover.io/fehviewer/Eros-FE.ipa"
+        assert target["plist_url"] == "https://itms.zeroclover.io/fehviewer/itms.plist"
+        assert target["site_dir"] == "fehviewer"

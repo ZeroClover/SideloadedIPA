@@ -19,7 +19,8 @@ on:
     types: [sign_ipas]
 
 permissions:
-  contents: read
+  # write access is required to commit refreshed download-page data (site/) back
+  contents: write
 
 concurrency:
   group: sign-and-upload
@@ -175,6 +176,23 @@ jobs:
           REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
           REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
         run: uv run python scripts/run_signing.py
+
+      - name: Commit refreshed download page
+        if: always()
+        run: |
+          set -euo pipefail
+          # The signer refreshes site/apps.js (versions / new apps) and bumps the
+          # apps.js?v= cache-buster in site/index.html. Persist those changes so the
+          # repo stays the single source of truth and change-detection works next run.
+          if [[ -z "$(git status --porcelain site/apps.js site/index.html)" ]]; then
+            echo "No download page changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/apps.js site/index.html
+          git commit -m "chore(site): refresh download page versions [skip ci]"
+          git push
 
       - name: Save cache
         if: always()
