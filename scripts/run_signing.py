@@ -104,6 +104,75 @@ def build_zsign_argv(
     ]
 
 
+def build_p12_normalize_commands(
+    src_p12: Path,
+    pem_path: Path,
+    dst_p12: Path,
+    password_env_var: str,
+    openssl_bin: str = "openssl",
+) -> tuple[list[str], list[str]]:
+    """Build the two ``openssl`` commands that re-wrap an Apple P12 for zsign.
+
+    Apple exports the signing certificate as a PKCS#12 encrypted with the legacy
+    ``RC2-40-CBC`` cipher. OpenSSL 3's *default* provider — statically linked
+    into the zsign ``musl`` binary — cannot read RC2, so zsign aborts with
+    "RC2-40-CBC ... unsupported". The first command decrypts the bundle via the
+    system OpenSSL's legacy provider into a plaintext PEM; the second re-exports
+    it with OpenSSL 3 defaults (AES), which the default provider accepts.
+
+    The password is passed via ``env:`` so it never appears in argv / the CI log.
+    """
+    extract = [
+        openssl_bin,
+        "pkcs12",
+        "-legacy",
+        "-in",
+        str(src_p12),
+        "-nodes",
+        "-passin",
+        f"env:{password_env_var}",
+        "-out",
+        str(pem_path),
+    ]
+    repack = [
+        openssl_bin,
+        "pkcs12",
+        "-export",
+        "-in",
+        str(pem_path),
+        "-out",
+        str(dst_p12),
+        "-passout",
+        f"env:{password_env_var}",
+    ]
+    return extract, repack
+
+
+def prepare_signing_p12(p12_b64: str, work_root: Path, password: str) -> Path:
+    """Decode the base64 P12 and normalise its encryption so zsign can read it.
+
+    Returns the path to a modern (AES-encrypted) P12. See
+    :func:`build_p12_normalize_commands` for why the re-wrap is necessary.
+    """
+    raw_p12 = work_root / "cert_apple.p12"
+    decode_b64_to_file(p12_b64, raw_p12)
+
+    pem_path = work_root / "cert.pem"
+    dst_p12 = work_root / "cert.p12"
+    pw_var = "ZSIGN_P12_PW"
+    openssl_bin = os.getenv("OPENSSL_BIN") or "openssl"
+    extract, repack = build_p12_normalize_commands(raw_p12, pem_path, dst_p12, pw_var, openssl_bin)
+
+    env = {**os.environ, pw_var: password}
+    for argv in (extract, repack):
+        subprocess.run(argv, env=env, check=True, capture_output=True)
+
+    # The intermediate plaintext PEM and the original P12 are no longer needed.
+    for tmp in (pem_path, raw_p12):
+        tmp.unlink(missing_ok=True)
+    return dst_p12
+
+
 def build_remote_dest(base_path: str, filename: str) -> str:
     # If base_path ends with '/', treat as directory and append filename
     if base_path.endswith("/"):
@@ -711,10 +780,20 @@ def main() -> int:
     cache_dir = work_root / "cache"
     cache_dir.mkdir(exist_ok=True)
 
-    # Decode the signing certificate once. zsign reads the p12 + password
-    # directly via OpenSSL, so no Keychain import or codesign identity is needed.
-    p12_path = work_root / "cert.p12"
-    decode_b64_to_file(os.environ["APPLE_DEV_CERT_P12_ENCODED"], p12_path)
+    # Decode the signing certificate once. Apple's P12 uses legacy RC2 encryption
+    # that zsign's statically-linked OpenSSL can't read, so re-wrap it as a modern
+    # AES P12. zsign then signs from the p12 directly — no Keychain / identity.
+    try:
+        p12_path = prepare_signing_p12(
+            os.environ["APPLE_DEV_CERT_P12_ENCODED"], work_root, cert_password
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", "replace") if e.stderr else ""
+        print(
+            f"[error] Failed to normalise signing certificate (openssl): {stderr or e}",
+            file=sys.stderr,
+        )
+        return 4
 
     # Initialize GitHub API client if needed
     github_client = None
