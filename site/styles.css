@@ -1,0 +1,136 @@
+/*
+ * 设计令牌（Design Tokens）
+ * 来源：Claude Design「App Download.dc.html」
+ * 这些 custom properties 会透过 Shadow DOM 边界继承，<app-card> 内部直接复用。
+ */
+:root {
+  --zc-bg:            #f4f4f2;
+  --zc-ink:           #1a1a18;
+  --zc-ink-soft:      #3a3a36;
+  --zc-muted:         #8a8a85;
+  --zc-muted-2:       #a3a39d;
+  --zc-surface:       #ffffff;
+  --zc-border:        #e8e8e3;
+  --zc-border-input:  #e2e2dd;
+
+  --zc-radius-card:   18px;
+  --zc-radius-icon:   18px;
+  --zc-radius-input:  14px;
+  --zc-radius-btn:    10px;
+
+  --zc-font-sans: 'Space Grotesk', Helvetica, Arial, sans-serif;
+  --zc-font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; background: var(--zc-bg); }
+
+::selection { background: var(--zc-ink); color: var(--zc-bg); }
+
+/* ── 页面骨架 ─────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  background: var(--zc-bg);
+  color: var(--zc-ink);
+  font-family: var(--zc-font-sans);
+  padding: 64px 32px 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.inner { width: 100%; max-width: 980px; }
+
+/* ── 头部 ─────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 48px;
+}
+
+.header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.title-block { display: flex; flex-direction: column; gap: 8px; }
+
+.eyebrow {
+  font-family: var(--zc-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--zc-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.count {
+  font-family: var(--zc-font-mono);
+  font-size: 13px;
+  color: var(--zc-muted);
+}
+
+/* ── 搜索 ─────────────────────────────────────────────────── */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 18px;
+  color: var(--zc-muted);
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  padding: 16px 18px 16px 46px;
+  font-family: var(--zc-font-sans);
+  font-size: 15px;
+  color: var(--zc-ink);
+  background: var(--zc-surface);
+  border: 1px solid var(--zc-border-input);
+  border-radius: var(--zc-radius-input);
+  outline: none;
+  transition: border-color .18s ease;
+}
+
+.search input:focus { border-color: var(--zc-ink); }
+.search input::placeholder { color: var(--zc-muted-2); }
+
+/* ── 网格 ─────────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+/* ── 空状态 ───────────────────────────────────────────────── */
+.empty {
+  margin: 0;
+  padding: 80px 0;
+  text-align: center;
+  font-family: var(--zc-font-mono);
+  font-size: 14px;
+  color: var(--zc-muted-2);
+}
+
+/* ── 响应式 ───────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .page { padding: 40px 20px 64px; }
+  .title { font-size: 32px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+}
