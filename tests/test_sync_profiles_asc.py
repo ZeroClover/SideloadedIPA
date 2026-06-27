@@ -91,7 +91,7 @@ class TestFindProfile:
         assert mock_run_asc.call_count == 2
         assert mock_run_asc.call_args_list[1].args[0] == [
             "profiles",
-            "relationships",
+            "links",
             "bundle-id",
             "--id",
             "profile-1",
