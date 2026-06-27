@@ -121,7 +121,7 @@ Example `repository_dispatch` payload:
 ## How It Works
 
 1. **Restore Cache**: Restores cached device lists and release versions from previous runs
-2. **Install zsign**: Downloads [`zsign`](https://github.com/zhlynn/zsign)'s official prebuilt macOS binary (pinned via `ZSIGN_VERSION`, checksum-verified); no Keychain import is needed since `zsign` signs straight from the P12 (it links Homebrew's `openssl@3` at runtime)
+2. **Install zsign**: Downloads [`zsign`](https://github.com/zhlynn/zsign)'s official prebuilt Linux binary (pinned via `ZSIGN_VERSION`, checksum-verified). The static `musl` build has no runtime dependencies, and `zsign` signs straight from the P12 — no Keychain involved
 3. **Check Entitlements Profile**: Python script (`sync_profiles_asc.py check`) via App Store Connect CLI:
    - Fetches all enabled iOS devices
    - Saves device list snapshot to cache for change detection
@@ -167,8 +167,8 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 
 ## Requirements and Notes
 
-- **Runner**: `macos-latest`
-- **Tools installed**: `zsign` (prebuilt binary), `sshpass`, `asc` (App Store Connect CLI), `openssl@3` (zsign's runtime dependency)
+- **Runner**: `ubuntu-latest` — `zsign` signs via OpenSSL (not Apple's `codesign`/Security.framework), so the whole pipeline runs on Linux (≈10× cheaper than a macOS runner)
+- **Tools installed**: `zsign` (prebuilt static Linux binary), `asc` (App Store Connect CLI, prebuilt Linux binary), `sshpass` (via `apt`) — all checksum-verified where downloaded
 - **Signing**: Uses [`zsign`](https://github.com/zhlynn/zsign) with the P12 certificate and synced profile (no Keychain / codesign identity required)
 - **Upload**: Password-based `scp` to asset server
 - **Bundle IDs**: Must be pre-registered in Apple Developer Portal
@@ -181,12 +181,17 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 
 If `debug` is enabled for a manual run (workflow_dispatch), the workflow will:
 
-- Enable macOS SSH service on port 22.
-- Disable password authentication and enable public key authentication.
 - Write the provided `DEBUG_SSH_PUBLIC_KEY` to `~runner/.ssh/authorized_keys`.
-- Install `cloudflared` and run `cloudflared --no-autoupdate --url ssh://localhost:22` in the foreground.
+- Start a throwaway [`dropbear`](https://matt.ucc.asn.au/dropbear/dropbear.html) SSH server on `127.0.0.1:2222` — public-key auth only (password auth disabled), with a per-run host key.
+- Download `cloudflared` and run `cloudflared --no-autoupdate --url ssh://localhost:2222` in the foreground, which prints a `trycloudflare.com` hostname.
 
-Use the private key that corresponds to `DEBUG_SSH_PUBLIC_KEY` to connect to the printed trycloudflare.com hostname. The tunnel runs in the foreground and keeps the job alive until you exit or cancel the run.
+Connect with the private key matching `DEBUG_SSH_PUBLIC_KEY`, tunnelling raw TCP through Cloudflare (end-to-end encrypted, no third-party SSH relay):
+
+```bash
+ssh -o ProxyCommand='cloudflared access tcp --hostname <printed-host>.trycloudflare.com' runner@localhost
+```
+
+The tunnel runs in the foreground and keeps the job alive until you exit or cancel the run.
 
 ## Local Development Setup
 

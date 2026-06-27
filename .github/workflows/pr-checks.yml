@@ -6,7 +6,10 @@ on:
 
 jobs:
   validate-setup:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    env:
+      # App Store Connect CLI release whose prebuilt Linux binary we download
+      ASC_VERSION: "2.4.0"
 
     steps:
       - name: Checkout
@@ -21,14 +24,17 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Install dependencies
+      - name: Install asc (App Store Connect CLI)
         run: |
-          # Homebrew now ignores formulae from untrusted third-party taps;
-          # trust the ones we rely on (asc, sshpass) plus the runner's aws/tap.
-          brew trust --tap rudrankriyam/tap hudochenkov/sshpass aws/tap
-          brew update
-          brew tap rudrankriyam/tap
-          brew install hudochenkov/sshpass/sshpass asc
+          set -euo pipefail
+          # Official prebuilt Linux binary, checksum-verified before use.
+          asc_bin="asc_${ASC_VERSION}_linux_amd64"
+          base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          asc --version
 
       - name: Validate ASC authentication
         env:
