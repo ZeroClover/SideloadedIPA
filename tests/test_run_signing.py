@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from run_signing import (
     GitHubAPIClient,
     build_itms_plist,
+    build_zsign_argv,
     extract_ipa_metadata,
+    find_zsign,
     load_release_cache,
     parse_repo_url,
     resolve_publish_target,
@@ -793,3 +795,63 @@ class TestResolvePublishTarget:
         assert target["ipa_url"] == "https://itms.zeroclover.io/fehviewer/Eros-FE.ipa"
         assert target["plist_url"] == "https://itms.zeroclover.io/fehviewer/itms.plist"
         assert target["site_dir"] == "fehviewer"
+
+
+class TestBuildZsignArgv:
+    """Tests for the zsign re-sign argv builder."""
+
+    def _argv(self, tmp_path: Path, **kwargs: object) -> list[str]:
+        return build_zsign_argv(
+            "/usr/local/bin/zsign",
+            tmp_path / "cert.p12",
+            "s3cr3t",
+            tmp_path / "profile.mobileprovision",
+            tmp_path / "in.ipa",
+            tmp_path / "out.ipa",
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_includes_core_flags(self, tmp_path: Path) -> None:
+        argv = self._argv(tmp_path)
+        assert argv[0] == "/usr/local/bin/zsign"
+        # p12 + password, profile, output and input IPA are all wired up.
+        assert argv[argv.index("-k") + 1] == str(tmp_path / "cert.p12")
+        assert argv[argv.index("-p") + 1] == "s3cr3t"
+        assert argv[argv.index("-m") + 1] == str(tmp_path / "profile.mobileprovision")
+        assert argv[argv.index("-o") + 1] == str(tmp_path / "out.ipa")
+        # The input IPA is the trailing positional argument.
+        assert argv[-1] == str(tmp_path / "in.ipa")
+
+    def test_forces_clean_sign(self, tmp_path: Path) -> None:
+        """``-f`` avoids reusing a stale per-folder signing cache."""
+        assert "-f" in self._argv(tmp_path)
+
+    def test_default_and_custom_zip_level(self, tmp_path: Path) -> None:
+        default = self._argv(tmp_path)
+        assert default[default.index("-z") + 1] == "9"
+        custom = self._argv(tmp_path, zip_level=0)
+        assert custom[custom.index("-z") + 1] == "0"
+
+    def test_argv_is_shell_free(self, tmp_path: Path) -> None:
+        """Every element is a plain string suitable for shell-less subprocess."""
+        argv = self._argv(tmp_path)
+        assert all(isinstance(part, str) for part in argv)
+
+
+class TestFindZsign:
+    """Tests for locating the zsign executable."""
+
+    def test_prefers_zsign_bin_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ZSIGN_BIN", "/custom/path/zsign")
+        assert find_zsign() == "/custom/path/zsign"
+
+    def test_falls_back_to_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ZSIGN_BIN", raising=False)
+        monkeypatch.setattr("run_signing.shutil.which", lambda _: "/opt/bin/zsign")
+        assert find_zsign() == "/opt/bin/zsign"
+
+    def test_raises_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ZSIGN_BIN", raising=False)
+        monkeypatch.setattr("run_signing.shutil.which", lambda _: None)
+        with pytest.raises(FileNotFoundError, match="zsign not found"):
+            find_zsign()

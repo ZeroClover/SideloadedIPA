@@ -2,11 +2,10 @@
 
 This repository contains a GitHub Actions workflow and helper scripts to:
 
-- Import Apple Developer signing certificates into a keychain using `apple-actions/import-codesign-certs`.
 - Automatically sync Development provisioning profiles with all registered devices via App Store Connect CLI (`asc`).
 - Read a TOML config of signing tasks.
-- For each task: download the IPA (from direct URL or GitHub Release), re-sign with Fastlane `resign` using synced profiles, and upload to an Assets server via `scp`.
-- **Generate the itms-services manifest**: after each resign, read the signed IPA's actual bundle id + version and emit `itms.plist` next to the IPA.
+- For each task: download the IPA (from direct URL or GitHub Release), re-sign with [`zsign`](https://github.com/zhlynn/zsign) (directly from the P12 certificate, no Keychain) using synced profiles, and upload to an Assets server via `scp`.
+- **Generate the itms-services manifest**: after each re-sign, read the signed IPA's actual bundle id + version and emit `itms.plist` next to the IPA.
 - **Refresh the download page**: update existing app versions / add new app cards in `site/apps.js`, bump the Cloudflare cache-buster, deploy the page, and commit the change back.
 - **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
 
@@ -21,7 +20,6 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 - `configs/tasks.toml.example` — example configuration file
 - `.env.example` — example environment variables
 - `site/` — the ITMS download page (auto-maintained by the pipeline; see `site/README.md`)
-- `Gemfile` — Ruby dependencies (fastlane for resign)
 
 ## Required Secrets / Variables
 
@@ -123,7 +121,7 @@ Example `repository_dispatch` payload:
 ## How It Works
 
 1. **Restore Cache**: Restores cached device lists and release versions from previous runs
-2. **Import Certificates**: Uses `apple-actions/import-codesign-certs` to import P12 into temporary keychain
+2. **Install zsign**: Downloads [`zsign`](https://github.com/zhlynn/zsign)'s official prebuilt macOS binary (pinned via `ZSIGN_VERSION`, checksum-verified); no Keychain import is needed since `zsign` signs straight from the P12 (it links Homebrew's `openssl@3` at runtime)
 3. **Check Entitlements Profile**: Python script (`sync_profiles_asc.py check`) via App Store Connect CLI:
    - Fetches all enabled iOS devices
    - Saves device list snapshot to cache for change detection
@@ -141,7 +139,7 @@ Example `repository_dispatch` payload:
      - Fetches latest release via authenticated GitHub API
      - Compares version with cache
      - Only rebuilds if version or publish timestamp changed
-   - Re-signs with Fastlane using synced profile
+   - Re-signs with `zsign` using the P12 certificate and synced profile
    - Uploads the signed IPA to the asset server via `scp`
    - **Generates `itms.plist`** from the signed IPA's actual bundle id + version and uploads it next to the IPA
    - **Refreshes the download page** (`site/apps.js` + `index.html` cache-buster) and deploys `site/` to the docroot
@@ -170,8 +168,8 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 ## Requirements and Notes
 
 - **Runner**: `macos-latest`
-- **Tools installed**: `bundler`, `fastlane`, `sshpass`, `asc` (App Store Connect CLI)
-- **Signing**: Uses Fastlane `resign` action with discovered identity and synced profile
+- **Tools installed**: `zsign` (prebuilt binary), `sshpass`, `asc` (App Store Connect CLI), `openssl@3` (zsign's runtime dependency)
+- **Signing**: Uses [`zsign`](https://github.com/zhlynn/zsign) with the P12 certificate and synced profile (no Keychain / codesign identity required)
 - **Upload**: Password-based `scp` to asset server
 - **Bundle IDs**: Must be pre-registered in Apple Developer Portal
 - **GitHub Token**: Workflow automatically uses `GITHUB_TOKEN` for authenticated API access
@@ -251,8 +249,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 
 ## Latest Actions Versions
 
-- `actions/checkout@v5`
-- `astral-sh/setup-uv@v5`
-- `apple-actions/import-codesign-certs@v2`
+- `actions/checkout@v6`
+- `astral-sh/setup-uv@v8`
+- `actions/cache@v5`
 
 These are selected based on current docs and should be kept up to date.

@@ -58,35 +58,50 @@ def decode_b64_to_file(b64: str, out_path: Path) -> None:
         f.write(base64.b64decode(b64))
 
 
-def find_bundle_exec() -> str:
-    """Return the bundle exec command prefix."""
+def find_zsign() -> str:
+    """Return the path to the zsign executable built/installed on the runner."""
     from shutil import which
 
-    bundle_exe = which("bundle")
-    if not bundle_exe:
+    zsign = os.getenv("ZSIGN_BIN") or which("zsign")
+    if not zsign:
         raise FileNotFoundError(
-            "bundle not found in PATH. Ensure bundler is installed on the runner."
+            "zsign not found in PATH. Set ZSIGN_BIN or ensure the build step ran."
         )
-    return f"{bundle_exe} exec"
+    return zsign
 
 
-def discover_codesign_identity(keychain_path: Optional[str]) -> Optional[str]:
-    """Try to discover an Apple codesigning identity from a keychain or default search list."""
-    cmd = ["security", "find-identity", "-v", "-p", "codesigning"]
-    if keychain_path:
-        cmd.append(keychain_path)
-    try:
-        out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
-    except Exception:
-        return None
-    # Parse lines like:  1) XXXXXXX "Apple Distribution: Name (TEAMID)"
-    for line in out.splitlines():
-        if "Apple Development" in line or "Apple Distribution" in line or "iPhone" in line:
-            # extract quoted name
-            m = re.search(r'"([^"]+)"', line)
-            if m:
-                return m.group(1)
-    return None
+def build_zsign_argv(
+    zsign_bin: str,
+    p12_path: Path,
+    password: str,
+    profile_path: Path,
+    input_ipa: Path,
+    output_ipa: Path,
+    zip_level: int = 9,
+) -> list[str]:
+    """Build the argv for a zsign re-sign invocation.
+
+    Signs ``input_ipa`` with a p12 + password (``-k``/``-p``) and provisioning
+    profile (``-m``), writing a freshly compressed IPA to ``output_ipa``
+    (``-o``). ``-f`` forces a clean sign with no stale per-folder cache. The
+    argv is handed to ``subprocess`` directly (never a shell string), so the
+    password is not subject to shell quoting and is never echoed to the CI log.
+    """
+    return [
+        zsign_bin,
+        "-f",
+        "-z",
+        str(zip_level),
+        "-k",
+        str(p12_path),
+        "-p",
+        password,
+        "-m",
+        str(profile_path),
+        "-o",
+        str(output_ipa),
+        str(input_ipa),
+    ]
 
 
 def build_remote_dest(base_path: str, filename: str) -> str:
@@ -672,6 +687,7 @@ def main() -> int:
 
     # Validate required top-level envs
     required_envs = [
+        "APPLE_DEV_CERT_P12_ENCODED",
         "APPLE_DEV_CERT_PASSWORD",
         "ASSETS_SERVER_IP",
         "ASSETS_SERVER_USER",
@@ -685,23 +701,20 @@ def main() -> int:
     assets_ip = os.environ["ASSETS_SERVER_IP"]
     assets_user = os.environ["ASSETS_SERVER_USER"]
     assets_pass = os.environ["ASSETS_SERVER_CREDENTIALS"]
+    cert_password = os.environ["APPLE_DEV_CERT_PASSWORD"]
 
-    bundle_exec_cmd = find_bundle_exec()
-    print(f"[info] Using bundle exec: {bundle_exec_cmd}")
-
-    keychain_path = os.getenv("KEYCHAIN_PATH")  # optional; action may set default keychain
-    codesign_identity = os.getenv("CODESIGN_IDENTITY") or discover_codesign_identity(keychain_path)
-    if not codesign_identity:
-        print(
-            "[error] Code signing identity not found. Ensure certificates were imported and CODESIGN_IDENTITY is set.",
-            file=sys.stderr,
-        )
-        return 4
+    zsign_bin = find_zsign()
+    print(f"[info] Using zsign: {zsign_bin}")
 
     work_root = Path("work").resolve()
     work_root.mkdir(exist_ok=True)
     cache_dir = work_root / "cache"
     cache_dir.mkdir(exist_ok=True)
+
+    # Decode the signing certificate once. zsign reads the p12 + password
+    # directly via OpenSSL, so no Keychain import or codesign identity is needed.
+    p12_path = work_root / "cert.p12"
+    decode_b64_to_file(os.environ["APPLE_DEV_CERT_P12_ENCODED"], p12_path)
 
     # Initialize GitHub API client if needed
     github_client = None
@@ -844,40 +857,16 @@ def main() -> int:
             any_fail = True
             continue
 
-        # Resign with fastlane
+        # Re-sign with zsign (p12 + provisioning profile -> fresh output IPA).
         signed_ipa = tdir / f"{safe_name}.ipa"
-        resign_params = [
-            shlex.quote(str(ori_ipa)),
-            f"ipa:{shlex.quote(str(ori_ipa))}",
-            f"signing_identity:{shlex.quote(codesign_identity)}",
-            f"provisioning_profile:{shlex.quote(str(mobileprov_path))}",
-        ]
-        if keychain_path:
-            resign_params.append(f"keychain_path:{shlex.quote(keychain_path)}")
-        fl_cmd = f"{bundle_exec_cmd} fastlane run resign " + " ".join(resign_params)
+        zsign_argv = build_zsign_argv(
+            zsign_bin, p12_path, cert_password, mobileprov_path, ori_ipa, signed_ipa
+        )
+        print(f"[task {i}] Re-signing with zsign -> {signed_ipa.name}")
         try:
-            run(fl_cmd)
+            subprocess.run(zsign_argv, check=True)
         except subprocess.CalledProcessError as e:
-            print(f"[task {i}] fastlane resign failed: {e}", file=sys.stderr)
-            any_fail = True
-            continue
-
-        # Determine resulting IPA
-        result_ipa: Path = ori_ipa
-        try:
-            if result_ipa.exists():
-                if result_ipa.resolve() != signed_ipa.resolve():
-                    shutil.copy2(result_ipa, signed_ipa)
-            else:
-                latest_ipas = sorted(
-                    tdir.glob("*.ipa"), key=lambda p: p.stat().st_mtime, reverse=True
-                )
-                if latest_ipas:
-                    result_ipa = latest_ipas[0]
-                    if result_ipa.resolve() != signed_ipa.resolve():
-                        shutil.copy2(result_ipa, signed_ipa)
-        except Exception as e:
-            print(f"[task {i}] Failed to finalize IPA artifact: {e}", file=sys.stderr)
+            print(f"[task {i}] zsign re-sign failed: {e}", file=sys.stderr)
             any_fail = True
             continue
 
