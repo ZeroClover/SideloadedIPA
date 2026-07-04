@@ -833,6 +833,17 @@ class TestBuildZsignArgv:
         custom = self._argv(tmp_path, zip_level=0)
         assert custom[custom.index("-z") + 1] == "0"
 
+    def test_bundle_id_rewrites_via_b_flag(self, tmp_path: Path) -> None:
+        """``-b`` must carry the task's bundle id so the signed app matches
+        the explicit App ID its provisioning profile was issued for."""
+        argv = self._argv(tmp_path, bundle_id="io.zeroclover.app.example")
+        assert argv[argv.index("-b") + 1] == "io.zeroclover.app.example"
+        # -b must come before the -o/output & trailing input positional.
+        assert argv.index("-b") < argv.index("-o")
+
+    def test_bundle_id_omitted_by_default(self, tmp_path: Path) -> None:
+        assert "-b" not in self._argv(tmp_path)
+
     def test_argv_is_shell_free(self, tmp_path: Path) -> None:
         """Every element is a plain string suitable for shell-less subprocess."""
         argv = self._argv(tmp_path)

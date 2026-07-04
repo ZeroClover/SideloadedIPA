@@ -77,17 +77,21 @@ def build_zsign_argv(
     profile_path: Path,
     input_ipa: Path,
     output_ipa: Path,
+    bundle_id: Optional[str] = None,
     zip_level: int = 9,
 ) -> list[str]:
     """Build the argv for a zsign re-sign invocation.
 
     Signs ``input_ipa`` with a p12 + password (``-k``/``-p``) and provisioning
     profile (``-m``), writing a freshly compressed IPA to ``output_ipa``
-    (``-o``). ``-f`` forces a clean sign with no stale per-folder cache. The
-    argv is handed to ``subprocess`` directly (never a shell string), so the
-    password is not subject to shell quoting and is never echoed to the CI log.
+    (``-o``). ``-b`` rewrites CFBundleIdentifier to ``bundle_id`` — required
+    for development-signed installs, where the app's bundle id must match the
+    explicit App ID the provisioning profile was issued for. ``-f`` forces a
+    clean sign with no stale per-folder cache. The argv is handed to
+    ``subprocess`` directly (never a shell string), so the password is not
+    subject to shell quoting and is never echoed to the CI log.
     """
-    return [
+    argv = [
         zsign_bin,
         "-f",
         "-z",
@@ -98,10 +102,15 @@ def build_zsign_argv(
         password,
         "-m",
         str(profile_path),
+    ]
+    if bundle_id:
+        argv += ["-b", bundle_id]
+    argv += [
         "-o",
         str(output_ipa),
         str(input_ipa),
     ]
+    return argv
 
 
 def build_p12_normalize_commands(
@@ -939,7 +948,13 @@ def main() -> int:
         # Re-sign with zsign (p12 + provisioning profile -> fresh output IPA).
         signed_ipa = tdir / f"{safe_name}.ipa"
         zsign_argv = build_zsign_argv(
-            zsign_bin, p12_path, cert_password, mobileprov_path, ori_ipa, signed_ipa
+            zsign_bin,
+            p12_path,
+            cert_password,
+            mobileprov_path,
+            ori_ipa,
+            signed_ipa,
+            bundle_id=task["bundle_id"],
         )
         print(f"[task {i}] Re-signing with zsign -> {signed_ipa.name}")
         try:
