@@ -14,7 +14,7 @@ window.ZC_APPS = [
   { name: 'EhPanda',   dir: 'ehpanda',   bundleId: 'io.zeroclover.app.ehpanda', version: '2.7.4'  },
   { name: 'FEhViewer', dir: 'fehviewer', bundleId: 'cn.honjow.fehv',            version: '1.9.2'  },
   { name: 'Sonolus',   dir: 'Sonolus',   bundleId: 'io.zeroclover.app.sonolus', version: '0.7.5'  },
-  { name: 'JHenTai',   dir: 'JHenTai',   bundleId: 'top.jtmonster.jhentai',     version: '8.0.14' },
+  { name: 'JHenTai',   dir: 'JHenTai',   bundleId: 'io.zeroclover.app.jhentai', version: '8.0.14' },
   { name: 'Asspp',     dir: 'Asspp',     bundleId: 'wiki.qaq.Asspp',            version: '4.2.0'  },
   { name: 'PiliPlus',  dir: 'PiliPlus',  bundleId: 'com.example.piliplus',      version: '2.0.9'  },
   { name: 'StikDebug', dir: 'StikDebug', bundleId: 'com.stik.stikdebug',        version: '3.1.6'  },
