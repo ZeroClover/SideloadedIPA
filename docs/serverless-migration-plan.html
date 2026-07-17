@@ -179,7 +179,7 @@ iOS Safari ─► Vercel 取页面 + plist
 
 <div class="decision">
   <h3>D1 · R2 上传使用 boto3（S3 兼容 API），而非 scp / wrangler / rclone</h3>
-  <p><span class="tag">采用</span><span class="tag">已确认</span>在 <code>pyproject.toml</code> 增加 <code>boto3</code> 依赖（uv.lock 固定版本与哈希），endpoint 指向 <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>。</p>
+  <p><span class="tag">采用</span><span class="tag">已确认</span>在 <code>pyproject.toml</code> 增加 <code>boto3</code> 依赖（uv.lock 固定版本与哈希），endpoint 指向 <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>。<b>签名 region 必须显式指定</b>：R2 只接受自身的位置提示名（<code>wnam/enam/weur/eeur/apac/oc</code>）或 <code>auto</code>，boto3 默认拾取本机 AWS 配置（如 <code>ap-northeast-1</code>）会被 R2 以 <code>InvalidRegionName</code> 拒绝 —— 实现上以 <code>auto</code> 为默认、<code>R2_REGION</code> 环境变量固定为 bucket 的位置提示（本桶 <code>apac</code>）。</p>
   <ul>
     <li>与仓库「依赖全部锁定、可复现」的惯例一致（现有 zsign/asc 二进制均校验 SHA256，uv.lock 自带哈希）；</li>
     <li>纯 Python 流程，上传逻辑与现有 <code>run_signing.py</code> 同进程编排，pytest 可直接 mock client；</li>

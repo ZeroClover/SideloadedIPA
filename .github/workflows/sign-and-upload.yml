@@ -49,6 +49,9 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+      # Signing region pinned to the bucket's location hint (avoids picking up
+      # an invalid region from ambient AWS config; "auto" also works)
+      R2_REGION: apac
       # Vercel on-demand revalidation hook (download-page / plist cache refresh)
       VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
       # Hook URL: production default is the live domain; override with the repo

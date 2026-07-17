@@ -54,6 +54,7 @@ class TestFromEnv:
         monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
         monkeypatch.setenv("R2_BUCKET", "bucket")
         monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://ipa.example.com/")
+        monkeypatch.delenv("R2_REGION", raising=False)
         with patch("r2_store.boto3.client") as mock_client:
             store = R2Store.from_env()
         assert store.bucket == "bucket"
@@ -64,7 +65,22 @@ class TestFromEnv:
             endpoint_url="https://acc123.r2.cloudflarestorage.com",
             aws_access_key_id="akid",
             aws_secret_access_key="secret",
+            # region is always explicit: ambient AWS config (e.g. ap-northeast-1)
+            # is rejected by R2 with InvalidRegionName
+            region_name="auto",
         )
+
+    def test_region_pinned_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """R2_REGION pins the signing region to the bucket's location hint."""
+        monkeypatch.setenv("R2_ACCOUNT_ID", "acc123")
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "akid")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+        monkeypatch.setenv("R2_BUCKET", "bucket")
+        monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://ipa.example.com")
+        monkeypatch.setenv("R2_REGION", "apac")
+        with patch("r2_store.boto3.client") as mock_client:
+            R2Store.from_env()
+        assert mock_client.call_args.kwargs["region_name"] == "apac"
 
 
 class TestKeyHelpers:
@@ -82,9 +98,7 @@ class TestKeyHelpers:
 
     def test_public_url(self) -> None:
         store = _store()
-        assert store.public_url("apps/ehpanda/icon.png") == (
-            f"{BASE_URL}/apps/ehpanda/icon.png"
-        )
+        assert store.public_url("apps/ehpanda/icon.png") == (f"{BASE_URL}/apps/ehpanda/icon.png")
 
     def test_key_from_url_roundtrip(self) -> None:
         store = _store()
@@ -138,7 +152,9 @@ class TestUploadAndDownloadJson:
     def test_download_json_parses_body(self) -> None:
         client = MagicMock()
         payload = {"updatedAt": None, "apps": []}
-        client.get_object.return_value = {"Body": MagicMock(read=lambda: json.dumps(payload).encode())}
+        client.get_object.return_value = {
+            "Body": MagicMock(read=lambda: json.dumps(payload).encode())
+        }
         store = _store(client)
         assert store.download_json("site/apps.json") == payload
 

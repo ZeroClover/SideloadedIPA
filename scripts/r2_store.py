@@ -17,6 +17,13 @@ environment-specific values:
     R2_BUCKET             bucket name
     R2_PUBLIC_BASE_URL    public base URL of the bucket's custom domain
                           (e.g. "https://ipa.zeroclover.io"), no trailing slash
+    R2_REGION             optional signing region: the bucket's location hint
+                          (wnam/enam/weur/eeur/apac/oc) or "auto" (default).
+
+The region is always set EXPLICITLY on the client. boto3 otherwise falls back
+to the ambient AWS config (~/.aws/config, AWS_DEFAULT_REGION), whose region
+names (e.g. "ap-northeast-1") R2 rejects with InvalidRegionName — R2 only
+accepts its own location hints plus "auto".
 """
 
 from __future__ import annotations
@@ -48,6 +55,10 @@ REQUIRED_ENV_VARS = (
     "R2_PUBLIC_BASE_URL",
 )
 
+# R2 signing region per Cloudflare's docs (region_name="auto"); may be pinned
+# to the bucket's location hint via the R2_REGION env var (e.g. "apac").
+DEFAULT_REGION = "auto"
+
 
 class R2Store:
     """Thin wrapper around a boto3 S3 client pointed at a Cloudflare R2 bucket."""
@@ -61,6 +72,7 @@ class R2Store:
         public_base_url: str,
         key_prefix: str = "apps",
         apps_json_key: str = "site/apps.json",
+        region: str = DEFAULT_REGION,
         client: Any = None,
     ) -> None:
         self.bucket = bucket
@@ -72,11 +84,12 @@ class R2Store:
             endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
+            region_name=region,
         )
 
     @classmethod
     def from_env(cls, key_prefix: str = "apps", apps_json_key: str = "site/apps.json") -> "R2Store":
-        """Build a store from the R2_* environment variables (all required)."""
+        """Build a store from the R2_* environment variables (R2_REGION optional)."""
         missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
         if missing:
             raise RuntimeError("Missing required environment variable(s): " + ", ".join(missing))
@@ -88,6 +101,7 @@ class R2Store:
             public_base_url=os.environ["R2_PUBLIC_BASE_URL"],
             key_prefix=key_prefix,
             apps_json_key=apps_json_key,
+            region=os.getenv("R2_REGION", DEFAULT_REGION),
         )
 
     # ── key / URL helpers ────────────────────────────────────────────────
