@@ -51,6 +51,10 @@ jobs:
       R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
       # Vercel on-demand revalidation hook (download-page / plist cache refresh)
       VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
+      # Hook URL: production default is the live domain; override with the repo
+      # variable (e.g. https://sideloadedipa.vercel.app/api/revalidate) while
+      # testing pre-cutover, then delete the variable at DNS switchover.
+      VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
       # GitHub Token for API access (authenticated rate limits)
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Enable verbose logging in scripts (used for GitHub API rate limit debug)
