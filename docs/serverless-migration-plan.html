@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>无服务器化迁移计划 · SideloadedIPA</title>
+<style>
+  :root {
+    --bg: #f4f4f2;
+    --panel: #ffffff;
+    --ink: #1a1a18;
+    --ink-2: #55534e;
+    --ink-3: #8a877f;
+    --line: #e4e2dc;
+    --accent: #c2410c;
+    --accent-soft: #fdf0e9;
+    --ok: #166534;
+    --ok-soft: #edf7ef;
+    --warn: #92600a;
+    --warn-soft: #fdf6e3;
+    --code-bg: #26241f;
+    --code-ink: #f0ede6;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.doc { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 32px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: 34px; line-height: 1.25; margin: 10px 0 14px; letter-spacing: -.01em; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--ink-2); font-size: 14px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .badge { display: inline-block; font-family: var(--mono); font-size: 12px; padding: 2px 10px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); border: 1px solid #ecd9a8; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: #cde7d4; }
+  nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; margin-bottom: 40px; font-size: 14.5px; }
+  nav.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 40px; }
+  nav.toc a { color: var(--ink-2); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  h2 { font-size: 24px; margin: 56px 0 16px; padding-top: 12px; border-top: 1px solid var(--line); letter-spacing: -.01em; }
+  h2 .no { font-family: var(--mono); font-size: 14px; color: var(--accent); vertical-align: middle; margin-right: 10px; }
+  h3 { font-size: 18px; margin: 32px 0 10px; }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 24px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  code { font-family: var(--mono); font-size: .875em; background: #eceae5; padding: 1.5px 6px; border-radius: 5px; }
+  pre { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.65; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin: 16px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } nav.toc ol { columns: 1; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .card h4 { margin: 0 0 10px; font-size: 15px; font-family: var(--mono); letter-spacing: .02em; }
+  .card.before h4 { color: var(--ink-3); }
+  .card.after { border-color: #f0c8ae; background: var(--accent-soft); }
+  .card.after h4 { color: var(--accent); }
+  .flow { font-family: var(--mono); font-size: 12.5px; line-height: 1.9; color: var(--ink-2); white-space: pre-wrap; }
+  .decision { border-left: 3px solid var(--accent); padding: 4px 0 4px 18px; margin: 26px 0; }
+  .decision h3 { margin-top: 0; }
+  .tag { font-family: var(--mono); font-size: 11.5px; padding: 1px 8px; border-radius: 4px; background: var(--ok-soft); color: var(--ok); border: 1px solid #cde7d4; margin-right: 6px; }
+  .tag.alt { background: var(--warn-soft); color: var(--warn); border-color: #ecd9a8; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14.5px; background: var(--panel); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: #faf9f6; font-weight: 600; font-size: 13.5px; }
+  tr:last-child td { border-bottom: none; }
+  .add { color: var(--ok); font-weight: 600; }
+  .del { color: #b91c1c; font-weight: 600; }
+  .phase { display: flex; gap: 16px; margin: 14px 0; }
+  .phase .pn { flex: 0 0 44px; height: 44px; border-radius: 50%; background: var(--ink); color: var(--bg); font-family: var(--mono); display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .phase .pc { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+  .phase .pc h3 { margin: 0 0 8px; font-size: 16.5px; }
+  .accept { background: var(--ok-soft); border: 1px solid #cde7d4; border-radius: 8px; padding: 8px 14px; font-size: 14px; color: var(--ok); margin-top: 10px; }
+  .note { background: var(--warn-soft); border: 1px solid #ecd9a8; border-radius: 12px; padding: 14px 18px; font-size: 14.5px; margin: 16px 0; }
+  .note b { color: var(--warn); }
+  a { color: var(--accent); }
+  .refs li { font-size: 14px; margin: 7px 0; word-break: break-all; }
+  footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13px; }
+  .q { counter-reset: q; }
+  .q li { list-style: none; position: relative; padding-left: 40px; margin: 12px 0; }
+  .q li::before { counter-increment: q; content: "Q" counter(q); position: absolute; left: 0; top: 2px; font-family: var(--mono); font-size: 12px; color: var(--accent); border: 1px solid #f0c8ae; background: var(--accent-soft); border-radius: 6px; padding: 0 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <span class="eyebrow">SideloadedIPA · 变更计划</span>
+  <h1>无服务器化迁移：Vercel（Next.js）+ Cloudflare R2</h1>
+  <div class="meta">
+    <span>分支 <b>feat/serverless-vercel-r2-migration</b></span>
+    <span>日期 <b>2026-07-18</b></span>
+    <span>状态 <span class="badge">实施中 · P1–P3 已落地</span></span>
+    <span>修订 <b>v2</b> —— 已并入决策：boto3 上传 · R2 域 <b>ipa.zeroclover.io</b> · CI 清理旧版（弃用生命周期规则）· plist 由 Vercel 动态生成 · apps.json 直存 R2</span>
+    <span>修订 <b>v3</b> —— 计划批准；开放问题全部决议：沿用现有 Vercel 账号 · 不保留手工 app · 删除 <code>site/</code> · 迁移现有图标</span>
+    <span>进度 <b>v4</b>（2026-07-18）—— P1 基础设施就绪（bucket/Token/自定义域/GitHub secrets），图标迁移脚本 <code>scripts/seed_r2.py</code> + 一次性 workflow 待首跑；P2 前端落地并部署至 <b>sideloadedipa.vercel.app</b> 验证（页面 200 / plist 404 语义 / revalidate 鉴权正常，本地 golden 对拍逐字节一致）；P3 流水线改造完成（pytest 131 全绿、mypy/black/isort 通过）；待办：推送分支 → 图标迁移 workflow 首跑 → P4 全量试跑 + 真机验证 → P5 切流（切流时为 production 设 <code>SITE_PUBLIC_BASE_URL</code> 并重新部署）</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#s1">背景与目标</a></li>
+    <li><a href="#s2">架构对比：现状 → 目标</a></li>
+    <li><a href="#s3">关键决策（含调研依据）</a></li>
+    <li><a href="#s4">目标架构详细设计</a></li>
+    <li><a href="#s5">分阶段实施步骤</a></li>
+    <li><a href="#s6">风险与缓解</a></li>
+    <li><a href="#s7">测试计划</a></li>
+    <li><a href="#s8">回滚方案</a></li>
+    <li><a href="#s9">开放问题决议</a></li>
+    <li><a href="#s10">参考资料</a></li>
+  </ol>
+</nav>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s1"><span class="no">01</span>背景与目标</h2>
+
+<p>当前仓库的签名流水线（GitHub Actions + zsign）产出三类产物，全部依赖一台 Plesk 服务器（<code>itms.zeroclover.io</code> 所在 VPS）通过 <code>scp/sshpass</code> 发布：</p>
+<ul>
+  <li>重签名后的 <b>IPA 二进制</b>（服务器本地路径，经 HTTPS 对外提供下载）；</li>
+  <li>每个 app 的 <b>itms.plist</b>（itms-services 安装清单，与 IPA 同目录）；</li>
+  <li><b>下载页面</b>（<code>site/</code> 静态文件：index.html + apps.js + app-card.js + app.js + styles.css，scp 到 docroot）。</li>
+</ul>
+
+<p>本次迭代的目标是<b>彻底移除对这台服务器的需求</b>，转为无服务器架构：</p>
+<ul>
+  <li><b>前端页面 + plist 托管到 Vercel</b>：用 Next.js（App Router）重写下载页；plist 由 Vercel 上的 Route Handler 动态产出，URL 仍挂在自有域名下；</li>
+  <li><b>CI 按需更新</b>：签名流水线每次构建后，自动更新前端数据源与 plist 内容 —— 通过「R2 上的 apps.json + Vercel 按需 ISR 重验证」实现，<b>无需重新部署、无需回写提交</b>；</li>
+  <li><b>IPA 上传到 Cloudflare R2</b>：plist 内的下载链接指向 R2 的公开 URL（自定义域名），R2 出口流量免费；</li>
+  <li>淘汰 <code>ASSETS_SERVER_*</code> 凭据与全部 scp 逻辑。</li>
+</ul>
+
+<div class="note"><b>范围说明：</b>本计划只改变「发布与托管」环节。签名本身（zsign、P12、mobileprovision 同步、缓存与变更检测逻辑）不受影响，保持原样。</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s2"><span class="no">02</span>架构对比：现状 → 目标</h2>
+
+<div class="grid2">
+  <div class="card before">
+    <h4>现状 · 自建服务器</h4>
+    <div class="flow">GitHub Actions (ubuntu)
+  ├─ zsign 重签名 IPA
+  ├─ scp ──► VPS (Plesk)
+  │            ├─ /&lt;dir&gt;/App.ipa
+  │            ├─ /&lt;dir&gt;/itms.plist
+  │            └─ docroot: site/* 静态页
+  ├─ git commit 回写 site/apps.js
+  └─ Cloudflare 代理缓存（需 ?v=N 手动破缓存）
+
+iOS Safari ─► itms.zeroclover.io（VPS）
+  页面 / plist / IPA 全部同源同机</div>
+  </div>
+  <div class="card after">
+    <h4>目标 · 无服务器</h4>
+    <div class="flow">GitHub Actions (ubuntu)
+  ├─ zsign 重签名 IPA
+  ├─ S3 API ──► Cloudflare R2
+  │            ├─ apps/&lt;slug&gt;/&lt;ver&gt;/App.ipa（版本化 key）
+  │            ├─ apps/&lt;slug&gt;/icon.png
+  │            └─ site/apps.json（数据源，合并更新）
+  └─ HTTPS ──► Vercel /api/revalidate（带密钥）
+
+Vercel (Next.js 16, itms.zeroclover.io)
+  ├─ /                下载页（RSC，读 apps.json，ISR）
+  └─ /apps/&lt;slug&gt;/itms.plist  Route Handler 动态生成
+
+iOS Safari ─► Vercel 取页面 + plist
+          └─► R2 自定义域名直取 IPA（不经 Vercel）</div>
+  </div>
+</div>
+
+<p>职责切分原则：<b>Vercel 只承载 HTML 与几 KB 的 plist XML</b>；IPA 字节流永远直连 R2（302/直链），不经过 Vercel 代理 —— 否则 Vercel 的 Fast Data Transfer 额度（Hobby ~100 GB/月）会被少数几次数百 MB 的下载瞬间耗尽。</p>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s3"><span class="no">03</span>关键决策（含调研依据）</h2>
+
+<div class="decision">
+  <h3>D1 · R2 上传使用 boto3（S3 兼容 API），而非 scp / wrangler / rclone</h3>
+  <p><span class="tag">采用</span><span class="tag">已确认</span>在 <code>pyproject.toml</code> 增加 <code>boto3</code> 依赖（uv.lock 固定版本与哈希），endpoint 指向 <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>。</p>
+  <ul>
+    <li>与仓库「依赖全部锁定、可复现」的惯例一致（现有 zsign/asc 二进制均校验 SHA256，uv.lock 自带哈希）；</li>
+    <li>纯 Python 流程，上传逻辑与现有 <code>run_signing.py</code> 同进程编排，pytest 可直接 mock client；</li>
+    <li>备选：aws CLI（GitHub runner 镜像预装、零新依赖，但版本不受本仓库锁定）；rclone/wrangler 需要额外安装，对本场景无收益。</li>
+  </ul>
+  <p>凭据：R2 API Token（<b>Object Read &amp; Write</b> 权限，<b>限定单个 bucket</b>），GitHub Secrets 存 Access Key ID / Secret。</p>
+</div>
+
+<div class="decision">
+  <h3>D2 · R2 公开访问用自定义域名，不用 r2.dev</h3>
+  <p><span class="tag">采用</span><span class="tag">已确认</span>为 bucket 绑定自定义域 <code>ipa.zeroclover.io</code>（域名已在 Cloudflare，接入自动建 CNAME 并签发边缘证书）。</p>
+  <ul>
+    <li><code>r2.dev</code> 官方定位为开发用途：速率限制（数百 req/s 后 429）、可能限速、<b>无边缘缓存</b>，Cloudflare 明确建议生产用自定义域；</li>
+    <li>对象 key 与 URL 路径一一对应；bucket 公开后按精确 key 提供下载，<b>目录列举返回 404</b>（不暴露清单）；</li>
+    <li>R2 <b>出口流量免费</b>（含自定义域与 S3 API），大 IPA 分发成本为零；注意免费/Pro/Business 套餐边缘缓存单文件上限 512 MB，超大 IPA 将始终回源 R2 —— 零出口费下可接受；</li>
+    <li>该域名上不得开启 WAF 挑战/Bot Fight —— iOS 的 <code>appstored</code> 必须匿名访问（先发 HEAD 再 GET），任何登录墙/挑战页都会导致安装静默失败。</li>
+  </ul>
+</div>
+
+<div class="decision">
+  <h3>D3 · plist 由 Next.js Route Handler 动态生成，URL 留在 Vercel 域下</h3>
+  <p><span class="tag">采用</span><span class="tag">已确认</span><code>web/app/apps/[slug]/itms.plist/route.ts</code> —— App Router 支持带点号的静态段（官方文档示例即 <code>rss.xml/route.ts</code>），动态段 + <code>itms.plist</code> 组合得到 <code>/apps/&lt;slug&gt;/itms.plist</code>。</p>
+  <ul>
+    <li>满足「plist 本身托管到 Vercel」的要求，且数据只有一份（apps.json），不存在 CI 上传的 plist 与页面数据不一致的问题；</li>
+    <li>响应头 <code>Content-Type: text/xml; charset=utf-8</code>（Apple 部署文档对 .plist 的规定类型；实测 iOS 对 MIME 宽容，但按官方来），<code>Cache-Control: public, max-age=0, must-revalidate</code> —— 清单必须永远新鲜，任何一层缓存旧版本都会导致装到旧版；</li>
+    <li>plist 内的 IPA URL 直接写 R2 自定义域地址（HTTPS、匿名可访问、支持 HEAD —— 均满足 Apple OTA 要求；清单与 IPA 不要求同宿主，App Center 时代即如此分发）；</li>
+    <li>备测结论：itms-services 在 iOS 17/18 仍正常工作（Apple 官方文档 2025-09 仍在更新该分发方式；社区在 iOS 18.3 有实测记录），「iOS 17.2 移除 itms-services」系谣言。</li>
+  </ul>
+</div>
+
+<div class="decision">
+  <h3>D4 · 「按需更新」用 R2 apps.json + ISR 按需重验证，不用 Deploy Hook / 提交回写</h3>
+  <p><span class="tag">采用</span><span class="tag">已确认</span>CI 构建完成 → 上传 IPA + 合并更新 R2 上的 <code>site/apps.json</code> → <code>curl</code> 调用 Vercel 上的 <code>/api/revalidate</code>（共享密钥）→ 路由内执行 <code>revalidateTag('apps', 'max')</code>。apps.json <b>只存在于 R2</b>，不进 git、不做提交回写。</p>
+  <ul>
+    <li>页面与 plist 路由统一用带 <code>{ next: { tags: ['apps'] } }</code> 的 fetch 读 apps.json；重验证后下一次请求即取新数据，<b>更新延迟 ≈ 一次请求，零构建分钟消耗</b>；</li>
+    <li>这是 Next.js 官方针对「数据在部署之外变化」的推荐模式；<code>revalidatePath/revalidateTag</code> 对 Route Handler 同样有效（官方 API 参考明确说明）；</li>
+    <li><span class="tag alt">落选：Deploy Hook</span>触发的是整分支重建（apps.json 在 R2 上，重建也拿不到新数据），徒耗构建；</li>
+    <li><span class="tag alt">落选：提交回写触发 Git 自动部署</span>每次签名产生一次完整 Vercel 构建 + 提交噪音（现状 apps.js 回写即此模式，正好借机去掉；<code>contents: write</code> 权限可收回为 read）。</li>
+  </ul>
+</div>
+
+<div class="decision">
+  <h3>D5 · IPA 绝不经过 Vercel 代理</h3>
+  <p><span class="tag">采用</span>plist 内的 IPA URL、页面上的任何直链，全部指向 R2 自定义域。禁止用 Vercel <code>rewrites</code> 代理 R2 的 IPA —— rewrite 到外部地址是<b>代理</b>（Vercel 拉源站字节再转发），全部计入 Fast Data Transfer。若未来需要 Vercel 域下的 IPA 短链，只能用 302 重定向。</p>
+</div>
+
+<div class="decision">
+  <h3>D6 · DNS：Vercel 域名在 Cloudflare 侧必须灰云（DNS only）</h3>
+  <p><span class="tag">采用</span><code>itms.zeroclover.io</code> → <code>CNAME cname.vercel-dns.com</code>，<b>关闭橙色云代理</b>。橙云开启会导致 Vercel 域名校验看到 Cloudflare IP 报 "Invalid Configuration"，且证书签发失败（525 握手错误）。R2 自定义域不受影响（本来就是 Cloudflare 自家产品）。</p>
+</div>
+
+<div class="decision">
+  <h3>D7 · IPA 使用版本化 key + immutable 缓存，旧版本由 CI 清理</h3>
+  <p><span class="tag">采用</span><span class="tag">已确认</span><code>apps/&lt;slug&gt;/&lt;version&gt;/&lt;App&gt;.ipa</code>，上传时 <code>Content-Type: application/octet-stream</code>（Apple 对 .ipa 的规定类型）、<code>Content-Disposition: attachment</code>（浏览器直开时存为文件而非跳转）、<code>Cache-Control: public, max-age=31536000, immutable</code>。</p>
+  <ul>
+    <li>版本化 key = 原子切换（apps.json 一翻指向即全量生效）、永不需要 purge；同时避开 R2「同 key 每秒 1 次写」的限制；</li>
+    <li><b>不配置 bucket 生命周期规则</b>：很多 App 不保证固定发版周期，按时间过期（如 90 天）会误删仍被引用的唯一版本。改为 <b>CI 在每次构建末尾清理</b>：新 IPA 上传 → apps.json 切换指向 → revalidate 成功之后，删除该 slug 下不再被 apps.json 引用的旧版本 key。删除白名单以 apps.json 的引用集合为准（与时间无关），只处理本次构建涉及的 slug；任一步失败即跳过清理。</li>
+    <li>免费额度 10 GB 存储 + 每月 1M A 类 / 10M B 类操作；清理使存储占用恒定（每 app 一份当前版），本场景绰绰有余。</li>
+  </ul>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s4"><span class="no">04</span>目标架构详细设计</h2>
+
+<h3>4.1 R2 数据布局与 apps.json 数据契约</h3>
+<div class="panel">
+<p><b>Bucket 布局</b>（单 bucket，如 <code>zeroclover-ipa</code>）：</p>
+<pre><code>apps/&lt;slug&gt;/&lt;version&gt;/&lt;App&gt;.ipa   # 版本化 IPA（immutable）
+apps/&lt;slug&gt;/icon.png                # 卡片图标（一次性从服务器迁移；后续可由 CI 从 IPA 提取）
+site/apps.json                       # 页面 + plist 的唯一数据源</code></pre>
+
+<p><b>apps.json</b>（由 CI 全权生成与合并更新；已决议：不保留任何手工维护条目，仅收录流水线 task 产出）：</p>
+<pre><code>{
+  "updatedAt": "2026-07-18T04:00:00Z",
+  "apps": [
+    {
+      "slug": "JHenTai",
+      "name": "JHenTai",
+      "bundleId": "io.zeroclover.app.jhentai",
+      "version": "8.0.14",
+      "ipaUrl": "https://ipa.zeroclover.io/apps/JHenTai/8.0.14/JHenTai.ipa",
+      "iconUrl": "https://ipa.zeroclover.io/apps/JHenTai/icon.png"
+    }
+  ]
+}</code></pre>
+<p><code>slug</code> 取 task 的 <code>slug</code> 字段（缺省 <code>slugify(app_name)</code>，与旧 apps.js 的 <code>dir</code> 对齐，如 <code>JHenTai</code>、<code>fehviewer</code>），流水线按 slug 写入/刷新条目；<b>name 直接取 tasks.toml 的 <code>app_name</code></b>，不再有「策展名保留」逻辑。apps.json <b>只存在于 R2</b>，是页面与 plist 的唯一数据源，不进 git、不做提交回写。</p>
+</div>
+
+<h3>4.2 Next.js 前端（<code>web/</code>）</h3>
+<div class="panel">
+<p>Next.js 16（当前稳定版）+ React 19 + TypeScript，Node 运行时（ISR/按需重验证仅 Node 运行时支持；不开启 cacheComponents）。视觉 1:1 移植现有设计令牌（暖白 <code>#f4f4f2</code>、近黑 <code>#1a1a18</code>、Space Grotesk + Space Mono，用 <code>next/font/google</code> 自托管，去掉运行时对 Google Fonts CDN 的依赖）。</p>
+<pre><code>web/
+├── app/
+│   ├── layout.tsx                       # 字体 + 全局样式
+│   ├── page.tsx                         # RSC：读 apps.json → &lt;AppGrid&gt;（客户端组件，负责搜索过滤）
+│   ├── globals.css                      # 移植 styles.css 设计令牌
+│   ├── apps/[slug]/itms.plist/route.ts  # GET → plist XML（text/xml, no-cache）
+│   └── api/revalidate/route.ts          # CI Webhook：验密钥 → revalidateTag('apps','max')
+├── lib/
+│   ├── apps.ts                          # getApps(): fetch apps.json, { next: { tags: ['apps'] } }
+│   └── plist.ts                         # buildItmsPlist()：移植 Python 版 XML 格式（4 空格缩进）
+├── components/AppCard.tsx               # 移植 app-card.js（去 Shadow DOM，样式进 globals.css）
+├── public/
+├── next.config.ts
+└── package.json</code></pre>
+
+<p><b>plist 路由要点</b>（Next 16 中 <code>params</code> 为 Promise，必须 await）：</p>
+<pre><code>// app/apps/[slug]/itms.plist/route.ts
+export async function GET(_req: Request, { params }: { params: Promise&lt;{ slug: string }&gt; }) {
+  const { slug } = await params;
+  const app = (await getApps()).find(a =&gt; a.slug === slug);
+  if (!app) return new Response('not found', { status: 404 });
+  return new Response(buildItmsPlist(app), {
+    headers: {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+    },
+  });
+}</code></pre>
+
+<p><b>安装按钮</b>：<code>itms-services://?action=download-manifest&amp;url=</code> + <code>encodeURIComponent(plistUrl)</code>（URL 含特殊字符时必须百分号编码）。仅 iOS Safari 生效（桌面点击无反应为预期）。</p>
+<p><b>revalidate 路由</b>：校验 <code>?secret=</code> 与环境变量 <code>REVALIDATE_SECRET</code> 一致后 <code>revalidateTag('apps', 'max')</code>（Next 16 需第二参数 <code>cacheLife</code>），返回 <code>{ revalidated: true }</code>。</p>
+<p><b>图标</b>：<code>&lt;img&gt;</code> 直引 R2 的 iconUrl，保留现有「加载失败退回首字母色块」的兜底。</p>
+</div>
+
+<h3>4.3 CI / 工作流变更（<code>sign-and-upload.yml</code> 与脚本）</h3>
+<table>
+  <tr><th style="width:34%">环节</th><th>变更</th></tr>
+  <tr><td>secrets / vars</td><td>
+    <span class="del">删除</span> <code>ASSETS_SERVER_IP</code> / <code>ASSETS_SERVER_USER</code> / <code>ASSETS_SERVER_CREDENTIALS</code>（切流后）<br>
+    <span class="add">新增</span> secrets：<code>R2_ACCESS_KEY_ID</code>、<code>R2_SECRET_ACCESS_KEY</code>、<code>VERCEL_REVALIDATE_SECRET</code><br>
+    <span class="add">新增</span> vars：<code>R2_ACCOUNT_ID</code>、<code>R2_BUCKET</code>、<code>R2_PUBLIC_BASE_URL</code>（<code>https://ipa.zeroclover.io</code>）
+  </td></tr>
+  <tr><td>依赖安装步</td><td><span class="del">删除</span> <code>apt install sshpass</code>；boto3 经 <code>uv sync</code> 随锁文件安装，无额外步骤</td></tr>
+  <tr><td>上传（run_signing.py）</td><td><span class="del">删除</span> <code>scp_upload</code> / <code>ensure_remote_dir</code> / <code>deploy_site</code> / <code>resolve_site_settings</code> / <code>resolve_publish_target</code>；<span class="add">新增</span> <code>scripts/r2_store.py</code>（boto3 client 封装：上传 IPA/JSON、读取 apps.json）</td></tr>
+  <tr><td>plist 生成</td><td>从 Python 迁移到前端 <code>lib/plist.ts</code>；过渡期保留 <code>build_itms_plist</code> 供 golden-file 对拍，切流后删除</td></tr>
+  <tr><td>页面数据（site_update.py）</td><td><span class="del">退役</span>（连同 <code>site/apps.js</code> 正则合并、<code>?v=N</code> 破缓存）；<span class="add">新增</span> <code>scripts/apps_registry.py</code>：下载 R2 apps.json → 按 slug 写入/刷新 task 条目（<code>name</code> 取 <code>app_name</code>，无手工条目保留逻辑）→ 上传；单测按新语义编写</td></tr>
+  <tr><td>「Commit refreshed download page」步</td><td><span class="del">删除</span>；工作流权限从 <code>contents: write</code> 收紧为 <code>contents: read</code></td></tr>
+  <tr><td>末尾新增一步</td><td><span class="add">新增</span>「Revalidate Vercel」：apps.json 有变化时 <code>curl -fsS "https://itms.zeroclover.io/api/revalidate?secret=$VERCEL_REVALIDATE_SECRET"</code>（置于 run_signing.py 内统一编排，便于复用其「是否有更新」的判断）</td></tr>
+  <tr><td>旧版本清理</td><td><span class="add">新增</span> <code>r2_store.cleanup_stale()</code>：同一 run 内「上传新 IPA → 上传 apps.json → revalidate」成功后，列出 <code>apps/&lt;slug&gt;/</code> 前缀下所有对象，删除 apps.json 未引用的旧版本 key（boto3 <code>list_objects_v2</code> + 批量 <code>delete_objects</code>）；任一步失败即跳过；仅处理本次构建涉及的 slug（D7）</td></tr>
+  <tr><td>pr-checks.yml</td><td>随脚本改动更新对应 pytest 范围；web/ 增加独立 job（<code>npm ci + next build</code> 或至少 <code>tsc --noEmit</code>）</td></tr>
+</table>
+
+<h3>4.4 配置变更（<code>configs/tasks.toml</code>）</h3>
+<div class="panel">
+<pre><code># 删除：每个 task 的 asset_server_path、[site].deploy_path / asset_path_prefix
+# 新增（全部可选，有默认值）：
+[r2]
+key_prefix = "apps"                      # 对象 key 前缀
+apps_json_key = "site/apps.json"         # 数据源 key
+
+[[tasks]]
+task_name = "JHenTai"
+app_name = "JHenTai"
+bundle_id = "io.zeroclover.app.jhentai"
+repo_url = "https://github.com/jiangtian616/JHenTai"
+slug = "JHenTai"                         # 可选；默认 slugify(app_name)。沿用旧 dir 值
+</code></pre>
+<p>bucket 名、账号、公网基址全部来自环境变量（secrets/vars），不进配置文件 —— 配置文件保持不含环境特异信息。</p>
+</div>
+
+<h3>4.5 域名与 DNS</h3>
+<table>
+  <tr><th>域名</th><th>指向</th><th>说明</th></tr>
+  <tr><td><code>itms.zeroclover.io</code></td><td>Vercel（CNAME → <code>cname.vercel-dns.com</code>，<b>灰云</b>）</td><td>页面 + plist；切换时由现 VPS 记录改为 CNAME</td></tr>
+  <tr><td><code>ipa.zeroclover.io</code>（已确认）</td><td>R2 bucket 自定义域</td><td>IPA / 图标 / apps.json；Cloudflare 面板接入自动签发证书</td></tr>
+</table>
+
+<h3>4.6 Vercel 项目设置</h3>
+<ul>
+  <li><b>Root Directory</b>：<code>web</code>；</li>
+  <li><b>Ignored Build Step</b>：<code>git diff HEAD^ HEAD --quiet -- .</code>（仅 web/ 内变更才构建，Python 流水线提交不再触发部署）；</li>
+  <li>环境变量：<code>R2_APPS_JSON_URL</code>（服务端 fetch 用，无需 <code>NEXT_PUBLIC_</code> 前缀）、<code>REVALIDATE_SECRET</code>（与 GitHub 侧同值）、<code>SITE_PUBLIC_BASE_URL</code>（plist 绝对 URL 的站点基址；<b>P5 切流时</b>设为 <code>https://itms.zeroclover.io</code> 并重新部署，未设时回退 <code>VERCEL_URL</code> 以便临时域名联调）；</li>
+  <li>套餐：Hobby 即可（页面/plist 流量为 KB 级；注意 Hobby 限非商业用途、100 次部署/日 —— 本场景远低于上限）。</li>
+</ul>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s5"><span class="no">05</span>分阶段实施步骤</h2>
+
+<div class="phase">
+  <div class="pn">P0</div>
+  <div class="pc">
+    <h3>准备（本分支，已完成）</h3>
+    <ul>
+      <li>创建分支 <code>feat/serverless-vercel-r2-migration</code>；完成最佳实践调研；产出本计划。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P1</div>
+  <div class="pc">
+    <h3>R2 基础设施</h3>
+    <ul>
+      <li>创建 bucket（如 <code>zeroclover-ipa</code>）；创建 <b>Object Read &amp; Write、限定该 bucket</b> 的 API Token；</li>
+      <li>绑定自定义域 <code>ipa.zeroclover.io</code>；确认对象可按 key 匿名 GET、目录列举 404；</li>
+      <li><b>不</b>配置 bucket 生命周期规则（旧版清理由 CI 按引用白名单执行，见 D7）；确认该域名无 WAF 挑战 / Bot Fight；</li>
+      <li>一次性迁移：现有服务器上 5 个流水线 app 的图标（<code>JHenTai</code> / <code>fehviewer</code> / <code>Asspp</code> / <code>PiliPlus</code> / <code>StikDebug</code>）→ <code>apps/&lt;slug&gt;/icon.png</code>（已决议不保留手工 app，其图标无需迁移）；初始 <code>site/apps.json</code> 无需手工种子 —— 由 P4 首次全量构建生成；</li>
+      <li>GitHub 侧配置 §4.3 所列 secrets/vars。</li>
+    </ul>
+    <div class="accept">验收：curl 能经自定义域下载一个测试对象；apps.json 可读写。</div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P2</div>
+  <div class="pc">
+    <h3>Next.js 前端（web/）</h3>
+    <ul>
+      <li><code>create-next-app</code> 初始化 web/（Next 16 + TS）；移植视觉与组件（§4.2）；</li>
+      <li>实现 <code>lib/apps.ts</code> / <code>lib/plist.ts</code> / plist 路由 / revalidate 路由；plist XML 与 Python 版 golden-file 对拍一致（开发与预览期间用 web/ 内置 fixture 的 apps.json 样例，正式数据由 P4 生成）；</li>
+      <li>Vercel 导入仓库，配置 Root Directory、Ignored Build Step、环境变量；临时 <code>.vercel.app</code> 域名联调。</li>
+    </ul>
+    <div class="accept">验收：临时域名页面渲染与现站一致；<code>/apps/&lt;slug&gt;/itms.plist</code> 返回正确 XML 与响应头；curl revalidate 后数据刷新。</div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P3</div>
+  <div class="pc">
+    <h3>流水线改造</h3>
+    <ul>
+      <li>新增 <code>scripts/r2_store.py</code>、<code>scripts/apps_registry.py</code>；改造 <code>run_signing.py</code>（§4.3）；更新 <code>configs/tasks.toml</code> 与 <code>.env.example</code>；</li>
+      <li>更新/新增 pytest：<code>test_run_signing.py</code>（mock boto3）、<code>test_apps_registry.py</code>（合并用例平移自 test_site_update.py）；退役 site_update 相关测试；</li>
+      <li>工作流 yaml 更新：移除 sshpass/scp/回写提交，权限收紧 <code>contents: read</code>；pr-checks 增加 web/ 检查 job。</li>
+    </ul>
+    <div class="accept">验收：<code>uv run pytest</code> 全绿；mypy/black/isort 通过；web/ <code>next build</code> 通过。</div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P4</div>
+  <div class="pc">
+    <h3>端到端试跑（切流前）</h3>
+    <ul>
+      <li>本分支 <code>workflow_dispatch</code>（force_rebuild）跑全量：IPA 落 R2 版本化 key、apps.json 更新、revalidate 生效；</li>
+      <li>用 Vercel 临时域名在<b>真实 iOS 设备</b>上走完整安装：Safari 打开页面 → 点安装 → 信任描述文件 → 启动；</li>
+      <li>核对 R2 用量/请求日志无异常；核对 ipaUrl 全部指向 R2。</li>
+    </ul>
+    <div class="accept">验收：真机安装成功且版本号与 apps.json 一致；页面版本号随之刷新。</div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P5</div>
+  <div class="pc">
+    <h3>DNS 切流</h3>
+    <ul>
+      <li><code>itms.zeroclover.io</code> 改为 CNAME → Vercel（灰云）；Vercel 侧添加域并签发证书；</li>
+      <li>观察 24–48h：安装链路、revalidate 链路、Vercel/R2 用量。</li>
+    </ul>
+    <div class="accept">验收：生产域名真机安装成功；Vercel 域校验绿勾。</div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="pn">P6</div>
+  <div class="pc">
+    <h3>退役服务器</h3>
+    <ul>
+      <li>删除 scp 相关代码/注释/文档（README、site/README、MIGRATION.md 增补迁移记录）；删除 <code>ASSETS_SERVER_*</code> secrets；</li>
+      <li>删除 <code>site/</code> 目录（已决议：不再保留、不归档）；服务器保留只读镜像至确认无回滚需求后下线。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s6"><span class="no">06</span>风险与缓解</h2>
+<table>
+  <tr><th style="width:38%">风险</th><th>缓解</th></tr>
+  <tr><td>Cloudflare 橙云代理导致 Vercel 域校验/证书失败</td><td>CNAME 必须灰云（DNS only），切流检查清单中显式列出（D6）</td></tr>
+  <tr><td>IPA 误走 Vercel 代理，耗尽 Fast Data Transfer</td><td>plist/页面只放 R2 直链；代码评审检查项（D5）；Vercel 用量告警</td></tr>
+  <tr><td>plist 被某层缓存导致装到旧版</td><td>plist 响应 <code>max-age=0, must-revalidate</code>；Vercel 边缘对未哈希静态/动态响应默认短缓存；真机验证</td></tr>
+  <tr><td>R2 自定义域上的 WAF/Bot 拦截 appstored</td><td>该域关闭挑战类功能；P4 真机验证即覆盖</td></tr>
+  <tr><td>apps.json 更新与 IPA 上传之间的短暂不一致</td><td>顺序：先传 IPA（immutable 新 key）→ 再传 apps.json → 最后 revalidate；最差情况是页面暂时指向尚未刷新的旧版本，不会指向不存在的文件</td></tr>
+  <tr><td>revalidate 密钥泄漏 → 任意人触发缓存重建</td><td>仅造成额外 fetch，无数据风险；密钥入 GitHub/Vercel 双端 secrets，泄漏即轮换</td></tr>
+  <tr><td>&gt;512 MB IPA 不被边缘缓存</td><td>R2 零出口费，回源直发可接受；无需处理</td></tr>
+  <tr><td>旧版本 IPA 无限积累</td><td>CI 清理：每次构建末尾删除不被 apps.json 引用的旧版本 key（D7）</td></tr>
+  <tr><td>清理误删仍被引用的版本（安装中 404）</td><td>严格顺序「上传新 IPA → 更新 apps.json → revalidate → 清理」；白名单以 apps.json 引用集合为准而非时间；任一步失败即跳过清理</td></tr>
+  <tr><td>iOS 18 侧载固有限制（信任描述文件、可能需重启）</td><td>与现状相同的平台行为，非本次迁移引入；页面 FAQ 说明</td></tr>
+  <tr><td>Vercel Hobby 套餐限制（非商业、部署/函数配额）</td><td>KB 级响应 + 低频构建远低于配额；使用现有账号导入项目（已决议，§9）</td></tr>
+</table>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s7"><span class="no">07</span>测试计划</h2>
+<ul>
+  <li><b>Python 单测（沿用 pytest + uv）</b>：
+    <ul>
+      <li><code>test_apps_registry.py</code>：合并语义 —— 按 slug 写入/刷新条目（<code>name</code> 取 <code>app_name</code>，无手工条目保留场景）、追加新 app、未涉及的条目不动、无变化不产生写；</li>
+      <li><code>test_run_signing.py</code>：mock boto3 client 验证 key 计算（slug/version/文件名）、Content-Type/Cache-Control/Content-Disposition 参数、失败路径退出码；</li>
+      <li>plist golden-file：Python 版（过渡保留）与 TS 版输出逐字节一致。</li>
+    </ul>
+  </li>
+  <li><b>web/ 验证</b>：<code>next build</code> + <code>tsc --noEmit</code> 入 pr-checks；plist 路由用本地 dev server 对拍 golden-file（可后补 vitest）。</li>
+  <li><b>集成</b>：P4 的 workflow_dispatch 全量试跑 + 临时域名真机安装。</li>
+  <li><b>验收基准</b>：安装后设备上 app 版本 = apps.json 版本 = 页面展示版本，三者一致。</li>
+</ul>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s8"><span class="no">08</span>回滚方案</h2>
+<ul>
+  <li><b>P5 切流前</b>：任何问题 → 不切换 DNS，现状完全不受影响（R2/Vercel 均为新增设施）。</li>
+  <li><b>P5 切流后 48h 内</b>：DNS 改回 VPS 原记录即可（服务器在 P6 前保持原样只读运行）；TTL 建议切流前调低至 300s。</li>
+  <li><b>P6 后</b>：服务器已退役则无法整体回滚；故 P6 以「连续 2 周无异常」为前提执行。代码层面回滚 = revert 合并提交。</li>
+</ul>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s9"><span class="no">09</span>开放问题决议（2026-07-18 全部确认）</h2>
+<ol class="q">
+  <li><b>Vercel 套餐与账号</b>：<b>决议</b> —— 使用现有 Vercel 账号导入项目，无其他待确认项。</li>
+  <li><b><code>site/</code> 旧目录</b>：<b>决议</b> —— 不再保留、不归档；P6 随服务器退役一并删除。</li>
+  <li><b>手工 app</b>：<b>决议</b> —— 不维护任何先前的手动维护 app。对照 <code>tasks.toml</code>（5 个 task）与现状 apps.js（7 个条目），<b>EhPanda、FEhViewer、Sonolus 三个手工条目在迁移后下线</b>；页面仅展示流水线 task 产出，apps.json 由 CI 全权生成，无任何手工条目保留/编辑机制。</li>
+  <li><b>图标策略</b>：<b>决议</b> —— P1 一次性迁移现有图标（仅 5 个流水线 app）；不实现 CI 从 IPA 自动提取图标。</li>
+</ol>
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="s10"><span class="no">10</span>参考资料</h2>
+<ul class="refs">
+  <li>Cloudflare R2 — <a href="https://developers.cloudflare.com/r2/examples/aws/aws-cli/">AWS CLI 与 S3 兼容端点</a> · <a href="https://developers.cloudflare.com/r2/api/tokens/">API Token 权限与 bucket 级限定</a> · <a href="https://developers.cloudflare.com/r2/buckets/public-buckets/">公开 bucket 与自定义域</a> · <a href="https://developers.cloudflare.com/r2/platform/limits/">限额（对象 5 TiB、r2.dev 限速）</a> · <a href="https://developers.cloudflare.com/r2/pricing/">定价（零出口费）</a></li>
+  <li>Cloudflare Cache — <a href="https://developers.cloudflare.com/cache/concepts/default-cache-behavior/">默认缓存行为（.ipa/.plist 非默认缓存扩展名、512MB 上限）</a> · <a href="https://developers.cloudflare.com/cache/interaction-cloudflare-products/r2/">Cache × R2</a></li>
+  <li>Apple OTA — <a href="https://support.apple.com/en-hk/guide/deployment/depce7cefc4d/web">Distribute proprietary in-house apps（plist 须 text/xml、ipa 须 application/octet-stream、全链路 HTTPS）</a> · <a href="https://decovar.dev/blog/2025/04/03/distributing-ios-applications-without-app-store/">iOS 18.3 实测（appstored 请求序列、302 跟随、信任流程）</a> · <a href="https://betadrop.app/blog/how-to-install-ipa-files-over-the-air-ota/">itms-services 链接格式与 URL 编码</a></li>
+  <li>Next.js 16 — <a href="https://nextjs.org/blog/next-16">发布说明（revalidateTag 第二参数、cacheComponents 可选）</a> · <a href="https://nextjs.org/docs/app/building-your-application/routing/route-handlers">Route Handlers（rss.xml 示例、params 为 Promise、GET 默认不缓存）</a> · <a href="https://nextjs.org/docs/app/building-your-application/data-fetching/incremental-static-regeneration">ISR 与按需重验证</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/revalidatePath">revalidatePath（对 Route Handler 同样有效）</a></li>
+  <li>Vercel — <a href="https://vercel.com/docs/deploy-hooks">Deploy Hooks</a> · <a href="https://vercel.com/docs/edge-network/rewrites">Rewrites 即代理（计带宽）</a> · <a href="https://vercel.com/docs/limits/fair-use-guidelines">Fast Data Transfer 公平使用额度</a> · <a href="https://vercel.com/docs/domains/working-with-domains/add-a-domain">自定义域接入</a> · <a href="https://community.vercel.com/t/how-to-fix-vercel-invalid-configuration-error-with-cloudflare-proxy-enabled/37446">Cloudflare 橙云导致 Invalid Configuration</a> · <a href="https://vercel.com/guides/how-do-i-use-the-ignored-build-step-field-on-vercel">Ignored Build Step</a></li>
+  <li>同类实践 — <a href="https://ascen.me/2024/04/27/app-distribute/">APP 分发平台：IPA 存 R2 + itms.plist 分发</a></li>
+</ul>
+
+<footer>
+  SideloadedIPA · 无服务器化迁移计划 · 生成于 2026-07-18 · 分支 feat/serverless-vercel-r2-migration · 本文档随实施进度更新
+</footer>
+
+</div>
+</body>
+</html>

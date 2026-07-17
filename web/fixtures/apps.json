@@ -1,0 +1,21 @@
+{
+  "updatedAt": "2026-07-18T04:00:00Z",
+  "apps": [
+    {
+      "slug": "ehpanda",
+      "name": "EhPanda",
+      "bundleId": "io.zeroclover.app.ehpanda",
+      "version": "2.7.4",
+      "ipaUrl": "https://ipa.zeroclover.io/apps/ehpanda/2.7.4/EhPanda.ipa",
+      "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon.png"
+    },
+    {
+      "slug": "JHenTai",
+      "name": "JHenTai",
+      "bundleId": "io.zeroclover.app.jhentai",
+      "version": "8.0.14",
+      "ipaUrl": "https://ipa.zeroclover.io/apps/JHenTai/8.0.14/JHenTai.ipa",
+      "iconUrl": "https://ipa.zeroclover.io/apps/JHenTai/icon.png"
+    }
+  ]
+}

@@ -46,3 +46,56 @@ jobs:
 
       - name: Validate config syntax
         run: uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
+
+  python-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Run pytest
+        run: uv run pytest
+
+      - name: Lint (black + isort)
+        run: |
+          uv run black --check scripts/
+          uv run isort --check-only scripts/
+
+      - name: Type check (mypy)
+        run: uv run mypy scripts/
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check plist golden files
+        run: npm run test
+
+      - name: Build
+        run: npm run build

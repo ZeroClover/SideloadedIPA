@@ -1,0 +1,36 @@
+/**
+ * Golden-file check: web/lib/plist.ts (TS) must stay byte-for-byte identical
+ * with the Python reference (scripts/run_signing.py build_itms_plist), which
+ * generated the fixtures in test/golden/. Run via `npm test` (tsx).
+ */
+import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildItmsPlist } from "../lib/plist";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+const cases: Array<{ name: string; args: [string, string, string, string] }> = [
+  {
+    name: "jhentai",
+    args: [
+      "https://ipa.zeroclover.io/apps/JHenTai/8.0.14/JHenTai.ipa",
+      "io.zeroclover.app.jhentai",
+      "8.0.14",
+      "JHenTai",
+    ],
+  },
+  {
+    name: "special-chars",
+    args: ["https://x/y.ipa", "io.z.app", "1.0", "Tab & Co <beta>"],
+  },
+];
+
+for (const c of cases) {
+  const expected = readFileSync(join(here, "..", "test", "golden", `${c.name}.plist`), "utf8");
+  const actual = buildItmsPlist(...c.args);
+  assert.strictEqual(actual, expected, `${c.name}: TS plist output diverges from Python golden`);
+  console.log(`ok ${c.name}`);
+}
+console.log("plist golden: all cases byte-identical");

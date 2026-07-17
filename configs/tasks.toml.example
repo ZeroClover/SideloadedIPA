@@ -2,26 +2,22 @@
 # Define one or more signing tasks using the [[tasks]] array.
 
 # ========================================
-# Download page / publishing settings (optional)
+# Publishing model (serverless)
 # ========================================
 # After each resign the pipeline:
 #   1. reads the signed IPA's ACTUAL bundle id + version,
-#   2. generates <app dir>/itms.plist (itms-services manifest) next to the IPA,
-#   3. refreshes site/apps.js (versions / new app cards) and bumps the
-#      apps.js?v= cache-buster in site/index.html,
-#   4. deploys the download page to the server.
+#   2. uploads the IPA to Cloudflare R2 under a versioned key:
+#        apps/<slug>/<version>/<App>.ipa   (immutable cache headers)
+#   3. merges the result into the site/apps.json registry on R2 — the single
+#      data source the Vercel-hosted download page and itms.plist route read,
+#   4. triggers Vercel on-demand revalidation and deletes stale versioned keys.
 #
-# All of [site] is optional: when omitted, values are derived from the first path
-# segment of asset_server_path (which encodes the public host).
-[site]
-# Public base URL where signed assets are served (used to build itms.plist URLs
-# and the download-page card links).
-public_base_url = "https://assets.example.com"
-# Remote directory (on the asset server) where the download page (site/) is deployed.
-deploy_path = "/assets.example.com/"
-# Optional: server path prefix that maps to public_base_url root. Defaults to
-# "/<host-of-public_base_url>". Override only for non-standard chroot layouts.
-# asset_path_prefix = "/assets.example.com"
+# Bucket, account id and public base URL come from environment variables
+# (R2_* secrets/vars), never from this file. The optional [r2] table only
+# tweaks the object layout; defaults are shown below.
+# [r2]
+# key_prefix = "apps"              # object key prefix for IPAs and icons
+# apps_json_key = "site/apps.json" # registry key consumed by the Vercel front-end
 
 # ========================================
 # Option 1: Direct IPA URL (Legacy)
@@ -43,10 +39,9 @@ bundle_id = "com.example.myapp"
 # Direct download URL of the original IPA to sign
 ipa_url = "https://example.com/path/to/MyApp.ipa"
 
-# Destination path on the asset server
-# If it ends with '/', the signed file name will be appended
-# Otherwise, treated as full destination file path
-asset_server_path = "/var/www/assets/MyApp.ipa"
+# Optional: stable key for R2 object paths and the apps.json registry /
+# download-page URLs. Defaults to a slugified app_name ("MyApp" here).
+# slug = "myapp"
 
 # ========================================
 # Option 2: GitHub Release Tracking (New, with Caching)
@@ -71,8 +66,9 @@ release_glob = "*.ipa"
 # If false: fetches only latest stable release
 use_prerelease = false
 
-# Destination path (same as ipa_url)
-asset_server_path = "/var/www/assets/"
+# Explicit slug needed when the slugified app name ("Another_App") is not the
+# desired public key.
+slug = "anotherapp"
 
 # ========================================
 # Example: Tracking a Specific Asset Pattern
@@ -89,4 +85,4 @@ release_glob = "*universal*.ipa"
 # Use prerelease versions for beta testing
 use_prerelease = true
 
-asset_server_path = "/var/www/beta/SpecialApp.ipa"
+slug = "specialapp"

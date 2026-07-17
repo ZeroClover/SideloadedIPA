@@ -25,10 +25,11 @@ from run_signing import (
     find_zsign,
     load_release_cache,
     parse_repo_url,
-    resolve_publish_target,
-    resolve_site_settings,
+    publish_registry,
     save_release_cache,
     should_rebuild_task,
+    task_slug,
+    trigger_revalidate,
     validate_task,
 )
 
@@ -338,7 +339,6 @@ class TestValidateTask:
             "app_name": "Test App",
             "bundle_id": "com.example.testapp",
             "repo_url": "https://github.com/example/testapp",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is True
@@ -351,11 +351,36 @@ class TestValidateTask:
             "app_name": "Test App",
             "bundle_id": "com.example.testapp",
             "ipa_url": "https://example.com/app.ipa",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is True
         assert error is None
+
+    def test_valid_explicit_slug(self) -> None:
+        """An explicit slug keeps legacy directory names (e.g. fehviewer)."""
+        task = {
+            "task_name": "Eros FE",
+            "app_name": "Eros FE",
+            "bundle_id": "io.zeroclover.apps.eros-fe",
+            "repo_url": "https://github.com/erosTeam/eros_fe",
+            "slug": "fehviewer",
+        }
+        is_valid, error = validate_task(task)
+        assert is_valid is True
+        assert error is None
+
+    def test_invalid_slug_rejected(self) -> None:
+        """Slugs become object-key path segments, so no slashes / spaces."""
+        task = {
+            "task_name": "TestApp",
+            "app_name": "Test App",
+            "bundle_id": "com.example.testapp",
+            "repo_url": "https://github.com/example/testapp",
+            "slug": "bad/slug",
+        }
+        is_valid, error = validate_task(task)
+        assert is_valid is False
+        assert "slug" in error
 
     def test_missing_required_field(self) -> None:
         """Should fail validation for missing required field."""
@@ -364,7 +389,6 @@ class TestValidateTask:
             # Missing app_name
             "bundle_id": "com.example.testapp",
             "repo_url": "https://github.com/example/testapp",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is False
@@ -378,7 +402,6 @@ class TestValidateTask:
             "bundle_id": "com.example.testapp",
             "ipa_url": "https://example.com/app.ipa",
             "repo_url": "https://github.com/example/testapp",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is False
@@ -390,7 +413,6 @@ class TestValidateTask:
             "task_name": "TestApp",
             "app_name": "Test App",
             "bundle_id": "com.example.testapp",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is False
@@ -403,7 +425,6 @@ class TestValidateTask:
             "app_name": "Test App",
             "bundle_id": "com.example.testapp",
             "ipa_url": "ftp://example.com/app.ipa",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is False
@@ -416,7 +437,6 @@ class TestValidateTask:
             "app_name": "Test App",
             "bundle_id": "com.example.testapp",
             "repo_url": "https://gitlab.com/example/testapp",
-            "asset_server_path": "/var/www/",
         }
         is_valid, error = validate_task(task)
         assert is_valid is False
@@ -745,57 +765,99 @@ class TestBuildItmsPlist:
         assert parsed["items"][0]["metadata"]["title"] == "Tab & Co <beta>"
 
 
-class TestResolveSiteSettings:
-    """Tests for [site] settings resolution and defaults."""
+class TestTaskSlug:
+    """Tests for resolving a task's stable R2/registry slug."""
 
-    def test_derives_defaults_from_asset_path(self) -> None:
-        cfg = {}
-        tasks = [{"asset_server_path": "/itms.zeroclover.io/JHenTai/JHenTai.ipa"}]
-        settings = resolve_site_settings(cfg, tasks)
-        assert settings["public_base_url"] == "https://itms.zeroclover.io"
-        assert settings["asset_path_prefix"] == "/itms.zeroclover.io"
-        assert settings["deploy_path"] == "/itms.zeroclover.io/"
+    def test_explicit_slug_wins(self) -> None:
+        assert task_slug({"app_name": "Eros FE", "slug": "fehviewer"}) == "fehviewer"
 
-    def test_explicit_site_table_overrides(self) -> None:
-        cfg = {
-            "site": {
-                "public_base_url": "https://cdn.example.com/",
-                "deploy_path": "/srv/www/",
-            }
+    def test_defaults_to_slugified_app_name(self) -> None:
+        assert task_slug({"app_name": "JHenTai"}) == "JHenTai"
+        assert task_slug({"app_name": "Eros FE"}) == "Eros_FE"
+
+
+class TestTriggerRevalidate:
+    """Tests for the Vercel on-demand revalidation hook call."""
+
+    def test_missing_secret_skips(self, capsys: pytest.CaptureFixture) -> None:
+        assert trigger_revalidate("https://example.com/api/revalidate", "") is False
+        assert "VERCEL_REVALIDATE_SECRET" in capsys.readouterr().err
+
+    def test_appends_secret_query(self) -> None:
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_response = MagicMock(status=200)
+            mock_response.__enter__ = MagicMock(return_value=mock_response)
+            mock_response.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_response
+
+            assert trigger_revalidate("https://example.com/api/revalidate", "s3cr3t") is True
+
+        called_url = mock_urlopen.call_args[0][0].full_url
+        assert called_url == "https://example.com/api/revalidate?secret=s3cr3t"
+
+    def test_http_failure_returns_false(self) -> None:
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = URLError("connection refused")
+            assert trigger_revalidate("https://example.com/api/revalidate", "s3cr3t") is False
+
+
+class TestPublishRegistry:
+    """Tests for the apps.json publish chain: merge -> upload -> revalidate -> cleanup."""
+
+    def _store(self, current_doc: Dict[str, Any] | None) -> MagicMock:
+        store = MagicMock()
+        store.apps_json_key = "site/apps.json"
+        store.download_json.return_value = current_doc
+        return store
+
+    def _update(self) -> Dict[str, Any]:
+        return {
+            "slug": "ehpanda",
+            "name": "EhPanda",
+            "bundleId": "io.zeroclover.app.ehpanda",
+            "version": "2.7.4",
+            "ipaUrl": "https://ipa.zeroclover.io/apps/ehpanda/2.7.4/EhPanda.ipa",
+            "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon.png",
         }
-        tasks = [{"asset_server_path": "/itms.zeroclover.io/JHenTai/JHenTai.ipa"}]
-        settings = resolve_site_settings(cfg, tasks)
-        assert settings["public_base_url"] == "https://cdn.example.com"
-        assert settings["asset_path_prefix"] == "/cdn.example.com"
-        assert settings["deploy_path"] == "/srv/www/"
 
+    def test_changed_doc_uploads_revalidates_and_cleans(self) -> None:
+        store = self._store(None)  # bootstrap: apps.json missing on R2
+        with patch("run_signing.trigger_revalidate", return_value=True) as mock_revalidate:
+            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+        assert ok is True
+        store.upload_json.assert_called_once()
+        mock_revalidate.assert_called_once_with("https://x/revalidate", "sec")
+        store.cleanup_stale.assert_called_once()
+        slugs_arg = store.cleanup_stale.call_args[0][0]
+        assert slugs_arg == ["ehpanda"]
 
-class TestResolvePublishTarget:
-    """Tests for mapping remote IPA paths to public URLs."""
-
-    def test_same_name_ipa(self) -> None:
-        settings = {
-            "public_base_url": "https://itms.zeroclover.io",
-            "asset_path_prefix": "/itms.zeroclover.io",
-            "deploy_path": "/itms.zeroclover.io/",
+    def test_unchanged_doc_skips_upload_but_still_cleans(self) -> None:
+        current = {
+            "updatedAt": "2026-07-18T04:00:00Z",
+            "apps": [self._update()],
         }
-        target = resolve_publish_target("/itms.zeroclover.io/JHenTai/JHenTai.ipa", settings)
-        assert target["ipa_url"] == "https://itms.zeroclover.io/JHenTai/JHenTai.ipa"
-        assert target["plist_url"] == "https://itms.zeroclover.io/JHenTai/itms.plist"
-        assert target["remote_plist_path"] == "/itms.zeroclover.io/JHenTai/itms.plist"
-        assert target["site_dir"] == "JHenTai"
+        store = self._store(current)
+        with patch("run_signing.trigger_revalidate") as mock_revalidate:
+            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+        assert ok is True
+        store.upload_json.assert_not_called()
+        mock_revalidate.assert_not_called()
+        store.cleanup_stale.assert_called_once()
 
-    def test_filename_differs_from_dir(self) -> None:
-        """IPA filename can differ from the directory (e.g. Eros-FE in fehviewer)."""
-        settings = {
-            "public_base_url": "https://itms.zeroclover.io",
-            "asset_path_prefix": "/itms.zeroclover.io",
-            "deploy_path": "/itms.zeroclover.io/",
-        }
-        target = resolve_publish_target("/itms.zeroclover.io/fehviewer/Eros-FE.ipa", settings)
-        assert target["ipa_url"] == "https://itms.zeroclover.io/fehviewer/Eros-FE.ipa"
-        assert target["plist_url"] == "https://itms.zeroclover.io/fehviewer/itms.plist"
-        assert target["site_dir"] == "fehviewer"
+    def test_revalidate_failure_skips_cleanup(self) -> None:
+        store = self._store(None)
+        with patch("run_signing.trigger_revalidate", return_value=False):
+            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+        assert ok is False
+        store.cleanup_stale.assert_not_called()
+
+    def test_download_failure_aborts(self) -> None:
+        store = self._store(None)
+        store.download_json.side_effect = RuntimeError("boom")
+        ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+        assert ok is False
+        store.upload_json.assert_not_called()
+        store.cleanup_stale.assert_not_called()
 
 
 class TestBuildZsignArgv:

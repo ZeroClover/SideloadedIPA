@@ -5,7 +5,6 @@ import fnmatch
 import json
 import os
 import plistlib
-import posixpath
 import re
 import shlex
 import shutil
@@ -18,7 +17,12 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from xml.sax.saxutils import escape as xml_escape
 
-import site_update
+import apps_registry
+import r2_store
+
+# Vercel on-demand revalidation hook (shared-secret protected). Overridable via
+# the VERCEL_REVALIDATE_URL env var (e.g. for preview deployments).
+DEFAULT_REVALIDATE_URL = "https://itms.zeroclover.io/api/revalidate"
 
 # Prefer Python 3.11+'s tomllib; fallback to tomli if needed
 try:
@@ -182,33 +186,37 @@ def prepare_signing_p12(p12_b64: str, work_root: Path, password: str) -> Path:
     return dst_p12
 
 
-def build_remote_dest(base_path: str, filename: str) -> str:
-    # If base_path ends with '/', treat as directory and append filename
-    if base_path.endswith("/"):
-        return f"{base_path}{filename}"
-    # Otherwise, treat as exact destination file path
-    return base_path
+def task_slug(task: dict) -> str:
+    """Stable R2/registry slug for a task: explicit ``slug`` or slugified app name."""
+    return task.get("slug") or slugify_filename(task.get("app_name", ""))
 
 
-def ensure_remote_dir(user: str, host: str, password: str, dest_path: str) -> None:
-    remote_dir = os.path.dirname(dest_path) or "."
-    ssh_cmd = (
-        f"sshpass -p {shlex.quote(password)} ssh -o StrictHostKeyChecking=no "
-        f"{shlex.quote(user)}@{shlex.quote(host)} "
-        f"{shlex.quote(f'mkdir -p {shlex.quote(remote_dir)}')}"
-    )
-    run(ssh_cmd)
+def trigger_revalidate(revalidate_url: str, secret: str) -> bool:
+    """Call the Vercel on-demand revalidation hook (shared-secret protected).
 
-
-def scp_upload(user: str, host: str, password: str, local: Path, remote_dest: str) -> None:
-    """Upload a single local file to a remote path via scp."""
-    scp_cmd = (
-        f"sshpass -p {shlex.quote(password)} "
-        f"scp -o StrictHostKeyChecking=no "
-        f"{shlex.quote(str(local))} "
-        f"{shlex.quote(user)}@{shlex.quote(host)}:{shlex.quote(remote_dest)}"
-    )
-    run(scp_cmd)
+    Returns ``True`` when the hook accepted the request. Failures are logged and
+    reported as ``False`` so callers can skip dependent steps (stale cleanup).
+    """
+    if not secret:
+        print(
+            "[warn] VERCEL_REVALIDATE_SECRET not set - skipping Vercel revalidation",
+            file=sys.stderr,
+        )
+        return False
+    separator = "&" if "?" in revalidate_url else "?"
+    url = f"{revalidate_url}{separator}secret={secret}"
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            ok = 200 <= response.status < 300
+    except (HTTPError, URLError, OSError) as e:
+        print(f"[error] Vercel revalidation request failed: {e}", file=sys.stderr)
+        return False
+    if ok:
+        print("[info] Vercel revalidation triggered")
+    else:
+        print(f"[error] Vercel revalidation returned HTTP {response.status}", file=sys.stderr)
+    return ok
 
 
 def extract_ipa_metadata(ipa_path: Path) -> tuple[str, Optional[str]]:
@@ -244,6 +252,10 @@ def build_itms_plist(ipa_url: str, bundle_id: str, version: str, title: str) -> 
     ``title``. The legacy ``display-image`` / ``full-size-image`` icon assets are
     optional and intentionally omitted. Output matches the docroot's existing
     hand-written manifests byte-for-byte (4-space indent, no trailing space).
+
+    Transitional: manifests are now rendered dynamically by the Vercel front-end
+    (``web/lib/plist.ts``); this Python version is kept only as the golden-file
+    reference the TS port is diffed against, and is removed after cutover.
     """
 
     def esc(value: str) -> str:
@@ -283,103 +295,6 @@ def build_itms_plist(ipa_url: str, bundle_id: str, version: str, title: str) -> 
         "</dict>\n"
         "</plist>\n"
     )
-
-
-def _host_from_url(url: str) -> str:
-    match = re.match(r"https?://([^/]+)", url or "")
-    return match.group(1) if match else ""
-
-
-def resolve_site_settings(cfg: dict, tasks: list) -> dict:
-    """Resolve public-URL / deploy settings from the optional ``[site]`` table.
-
-    Sensible defaults are derived from the first path segment of an
-    ``asset_server_path`` (which encodes the public host, e.g.
-    ``/itms.zeroclover.io/...``), so zero configuration is required for the
-    standard deployment.
-    """
-    site = cfg.get("site", {}) or {}
-
-    public_base = (site.get("public_base_url") or "").rstrip("/")
-    host = _host_from_url(public_base)
-    if not host:
-        for task in tasks:
-            segments = [s for s in str(task.get("asset_server_path", "")).split("/") if s]
-            if segments:
-                host = segments[0]
-                break
-        if host and not public_base:
-            public_base = f"https://{host}"
-
-    prefix = (site.get("asset_path_prefix") or (f"/{host}" if host else "")).rstrip("/")
-    deploy_path = site.get("deploy_path") or (f"/{host}/" if host else "")
-
-    return {
-        "public_base_url": public_base,
-        "asset_path_prefix": prefix,
-        "deploy_path": deploy_path,
-    }
-
-
-def resolve_publish_target(remote_ipa_path: str, settings: dict) -> dict:
-    """Map a remote IPA path to its public URLs and the sibling itms.plist path."""
-    remote_dir = posixpath.dirname(remote_ipa_path)
-    ipa_name = posixpath.basename(remote_ipa_path)
-
-    prefix = settings.get("asset_path_prefix", "")
-    rel_dir = remote_dir
-    if prefix and (rel_dir == prefix or rel_dir.startswith(prefix + "/")):
-        rel_dir = rel_dir[len(prefix) :]
-    rel_dir = rel_dir.strip("/")
-
-    base = settings.get("public_base_url", "").rstrip("/")
-    url_dir = f"{base}/{rel_dir}" if rel_dir else base
-
-    return {
-        "remote_dir": remote_dir,
-        "remote_plist_path": posixpath.join(remote_dir, "itms.plist"),
-        "ipa_url": f"{url_dir}/{ipa_name}",
-        "plist_url": f"{url_dir}/itms.plist",
-        "site_dir": rel_dir,
-    }
-
-
-def deploy_site(
-    settings: dict,
-    user: str,
-    host: str,
-    password: str,
-    site_dir: Path,
-) -> bool:
-    """Deploy the download-page files to the server docroot.
-
-    Returns ``True`` on a successful upload, ``False`` if there was nothing to do.
-    """
-    deploy_path = settings.get("deploy_path")
-    if not deploy_path:
-        print("[warn] No deploy_path resolved - skipping download page deploy", file=sys.stderr)
-        return False
-
-    file_names = ["index.html", "styles.css", "apps.js", "app-card.js", "app.js"]
-    local_files = [site_dir / name for name in file_names if (site_dir / name).exists()]
-    if not local_files:
-        print(
-            f"[warn] No download page files found in {site_dir} - skipping deploy", file=sys.stderr
-        )
-        return False
-
-    # Ensure docroot exists, then upload all files in a single scp connection.
-    ensure_remote_dir(user, host, password, posixpath.join(deploy_path, "_"))
-    file_args = " ".join(shlex.quote(str(f)) for f in local_files)
-    scp_cmd = (
-        f"sshpass -p {shlex.quote(password)} "
-        f"scp -o StrictHostKeyChecking=no "
-        f"{file_args} "
-        f"{shlex.quote(user)}@{shlex.quote(host)}:{shlex.quote(deploy_path)}"
-    )
-    run(scp_cmd)
-    print(f"[info] Deployed {len(local_files)} download page file(s) to {deploy_path}")
-    return True
 
 
 # GitHub API integration
@@ -572,10 +487,15 @@ def validate_task(task: dict) -> tuple[bool, Optional[str]]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    required_fields = ["task_name", "app_name", "bundle_id", "asset_server_path"]
+    required_fields = ["task_name", "app_name", "bundle_id"]
     for field in required_fields:
         if not task.get(field):
             return False, f"Missing required field: {field}"
+
+    # slug (R2/registry key) must be safe to use in an object key path segment
+    slug = task.get("slug")
+    if slug and not re.fullmatch(r"[A-Za-z0-9._-]+", str(slug)):
+        return False, f"Invalid slug (allowed: A-Za-z0-9._-): {slug}"
 
     # Check mutually exclusive ipa_url and repo_url
     has_ipa_url = bool(task.get("ipa_url"))
@@ -716,6 +636,55 @@ def should_rebuild_task(
     return True, None, None
 
 
+def publish_registry(
+    store: r2_store.R2Store,
+    updates: list[dict],
+    processed_slugs: list[str],
+    revalidate_url: str,
+    revalidate_secret: str,
+) -> bool:
+    """Merge signing results into apps.json, revalidate Vercel, clean stale keys.
+
+    Strict ordering (D7): new IPAs are already uploaded (immutable keys) ->
+    merge + upload apps.json -> revalidate -> delete versioned keys the merged
+    apps.json no longer references. Any failure skips the cleanup step.
+    Returns ``False`` when any step failed.
+    """
+    failed = False
+    try:
+        current_doc = store.download_json(store.apps_json_key)
+    except Exception as e:
+        print(f"[error] Failed to read apps.json from R2: {e}", file=sys.stderr)
+        return False
+
+    merged_doc, changed = apps_registry.merge_registry_doc(current_doc, updates)
+
+    revalidated = True
+    if changed:
+        try:
+            store.upload_json(store.apps_json_key, merged_doc)
+        except Exception as e:
+            print(f"[error] Failed to upload apps.json to R2: {e}", file=sys.stderr)
+            return False
+        revalidated = trigger_revalidate(revalidate_url, revalidate_secret)
+        if not revalidated:
+            failed = True
+    else:
+        print("[info] apps.json already up to date - no revalidation needed")
+
+    if revalidated:
+        referenced = r2_store.referenced_keys_from_apps(store, merged_doc.get("apps", []))
+        try:
+            store.cleanup_stale(processed_slugs, referenced)
+        except Exception as e:
+            print(f"[error] Failed to clean stale R2 objects: {e}", file=sys.stderr)
+            failed = True
+    else:
+        print("[warn] Skipping stale-object cleanup (revalidation did not complete)")
+
+    return not failed
+
+
 def main() -> int:
     config_path = Path(os.getenv("CONFIG_TOML", "configs/tasks.toml")).resolve()
     if not config_path.exists():
@@ -767,19 +736,28 @@ def main() -> int:
     required_envs = [
         "APPLE_DEV_CERT_P12_ENCODED",
         "APPLE_DEV_CERT_PASSWORD",
-        "ASSETS_SERVER_IP",
-        "ASSETS_SERVER_USER",
-        "ASSETS_SERVER_CREDENTIALS",
     ]
     for key in required_envs:
         if not os.getenv(key):
             print(f"[error] Missing required environment variable: {key}", file=sys.stderr)
             return 3
 
-    assets_ip = os.environ["ASSETS_SERVER_IP"]
-    assets_user = os.environ["ASSETS_SERVER_USER"]
-    assets_pass = os.environ["ASSETS_SERVER_CREDENTIALS"]
     cert_password = os.environ["APPLE_DEV_CERT_PASSWORD"]
+
+    # R2 object storage (S3-compatible) holds every published artifact: the
+    # versioned IPAs, per-app icons, and the site/apps.json registry.
+    r2_cfg = cfg.get("r2", {}) or {}
+    try:
+        store = r2_store.R2Store.from_env(
+            key_prefix=r2_cfg.get("key_prefix", "apps"),
+            apps_json_key=r2_cfg.get("apps_json_key", "site/apps.json"),
+        )
+    except RuntimeError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        return 3
+
+    revalidate_url = os.getenv("VERCEL_REVALIDATE_URL", DEFAULT_REVALIDATE_URL)
+    revalidate_secret = os.getenv("VERCEL_REVALIDATE_SECRET", "")
 
     zsign_bin = find_zsign()
     print(f"[info] Using zsign: {zsign_bin}")
@@ -818,10 +796,9 @@ def main() -> int:
     release_cache_path = cache_dir / "release-versions.json"
     release_cache = load_release_cache(release_cache_path)
 
-    # Resolve download-page / public-URL settings (optional [site] table in TOML)
-    site_settings = resolve_site_settings(cfg, tasks)
-    # Collected per-app results used to refresh the download page after signing.
-    site_updates: list[dict] = []
+    # Per-app publish results merged into the R2 apps.json registry afterwards.
+    registry_updates: list[dict] = []
+    processed_slugs: list[str] = []
 
     any_fail = False
     processed_count = 0
@@ -840,7 +817,6 @@ def main() -> int:
         print("=" * 80)
         task_name = task.get("task_name")
         app_name = task.get("app_name")
-        asset_server_path = task.get("asset_server_path")
 
         print(f"[task {i}] Starting: {task_name}")
 
@@ -969,34 +945,9 @@ def main() -> int:
             any_fail = True
             continue
 
-        # Upload via scp
-        remote_dest = build_remote_dest(asset_server_path, f"{safe_name}.ipa")
-        try:
-            ensure_remote_dir(assets_user, assets_ip, assets_pass, remote_dest)
-        except subprocess.CalledProcessError as e:
-            print(f"[task {i}] Failed to ensure remote dir: {e}", file=sys.stderr)
-            any_fail = True
-            continue
-
-        scp_cmd = (
-            f"sshpass -p {shlex.quote(assets_pass)} "
-            f"scp -o StrictHostKeyChecking=no "
-            f"{shlex.quote(str(signed_ipa))} "
-            f"{shlex.quote(assets_user)}@{shlex.quote(assets_ip)}:{shlex.quote(remote_dest)}"
-        )
-        try:
-            run(scp_cmd)
-        except subprocess.CalledProcessError as e:
-            print(f"[task {i}] scp upload failed: {e}", file=sys.stderr)
-            any_fail = True
-            continue
-
-        print(f"[task {i}] Completed: {app_name} -> {remote_dest}")
-
-        # Generate and upload the itms-services manifest (itms.plist) next to the
-        # IPA, using the app's ACTUAL bundle id and version read from the signed
-        # IPA (authoritative — independent of what the TOML declares).
-        target = resolve_publish_target(remote_dest, site_settings)
+        # Read the app's ACTUAL bundle id / version from the signed IPA
+        # (authoritative — independent of what the TOML declares). The version
+        # also determines the immutable, versioned R2 object key.
         try:
             bundle_id_actual, version_actual = extract_ipa_metadata(signed_ipa)
         except Exception as e:
@@ -1009,34 +960,36 @@ def main() -> int:
                 file=sys.stderr,
             )
 
-        manifest_version = version_actual or "1.0"
-        plist_text = build_itms_plist(
-            target["ipa_url"], bundle_id_actual, manifest_version, app_name
-        )
-        plist_local = tdir / "itms.plist"
-        plist_local.write_text(plist_text, encoding="utf-8")
+        publish_version = version_actual or "1.0"
+        slug = task_slug(task)
+
+        # Upload the signed IPA to R2 under its versioned key (immutable).
+        key = store.ipa_key(slug, publish_version, f"{safe_name}.ipa")
         try:
-            scp_upload(
-                assets_user, assets_ip, assets_pass, plist_local, target["remote_plist_path"]
-            )
-            print(
-                f"[task {i}] Uploaded manifest: {target['plist_url']} "
-                f"({bundle_id_actual} v{manifest_version})"
-            )
-            # Only advertise the new version on the download page once its install
-            # manifest is in place (skip if the dir couldn't be resolved).
-            if target["site_dir"]:
-                site_updates.append(
-                    {
-                        "name": app_name,
-                        "dir": target["site_dir"],
-                        "bundleId": bundle_id_actual,
-                        "version": manifest_version,
-                    }
-                )
-        except subprocess.CalledProcessError as e:
-            print(f"[task {i}] Failed to upload itms.plist: {e}", file=sys.stderr)
+            ipa_url = store.upload_ipa(signed_ipa, key)
+        except Exception as e:
+            print(f"[task {i}] R2 upload failed: {e}", file=sys.stderr)
             any_fail = True
+            continue
+
+        print(
+            f"[task {i}] Completed: {app_name} -> {ipa_url} "
+            f"({bundle_id_actual} v{publish_version})"
+        )
+
+        # The itms.plist is no longer uploaded — the Vercel front-end renders it
+        # dynamically from apps.json. Queue the registry refresh for this app.
+        registry_updates.append(
+            {
+                "slug": slug,
+                "name": app_name,
+                "bundleId": bundle_id_actual,
+                "version": publish_version,
+                "ipaUrl": ipa_url,
+                "iconUrl": store.public_url(store.icon_key(slug)),
+            }
+        )
+        processed_slugs.append(slug)
 
         # Update release cache ONLY after successful signing and upload
         if version_info:
@@ -1047,24 +1000,13 @@ def main() -> int:
     if github_client:
         save_release_cache(release_cache_path, release_cache)
 
-    # Refresh and (re)deploy the download page when any app's listing changed.
-    if site_updates:
-        site_root = Path(__file__).resolve().parent.parent / "site"
-        try:
-            page_changed = site_update.apply_site_updates(site_root, site_updates)
-        except Exception as e:
-            print(f"[error] Failed to update download page: {e}", file=sys.stderr)
-            page_changed = False
+    # Refresh the R2 apps.json registry, revalidate Vercel, and clean up stale
+    # IPA versions — strictly in this order (see D7 in the migration plan).
+    if registry_updates:
+        if not publish_registry(
+            store, registry_updates, processed_slugs, revalidate_url, revalidate_secret
+        ):
             any_fail = True
-
-        if page_changed:
-            try:
-                deploy_site(site_settings, assets_user, assets_ip, assets_pass, site_root)
-            except subprocess.CalledProcessError as e:
-                print(f"[error] Failed to deploy download page: {e}", file=sys.stderr)
-                any_fail = True
-        else:
-            print("[info] Download page already up to date - no deploy needed")
 
     print("=" * 80)
     print(
