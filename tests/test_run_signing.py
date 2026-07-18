@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from run_signing import (
     GitHubAPIClient,
-    build_itms_plist,
     build_p12_normalize_commands,
     build_zsign_argv,
     extract_ipa_metadata,
@@ -719,50 +718,6 @@ class TestExtractIpaMetadata:
             zf.writestr("Payload/README.txt", "no app here")
         with pytest.raises(ValueError, match="No app Info.plist"):
             extract_ipa_metadata(ipa)
-
-
-class TestBuildItmsPlist:
-    """Tests for itms-services manifest generation."""
-
-    def test_produces_valid_plist(self) -> None:
-        text = build_itms_plist(
-            "https://itms.zeroclover.io/JHenTai/JHenTai.ipa",
-            "io.zeroclover.app.jhentai",
-            "7.4.11",
-            "JHenTai",
-        )
-        parsed = plistlib.loads(text.encode("utf-8"))
-        item = parsed["items"][0]
-        assert item["assets"][0]["kind"] == "software-package"
-        assert item["assets"][0]["url"] == "https://itms.zeroclover.io/JHenTai/JHenTai.ipa"
-        meta = item["metadata"]
-        assert meta["bundle-identifier"] == "io.zeroclover.app.jhentai"
-        assert meta["bundle-version"] == "7.4.11"
-        assert meta["kind"] == "software"
-        assert meta["title"] == "JHenTai"
-
-    def test_is_minimal(self) -> None:
-        """Only the minimal-effective keys are present (no icon assets / single asset)."""
-        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Demo")
-        parsed = plistlib.loads(text.encode("utf-8"))
-        item = parsed["items"][0]
-        assert len(item["assets"]) == 1
-        assert set(item["metadata"]) == {"bundle-identifier", "bundle-version", "kind", "title"}
-        assert "display-image" not in text
-        assert "full-size-image" not in text
-
-    def test_clean_formatting(self) -> None:
-        """4-space indent, trailing newline, and no trailing whitespace on any line."""
-        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Demo")
-        assert text.endswith("</plist>\n")
-        assert "\t" not in text
-        assert all(not line.endswith(" ") for line in text.splitlines())
-
-    def test_escapes_special_characters(self) -> None:
-        text = build_itms_plist("https://x/y.ipa", "io.z.app", "1.0", "Tab & Co <beta>")
-        assert "Tab &amp; Co &lt;beta&gt;" in text
-        parsed = plistlib.loads(text.encode("utf-8"))
-        assert parsed["items"][0]["metadata"]["title"] == "Tab & Co <beta>"
 
 
 class TestTaskSlug:

@@ -15,7 +15,6 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from xml.sax.saxutils import escape as xml_escape
 
 import apps_registry
 import r2_store
@@ -242,59 +241,6 @@ def extract_ipa_metadata(ipa_path: Path) -> tuple[str, Optional[str]]:
         raise ValueError(f"CFBundleIdentifier missing in {info_name}")
     version = plist.get("CFBundleShortVersionString") or plist.get("CFBundleVersion")
     return str(bundle_id), str(version) if version is not None else None
-
-
-def build_itms_plist(ipa_url: str, bundle_id: str, version: str, title: str) -> str:
-    """Build a minimal itms-services distribution manifest (XML plist text).
-
-    Modern iOS only needs a single ``software-package`` asset (HTTPS ``url``) plus
-    four metadata keys — ``bundle-identifier``, ``bundle-version``, ``kind`` and
-    ``title``. The legacy ``display-image`` / ``full-size-image`` icon assets are
-    optional and intentionally omitted. Output matches the docroot's existing
-    hand-written manifests byte-for-byte (4-space indent, no trailing space).
-
-    Transitional: manifests are now rendered dynamically by the Vercel front-end
-    (``web/lib/plist.ts``); this Python version is kept only as the golden-file
-    reference the TS port is diffed against, and is removed after cutover.
-    """
-
-    def esc(value: str) -> str:
-        return xml_escape(value or "")
-
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        "<dict>\n"
-        "    <key>items</key>\n"
-        "    <array>\n"
-        "        <dict>\n"
-        "            <key>assets</key>\n"
-        "            <array>\n"
-        "                <dict>\n"
-        "                    <key>kind</key>\n"
-        "                    <string>software-package</string>\n"
-        "                    <key>url</key>\n"
-        f"                    <string>{esc(ipa_url)}</string>\n"
-        "                </dict>\n"
-        "            </array>\n"
-        "            <key>metadata</key>\n"
-        "            <dict>\n"
-        "                <key>bundle-identifier</key>\n"
-        f"                <string>{esc(bundle_id)}</string>\n"
-        "                <key>bundle-version</key>\n"
-        f"                <string>{esc(version)}</string>\n"
-        "                <key>kind</key>\n"
-        "                <string>software</string>\n"
-        "                <key>title</key>\n"
-        f"                <string>{esc(title)}</string>\n"
-        "            </dict>\n"
-        "        </dict>\n"
-        "    </array>\n"
-        "</dict>\n"
-        "</plist>\n"
-    )
 
 
 # GitHub API integration

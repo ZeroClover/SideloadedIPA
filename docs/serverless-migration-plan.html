@@ -93,10 +93,12 @@
   <div class="meta">
     <span>分支 <b>feat/serverless-vercel-r2-migration</b></span>
     <span>日期 <b>2026-07-18</b></span>
-    <span>状态 <span class="badge">实施中 · P1–P3 已落地</span></span>
+    <span>状态 <span class="badge ok">P5 已切流 · 观察期</span></span>
     <span>修订 <b>v2</b> —— 已并入决策：boto3 上传 · R2 域 <b>ipa.zeroclover.io</b> · CI 清理旧版（弃用生命周期规则）· plist 由 Vercel 动态生成 · apps.json 直存 R2</span>
     <span>修订 <b>v3</b> —— 计划批准；开放问题全部决议：沿用现有 Vercel 账号 · 不保留手工 app · 删除 <code>site/</code> · 迁移现有图标</span>
     <span>进度 <b>v4</b>（2026-07-18）—— P1 基础设施就绪（bucket/Token/自定义域/GitHub secrets），图标迁移脚本 <code>scripts/seed_r2.py</code> + 一次性 workflow 待首跑；P2 前端落地并部署至 <b>sideloadedipa.vercel.app</b> 验证（页面 200 / plist 404 语义 / revalidate 鉴权正常，本地 golden 对拍逐字节一致）；P3 流水线改造完成（pytest 131 全绿、mypy/black/isort 通过）；待办：推送分支 → 图标迁移 workflow 首跑 → P4 全量试跑 + 真机验证 → P5 切流（切流时为 production 设 <code>SITE_PUBLIC_BASE_URL</code> 并重新部署）</span>
+    <span>进度 <b>v5</b>（2026-07-18）—— 图标迁移完成；R2 签名 region 显式化修复（<code>R2_REGION=apac</code>）；P4 全量试跑成功（5/5 签名发布、apps.json 生成、revalidate 生效），临时域名真机安装通过（期间修复 plist URL 误用 <code>VERCEL_URL</code> 受保护部署域的问题，改用 <code>VERCEL_PROJECT_PRODUCTION_URL</code> 兜底）；P5 完成：<code>zeroclover.io</code> 移至团队、<code>itms</code> 灰云 CNAME 接入并签发证书、<code>SITE_PUBLIC_BASE_URL</code> 已设、repo 变量已删。观察 24–48h 后进 P6</span>
+    <span>进度 <b>v6</b>（2026-07-18）—— P6 代码清理完成：删除一次性 <code>r2-seed</code> 工作流与 <code>seed_r2.py</code>、删除 <code>site/</code> 目录、移除过渡期 <code>build_itms_plist</code>（golden fixture 转为规范源）、README/MIGRATION 更新为无服务器架构；待办：合并 main、删除 <code>ASSETS_SERVER_*</code> secrets、服务器两周无异常后下线</span>
   </div>
 </header>
 

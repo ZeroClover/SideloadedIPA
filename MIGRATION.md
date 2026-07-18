@@ -162,3 +162,56 @@ which GitHub bills at **~10× less** than a macOS runner.
 - Worth verifying end-to-end once on Linux: that a Linux-`zsign`-signed IPA
   installs on a real device (zsign produces identical signatures cross-platform,
   but iOS signing is worth a smoke test).
+
+---
+
+# Migration from self-hosted server to serverless (Vercel + Cloudflare R2)
+
+## Summary
+
+Publishing no longer depends on the Plesk VPS (`itms.zeroclover.io` docroot,
+`scp`/`sshpass`). Signed IPAs, icons, and the `site/apps.json` registry live on
+Cloudflare R2 (`ipa.zeroclover.io`); the download page and the `itms.plist`
+manifests are served by a Next.js app on Vercel (`web/`, same domain
+`itms.zeroclover.io`). Full design: `docs/serverless-migration-plan.html`.
+
+## Changes
+
+### Removed
+- `scp`/`sshpass` publishing (`ensure_remote_dir`, `scp_upload`, `deploy_site`),
+  the `[site]` TOML table, and per-task `asset_server_path`
+- `scripts/site_update.py` and the `site/` static download page (incl. the
+  `apps.js` regex merge, the `?v=N` cache-buster, and the CI commit write-back —
+  workflow permissions tightened to `contents: read`)
+- `ASSETS_SERVER_*` secrets; the one-off icon-migration workflow after use
+
+### Added
+- `scripts/r2_store.py` — boto3 (S3-compatible) R2 wrapper: versioned immutable
+  IPA keys (`apps/<slug>/<version>/<App>.ipa`), apps.json IO, stale-key cleanup
+  whitelisted by the registry's references
+- `scripts/apps_registry.py` — merges signing results into `site/apps.json` on
+  R2 (per-slug refresh, `name` from `app_name`)
+- `web/` — Next.js 16 download page: app grid + `/apps/<slug>/itms.plist`
+  dynamic manifests + `/api/revalidate` (shared secret) on-demand ISR
+- Per-task `slug` field; `R2_*` / `VERCEL_REVALIDATE_SECRET` env vars
+
+### Modified
+- `scripts/run_signing.py` — publishes to R2, merges the registry, triggers
+  revalidation, then deletes stale keys (any failure skips cleanup)
+- `.github/workflows/sign-and-upload.yml`, `.github/workflows/pr-checks.yml`
+
+## Why serverless
+
+1. **No server to maintain** — the VPS only served static assets; R2 serves
+   them with zero egress fees, Vercel serves the KB-sized page/manifests
+2. **No cache-buster hacks** — versioned immutable keys + on-demand ISR
+   revalidation replace `?v=N` and manual purges
+3. **Single data source** — apps.json on R2 feeds both the page and the
+   manifests; no CI commit write-back, no drift between page and plist
+
+## Rollback
+
+Within 48h of DNS cutover: point `itms.zeroclover.io` back to the VPS record
+(the server stays read-only during that window). Code-level rollback is a
+revert of the merge commit. After the server is decommissioned (requires two
+clean weeks), rollback is no longer possible.
