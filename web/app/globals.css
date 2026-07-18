@@ -1,7 +1,7 @@
 /*
  * 设计令牌（Design Tokens）
- * 来源：Claude Design「App Download.dc.html」
- * 这些 custom properties 会透过 Shadow DOM 边界继承，<app-card> 内部直接复用。
+ * 来源：Claude Design「App Download.dc.html」，自 site/styles.css 与
+ * site/app-card.js 的 Shadow DOM 样式 1:1 移植（字体改由 next/font 自托管）。
  */
 :root {
   --zc-bg:            #f4f4f2;
@@ -18,8 +18,8 @@
   --zc-radius-input:  14px;
   --zc-radius-btn:    10px;
 
-  --zc-font-sans: 'Space Grotesk', Helvetica, Arial, sans-serif;
-  --zc-font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --zc-font-sans: var(--font-space-grotesk), 'Space Grotesk', Helvetica, Arial, sans-serif;
+  --zc-font-mono: var(--font-space-mono), 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -126,6 +126,83 @@ body { margin: 0; background: var(--zc-bg); }
   font-family: var(--zc-font-mono);
   font-size: 14px;
   color: var(--zc-muted-2);
+}
+
+/* ── App 卡片（原 <app-card> Shadow DOM 样式） ─────────────── */
+.card {
+  background: var(--zc-surface);
+  border: 1px solid var(--zc-border);
+  border-radius: var(--zc-radius-card);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  height: 100%;
+  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.card:hover {
+  border-color: var(--zc-ink);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(26, 26, 24, 0.08);
+}
+
+.icon, .icon-fallback {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--zc-radius-icon);
+  flex-shrink: 0;
+}
+.icon { object-fit: cover; display: block; }
+.icon-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--zc-bg);
+  font-family: var(--zc-font-mono);
+  font-weight: 700;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+
+.meta { display: flex; flex-direction: column; gap: 4px; }
+.name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.slug {
+  font-family: var(--zc-font-mono);
+  font-size: 11px;
+  color: var(--zc-muted-2);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+.version {
+  font-family: var(--zc-font-mono);
+  font-size: 10px;
+  color: var(--zc-muted);
+  letter-spacing: 0.06em;
+}
+
+.download {
+  margin-top: auto;
+  width: 100%;
+  padding: 11px 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--zc-bg);
+  background: var(--zc-ink);
+  border: none;
+  border-radius: var(--zc-radius-btn);
+  cursor: pointer;
+  transition: background .18s ease;
+}
+.download:hover { background: #000; }
+.download:focus-visible { outline: 2px solid var(--zc-ink); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .download { transition: none; }
+  .card:hover { transform: none; }
 }
 
 /* ── 响应式 ───────────────────────────────────────────────── */

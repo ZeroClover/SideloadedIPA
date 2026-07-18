@@ -19,8 +19,8 @@ on:
     types: [sign_ipas]
 
 permissions:
-  # write access is required to commit refreshed download-page data (site/) back
-  contents: write
+  # read-only: the pipeline no longer commits anything back (apps.json lives on R2)
+  contents: read
 
 concurrency:
   group: sign-and-upload
@@ -43,10 +43,21 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
       ASC_BYPASS_KEYCHAIN: "1"
-      # Asset server
-      ASSETS_SERVER_IP: ${{ secrets.ASSETS_SERVER_IP }}
-      ASSETS_SERVER_USER: ${{ secrets.ASSETS_SERVER_USER }}
-      ASSETS_SERVER_CREDENTIALS: ${{ secrets.ASSETS_SERVER_CREDENTIALS }}
+      # Cloudflare R2 object storage (S3-compatible publishing target)
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+      # Signing region pinned to the bucket's location hint (avoids picking up
+      # an invalid region from ambient AWS config; "auto" also works)
+      R2_REGION: apac
+      # Vercel on-demand revalidation hook (download-page / plist cache refresh)
+      VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
+      # Hook URL: production default is the live domain; override with the repo
+      # variable (e.g. https://sideloadedipa.vercel.app/api/revalidate) while
+      # testing pre-cutover, then delete the variable at DNS switchover.
+      VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
       # GitHub Token for API access (authenticated rate limits)
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Enable verbose logging in scripts (used for GitHub API rate limit debug)
@@ -91,8 +102,6 @@ jobs:
       - name: Install dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y sshpass
           # asc (App Store Connect CLI): official prebuilt Linux binary, checksum-verified.
           asc_bin="asc_${ASC_VERSION}_linux_amd64"
           base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
@@ -160,23 +169,6 @@ jobs:
           REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
           REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
         run: uv run python scripts/run_signing.py
-
-      - name: Commit refreshed download page
-        if: always()
-        run: |
-          set -euo pipefail
-          # The signer refreshes site/apps.js (versions / new apps) and bumps the
-          # apps.js?v= cache-buster in site/index.html. Persist those changes so the
-          # repo stays the single source of truth and change-detection works next run.
-          if [[ -z "$(git status --porcelain site/apps.js site/index.html)" ]]; then
-            echo "No download page changes to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add site/apps.js site/index.html
-          git commit -m "chore(site): refresh download page versions [skip ci]"
-          git push
 
       - name: Save cache
         if: always()

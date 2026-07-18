@@ -61,14 +61,13 @@ task_name = "TestApp"
 app_name = "Test App"
 bundle_id = "com.example.testapp"
 repo_url = "https://github.com/example/testapp"
-asset_server_path = "/var/www/assets/"
+slug = "testapp"
 
 [[tasks]]
 task_name = "DirectURLApp"
 app_name = "Direct URL App"
 bundle_id = "com.example.directurl"
 ipa_url = "https://example.com/app.ipa"
-asset_server_path = "/var/www/assets/direct.ipa"
 """
     toml_path = tmp_path / "configs" / "tasks.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)

@@ -4,22 +4,23 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 
 - Automatically sync Development provisioning profiles with all registered devices via App Store Connect CLI (`asc`).
 - Read a TOML config of signing tasks.
-- For each task: download the IPA (from direct URL or GitHub Release), re-sign with [`zsign`](https://github.com/zhlynn/zsign) (directly from the P12 certificate, no Keychain) using synced profiles, and upload to an Assets server via `scp`.
-- **Generate the itms-services manifest**: after each re-sign, read the signed IPA's actual bundle id + version and emit `itms.plist` next to the IPA.
-- **Refresh the download page**: update existing app versions / add new app cards in `site/apps.js`, bump the Cloudflare cache-buster, deploy the page, and commit the change back.
+- For each task: download the IPA (from direct URL or GitHub Release), re-sign with [`zsign`](https://github.com/zhlynn/zsign) (directly from the P12 certificate, no Keychain) using synced profiles, and upload to Cloudflare R2 (S3-compatible, via `boto3`) under a versioned key.
+- **Publish the registry**: merge each result into `site/apps.json` on R2 — the single data source for the download page and the itms.plist manifests, both served by the Vercel-hosted front-end.
+- **Refresh the edge cache**: call the front-end's on-demand revalidation hook, then delete stale versioned IPA keys no longer referenced by the registry.
 - **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
 
 ## File Structure
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
 - `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
-- `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, generates `itms.plist`, uploads, refreshes the download page
-- `scripts/site_update.py` — merges signing results into the download page data (`site/apps.js`) and bumps cache-busting versions
+- `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, uploads to R2, publishes the registry
+- `scripts/r2_store.py` — Cloudflare R2 storage wrapper (boto3): uploads, apps.json IO, stale-key cleanup
+- `scripts/apps_registry.py` — merges signing results into the `site/apps.json` registry on R2
 - `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
-- `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[site]` publishing settings)
+- `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
 - `.env.example` — example environment variables
-- `site/` — the ITMS download page (auto-maintained by the pipeline; see `site/README.md`)
+- `web/` — the Vercel-hosted download page (Next.js): renders the app grid and the dynamic `itms.plist` route from apps.json
 
 ## Required Secrets / Variables
 
@@ -38,14 +39,21 @@ Set these at Repository → Settings → Secrets and variables → Actions:
 
 > Generate API keys at: https://appstoreconnect.apple.com/access/api (requires "Developer" role)
 
-### Asset Server
+### Cloudflare R2 (publishing target)
 
-- `ASSETS_SERVER_IP` — SSH server IP or hostname
-- `ASSETS_SERVER_USER` — SSH username
-- `ASSETS_SERVER_CREDENTIALS` — SSH password
+- `R2_ACCOUNT_ID` — Cloudflare account ID (builds the S3 endpoint host)
+- `R2_ACCESS_KEY_ID` — R2 API token access key (Object Read & Write, scoped to the bucket)
+- `R2_SECRET_ACCESS_KEY` — R2 API token secret
+- `R2_BUCKET` — bucket name
+- `R2_PUBLIC_BASE_URL` — public base URL of the bucket's custom domain (e.g., `https://ipa.zeroclover.io`)
+
+### Vercel (download page)
+
+- `VERCEL_REVALIDATE_SECRET` — shared secret for the front-end's `/api/revalidate` hook
 
 ### Optional
 
+- `R2_REGION` — S3 signing region: the bucket's location hint (`wnam`/`enam`/`weur`/`eeur`/`apac`/`oc`) or `auto` (default)
 - `DEBUG_SSH_PUBLIC_KEY` — SSH public key for debug mode (only required when `debug=true`)
 
 ## Provisioning Profile Management
@@ -68,7 +76,6 @@ task_name = "MyApp"
 app_name = "My App"
 bundle_id = "com.example.myapp"
 ipa_url = "https://example.com/path/to/MyApp.ipa"
-asset_server_path = "/var/www/assets/ipas/"
 ```
 
 ### Option 2: GitHub Release Tracking (new, with caching)
@@ -81,7 +88,7 @@ bundle_id = "com.example.anotherapp"
 repo_url = "https://github.com/owner/repo"
 release_glob = "*.ipa"          # Optional, default: "*.ipa"
 use_prerelease = false           # Optional, default: false
-asset_server_path = "/var/www/assets/"
+slug = "anotherapp"              # Optional, default: slugified app_name
 ```
 
 **Required fields**:
@@ -91,9 +98,9 @@ asset_server_path = "/var/www/assets/"
 - **Either** `ipa_url` OR `repo_url` (mutually exclusive)
   - `ipa_url` — Direct download URL of the IPA (always rebuilds)
   - `repo_url` — GitHub repository URL (enables version tracking and caching)
-- `asset_server_path` — Destination path on asset server (if ends with `/`, filename is appended)
 
-**Optional fields for GitHub Release tracking**:
+**Optional fields**:
+- `slug` — Stable key for R2 object paths and page/plist URLs (default: slugified `app_name`)
 - `release_glob` — Pattern to match release assets (default: `*.ipa`)
 - `use_prerelease` — Whether to use prerelease versions (default: `false`)
   - If `true`, fetches latest prerelease; falls back to latest stable if none exist
@@ -140,11 +147,9 @@ Example `repository_dispatch` payload:
      - Compares version with cache
      - Only rebuilds if version or publish timestamp changed
    - Re-signs with `zsign` using the P12 certificate and synced profile
-   - Uploads the signed IPA to the asset server via `scp`
-   - **Generates `itms.plist`** from the signed IPA's actual bundle id + version and uploads it next to the IPA
-   - **Refreshes the download page** (`site/apps.js` + `index.html` cache-buster) and deploys `site/` to the docroot
+   - Reads the signed IPA's actual bundle id + version, uploads the IPA to R2 under a versioned, immutable key (`apps/<slug>/<version>/<App>.ipa`)
    - Updates release cache with new versions
-7. **Commit Download Page**: Commits the refreshed `site/apps.js` / `index.html` back to the repo (keeps it the single source of truth)
+7. **Publish registry**: merges results into `site/apps.json` on R2, calls the Vercel `/api/revalidate` hook (shared secret), then deletes stale versioned keys the registry no longer references (skipped if any step fails)
 8. **Save Cache**: Saves updated cache state for next run
 
 ## Caching Behavior
@@ -168,9 +173,9 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 ## Requirements and Notes
 
 - **Runner**: `ubuntu-latest` — `zsign` signs via OpenSSL (not Apple's `codesign`/Security.framework), so the whole pipeline runs on Linux (≈10× cheaper than a macOS runner)
-- **Tools installed**: `zsign` (prebuilt static Linux binary), `asc` (App Store Connect CLI, prebuilt Linux binary), `sshpass` (via `apt`) — all checksum-verified where downloaded
+- **Tools installed**: `zsign` (prebuilt static Linux binary), `asc` (App Store Connect CLI, prebuilt Linux binary) — all checksum-verified where downloaded; `boto3` comes from `uv.lock`
 - **Signing**: Uses [`zsign`](https://github.com/zhlynn/zsign) with the P12 certificate and synced profile (no Keychain / codesign identity required)
-- **Upload**: Password-based `scp` to asset server
+- **Publishing**: S3-compatible uploads to Cloudflare R2 (zero egress fees); the download page and `itms.plist` manifests are served by Vercel — no self-hosted server anywhere in the pipeline
 - **Bundle IDs**: Must be pre-registered in Apple Developer Portal
 - **GitHub Token**: Workflow automatically uses `GITHUB_TOKEN` for authenticated API access
   - Provides 1,000 requests/hour per repository (vs 60/hour unauthenticated)

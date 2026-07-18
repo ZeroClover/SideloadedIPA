@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>items</key>
+    <array>
+        <dict>
+            <key>assets</key>
+            <array>
+                <dict>
+                    <key>kind</key>
+                    <string>software-package</string>
+                    <key>url</key>
+                    <string>https://ipa.zeroclover.io/apps/JHenTai/8.0.14/JHenTai.ipa</string>
+                </dict>
+            </array>
+            <key>metadata</key>
+            <dict>
+                <key>bundle-identifier</key>
+                <string>io.zeroclover.app.jhentai</string>
+                <key>bundle-version</key>
+                <string>8.0.14</string>
+                <key>kind</key>
+                <string>software</string>
+                <key>title</key>
+                <string>JHenTai</string>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>
