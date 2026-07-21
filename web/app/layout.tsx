@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
@@ -25,6 +26,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Vercel Speed Insights — real-user Core Web Vitals. The /next entrypoint
             resolves the App Router route automatically; no props needed. */}
         <SpeedInsights />
+        {/* Vercel Web Analytics — page views and visitors. */}
+        <Analytics />
       </body>
     </html>
   );
