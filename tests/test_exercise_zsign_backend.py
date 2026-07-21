@@ -35,8 +35,8 @@ def entitlement_contract(keychain_groups: list[str]) -> dict[str, dict]:
 def test_zsign_command_uses_four_profiles_without_global_entitlements(tmp_path: Path) -> None:
     command = zsign_command(
         tmp_path / "zsign",
-        tmp_path / "certificate.p12",
-        "secret",
+        tmp_path / "private-key.pem",
+        tmp_path / "certificate.pem",
         tmp_path / "profiles",
         tmp_path / "fixture.ipa",
         tmp_path / "signed.ipa",
@@ -44,6 +44,7 @@ def test_zsign_command_uses_four_profiles_without_global_entitlements(tmp_path: 
 
     assert command.count("-m") == 4
     assert "-e" not in command
+    assert "-p" not in command
 
 
 def test_backend_output_is_bounded_and_redacted() -> None:

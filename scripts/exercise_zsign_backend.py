@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import plistlib
 import subprocess
 import sys
@@ -54,13 +53,20 @@ def sha256_bytes(value: bytes) -> str:
 
 def zsign_command(
     zsign: Path,
-    p12: Path,
-    password: str,
+    private_key: Path,
+    certificate: Path,
     profiles_dir: Path,
     fixture_ipa: Path,
     signed_ipa: Path,
 ) -> list[str]:
-    command = [str(zsign), "-f", "-k", str(p12), "-p", password]
+    command = [
+        str(zsign),
+        "-f",
+        "-k",
+        str(private_key),
+        "-c",
+        str(certificate),
+    ]
     for role in TARGETS:
         command.extend(["-m", str(profiles_dir / f"{role}.mobileprovision")])
     command.extend(["-o", str(signed_ipa), str(fixture_ipa)])
@@ -155,23 +161,19 @@ def evaluate_contract(entitlements: Mapping[str, Mapping[str, Any]]) -> list[str
 
 
 def exercise(args: argparse.Namespace) -> dict[str, Any]:
-    password = os.environ.get(args.p12_password_env)
-    if not password:
-        raise BackendExerciseError(f"{args.p12_password_env} is not set")
-
     args.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     signed_ipa = args.output_dir / "signed.ipa"
     command = zsign_command(
         args.zsign,
-        args.p12,
-        password,
+        args.private_key,
+        args.certificate,
         args.profiles_dir,
         args.fixture_ipa,
         signed_ipa,
     )
     if "-e" in command or command.count("-m") != len(TARGETS):
         raise BackendExerciseError("qualification command is not repeated-profile/profile-only")
-    run(command, redactions=(password,))
+    run(command)
 
     extracted = args.output_dir / "extracted"
     with zipfile.ZipFile(signed_ipa) as archive:
@@ -231,8 +233,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--zsign", type=Path, required=True)
     parser.add_argument("--fixture-ipa", type=Path, required=True)
-    parser.add_argument("--p12", type=Path, required=True)
-    parser.add_argument("--p12-password-env", required=True)
+    parser.add_argument("--private-key", type=Path, required=True)
+    parser.add_argument("--certificate", type=Path, required=True)
     parser.add_argument("--profiles-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
