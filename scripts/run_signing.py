@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 
-import apps_registry
 import app_icon
+import apps_registry
 import r2_store
 
 # Vercel on-demand revalidation hook (shared-secret protected). Overridable via
