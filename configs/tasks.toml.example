@@ -99,3 +99,61 @@ release_glob = "*universal*.ipa"
 use_prerelease = true
 
 slug = "specialapp"
+
+# ========================================
+# Multi-bundle signing (standard LiveContainer example)
+# ========================================
+# A release with more than one IPA asset needs an exact selector. The standard
+# build has four profile-bearing bundles. The SideStore build is intentionally
+# a separate policy: it adds LiveWidget and therefore needs a fifth App ID,
+# profile, entitlement rule, and device acceptance record.
+
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.example.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
+slug = "LiveContainer"
+signing_engine = "package"
+publication_enabled = false
+
+[tasks.signing]
+id_strategy = "preserve-source-suffix"
+unknown_profile_bundles = "error"
+profile_type = "IOS_APP_DEVELOPMENT"
+
+[tasks.signing.app_groups]
+shared = "group.io.example.livecontainer"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.example.livecontainer"
+role = "root"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+# entitlement_mode values:
+# - "profile": use the mapped profile's entitlement document.
+# - "preserve-source": rewrite reviewed team/identifier/App Group values while
+#   retaining the remaining source values; any drop must be declared.
+# - "template": load a plist below configs/signing using only typed
+#   ${TEAM_ID}, ${APP_IDENTIFIER_PREFIX}, ${TARGET_BUNDLE_ID}, and
+#   ${APP_GROUP:<alias>} placeholders.

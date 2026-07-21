@@ -2,7 +2,7 @@
 
 ## Summary
 
-This project has been migrated from using fastlane's spaceship library to the [App Store Connect CLI](https://github.com/rudrankriyam/App-Store-Connect-CLI) for provisioning profile management.
+This project has been migrated from using fastlane's spaceship library to the [App Store Connect CLI](https://github.com/rorkai/App-Store-Connect-CLI) for provisioning profile management.
 
 ## Changes
 
@@ -32,9 +32,9 @@ This project has been migrated from using fastlane's spaceship library to the [A
 To test the new script locally:
 
 ```bash
-# Install asc CLI
-brew tap rudrankriyam/tap
-brew install asc
+# Install the checksum-verified 3.1.1 release for the local platform using the
+# same canonical rorkai/App-Store-Connect-CLI release assets as CI.
+asc version
 
 # Set environment variables (asc CLI reads these automatically)
 export ASC_KEY_ID="your_key_id"
@@ -87,7 +87,7 @@ dependency from the project — there is no longer any `fastlane`, `bundler`, or
 
 ### Added
 - `Install zsign` workflow step — downloads `zsign`'s official prebuilt macOS
-  arm64 binary (pinned via the `ZSIGN_VERSION` env, currently `v1.0.4`) and
+  arm64 binary (pinned via the `ZSIGN_VERSION` env, currently `v1.1.1`) and
   verifies its SHA256 checksum before use
 - `find_zsign()` / `build_zsign_argv()` helpers in `scripts/run_signing.py`
 

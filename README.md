@@ -8,6 +8,8 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 - **Publish the registry**: merge each result into `site/apps.json` on R2 — the single data source for the download page and the itms.plist manifests, both served by the Vercel-hosted front-end.
 - **Refresh the edge cache**: call the front-end's on-demand revalidation hook, then delete stale versioned IPA keys no longer referenced by the registry.
 - **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
+- **Multi-bundle safety**: Inventory, plan, sign, and independently verify one
+  profile per app/extension with task-specific identifiers and entitlements.
 
 ## File Structure
 
@@ -19,6 +21,10 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 - `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
 - `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
+- `configs/signing/` — reviewed entitlement plist templates with typed placeholders
+- `docs/operator-runbook.md` — inspect, Apple reconciliation, canary, rollback, and device acceptance
+- `docs/security.md` — archive, credential, CI, dependency, and rotation controls
+- `docs/troubleshooting.md` — fail-closed diagnostics for source, profile, entitlement, and signature failures
 - `.env.example` — example environment variables
 - `web/` — the Vercel-hosted download page (Next.js): renders the app grid and the dynamic `itms.plist` route from apps.json
 
@@ -103,6 +109,8 @@ icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x
 **Optional fields**:
 - `slug` — Stable key for R2 object paths and page/plist URLs (default: slugified `app_name`)
 - `release_glob` — Pattern to match release assets (default: `*.ipa`)
+  - The effective pattern must match exactly one asset. Zero or multiple matches
+    fail and list the candidates; use an exact name when a release has variants.
 - `use_prerelease` — Whether to use prerelease versions (default: `false`)
   - If `true`, fetches latest prerelease; falls back to latest stable if none exist
   - If `false`, fetches only latest stable release
@@ -124,12 +132,80 @@ icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x
 
 See `configs/tasks.toml.example` for more details.
 
+### Multi-bundle tasks
+
+Multi-bundle tasks opt into the package engine and declare one exact rule for
+every profile-bearing source Bundle ID:
+
+```toml
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.zeroclover.app.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
+slug = "LiveContainer"
+signing_engine = "package"
+publication_enabled = false
+
+[tasks.signing]
+id_strategy = "preserve-source-suffix"
+unknown_profile_bundles = "error"
+profile_type = "IOS_APP_DEVELOPMENT"
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.app.livecontainer"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.zeroclover.app.livecontainer"
+role = "root"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+```
+
+Nested target IDs preserve the suffix below the source root unless a reviewed
+`target_bundle_id` override is present. `unknown_profile_bundles = "error"`
+prevents a newly added extension from silently inheriting another profile.
+
+Entitlement modes are `profile`, `preserve-source`, and `template`. Templates
+must live below `configs/signing` and may use only `${TEAM_ID}`,
+`${APP_IDENTIFIER_PREFIX}`, `${TARGET_BUNDLE_ID}`, and named
+`${APP_GROUP:<alias>}` placeholders. Intentional entitlement drops require an
+explicit list and rationale.
+
+The standard `LiveContainer.ipa` has four profile-bearing bundles. The
+`LiveContainer+SideStore.ipa` variant adds `LiveWidget` and requires a separate
+fifth App ID, profile, widget policy, App Group review, and device acceptance;
+it is not a substitute asset for the standard task. Keep a new multi-bundle task
+at `publication_enabled = false` until automated canary and device acceptance
+both pass.
+
 ## Triggers
 
 - **Scheduled**: Daily at 02:00 UTC (keeps cache fresh and auto-processes new releases)
 - **Manual**: Workflow Dispatch inputs:
   - `debug` — Enable Cloudflare Tunnel for SSH debugging (default: `false`)
   - `force_rebuild` — Force full rebuild ignoring cache (default: `false`)
+  - `package_shadow` — Run inventory and Apple planning without mutation
+  - `multi_bundle_canary` — Run private Linux/macOS multi-bundle acceptance with publication disabled
 - **Webhook**: `repository_dispatch` with type `sign_ipas`
 
 Example `repository_dispatch` payload:
@@ -258,13 +334,13 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 5. **Format code**:
    ```bash
    # Format with black
-   uv run black scripts/
+   uv run black src tests scripts
 
    # Sort imports with isort
-   uv run isort scripts/
+   uv run isort src tests scripts
 
    # Type check with mypy
-   uv run mypy scripts/
+   uv run mypy src/sideloadedipa
    ```
 
 ### Why uv?
@@ -276,8 +352,10 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 
 ## Latest Actions Versions
 
-- `actions/checkout@v6`
-- `astral-sh/setup-uv@v8`
-- `actions/cache@v5`
+- `actions/checkout@v7.0.1`
+- `astral-sh/setup-uv@v9.0.0`
+- `actions/cache@v6.1.0`
+- `actions/upload-artifact@v7.0.1`
+- `actions/download-artifact@v8.0.1`
 
 These are selected based on current docs and should be kept up to date.
