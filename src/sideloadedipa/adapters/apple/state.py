@@ -256,6 +256,89 @@ def canonical_apple_snapshot_json(snapshot: AppleStateSnapshot) -> bytes:
     return json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
 
 
+def collect_profiles(client: AscStateReader) -> tuple[AppleProfileState, ...]:
+    """Collect normalized iOS development profiles and their exact relationships."""
+
+    resources = _data_list(
+        client.run_json(
+            ("profiles", "list", "--profile-type", "IOS_APP_DEVELOPMENT"),
+            paginate=True,
+        ),
+        "profiles",
+    )
+    values = []
+    for index, summary in enumerate(resources):
+        profile_id, _ = _resource(summary, f"profiles.data[{index}]", "profiles")
+        detail_document = _response_mapping(
+            client.run_json(("profiles", "view", "--id", profile_id)),
+            "profile",
+        )
+        detail = _mapping(detail_document.get("data"), "profile.data")
+        detail_id, attributes = _resource(detail, "profile.data", "profiles")
+        if detail_id != profile_id:
+            raise _invalid("profile detail ID differs from list ID", "profile.data.id")
+        bundle_ids = _linkage_ids(
+            client.run_json(("profiles", "links", "bundle-id", "--id", profile_id)),
+            "profile_bundle_id",
+            "bundleIds",
+            many=False,
+        )
+        if len(bundle_ids) != 1:
+            raise _invalid(
+                "profile must link to exactly one bundle ID",
+                "profile_bundle_id.data",
+            )
+        certificate_ids = _linkage_ids(
+            client.run_json(
+                ("profiles", "links", "certificates", "--id", profile_id),
+                paginate=True,
+            ),
+            "profile_certificates",
+            "certificates",
+            many=True,
+        )
+        device_ids = _linkage_ids(
+            client.run_json(
+                ("profiles", "links", "devices", "--id", profile_id),
+                paginate=True,
+            ),
+            "profile_devices",
+            "devices",
+            many=True,
+        )
+        values.append(
+            AppleProfileState(
+                resource_id=profile_id,
+                name=_string(attributes.get("name"), "profile.data.attributes.name"),
+                platform=_optional_string(
+                    attributes.get("platform"), "profile.data.attributes.platform"
+                ),
+                profile_type=_string(
+                    attributes.get("profileType"), "profile.data.attributes.profileType"
+                ),
+                profile_state=_optional_string(
+                    attributes.get("profileState"), "profile.data.attributes.profileState"
+                ),
+                uuid=_optional_string(attributes.get("uuid"), "profile.data.attributes.uuid"),
+                created_date=_optional_string(
+                    attributes.get("createdDate"), "profile.data.attributes.createdDate"
+                ),
+                expiration_date=_optional_string(
+                    attributes.get("expirationDate"),
+                    "profile.data.attributes.expirationDate",
+                ),
+                profile_sha256=_content_sha256(
+                    attributes.get("profileContent"),
+                    "profile.data.attributes.profileContent",
+                ),
+                bundle_resource_id=bundle_ids[0],
+                certificate_resource_ids=certificate_ids,
+                device_resource_ids=device_ids,
+            )
+        )
+    return tuple(sorted(values, key=lambda value: value.resource_id))
+
+
 class AppleStateCollector:
     def __init__(self, client: AscStateReader) -> None:
         self.client = client
@@ -365,79 +448,7 @@ class AppleStateCollector:
         return tuple(sorted(values, key=lambda value: value.resource_id))
 
     def _profiles(self) -> tuple[AppleProfileState, ...]:
-        resources = _data_list(
-            self.client.run_json(
-                ("profiles", "list", "--profile-type", "IOS_APP_DEVELOPMENT"),
-                paginate=True,
-            ),
-            "profiles",
-        )
-        values = []
-        for index, summary in enumerate(resources):
-            profile_id, _ = _resource(summary, f"profiles.data[{index}]", "profiles")
-            detail_document = _response_mapping(
-                self.client.run_json(("profiles", "view", "--id", profile_id)),
-                "profile",
-            )
-            detail = _mapping(detail_document.get("data"), "profile.data")
-            detail_id, attributes = _resource(detail, "profile.data", "profiles")
-            if detail_id != profile_id:
-                raise _invalid("profile detail ID differs from list ID", "profile.data.id")
-            bundle_ids = _linkage_ids(
-                self.client.run_json(("profiles", "links", "bundle-id", "--id", profile_id)),
-                "profile_bundle_id",
-                "bundleIds",
-                many=False,
-            )
-            certificate_ids = _linkage_ids(
-                self.client.run_json(
-                    ("profiles", "links", "certificates", "--id", profile_id),
-                    paginate=True,
-                ),
-                "profile_certificates",
-                "certificates",
-                many=True,
-            )
-            device_ids = _linkage_ids(
-                self.client.run_json(
-                    ("profiles", "links", "devices", "--id", profile_id),
-                    paginate=True,
-                ),
-                "profile_devices",
-                "devices",
-                many=True,
-            )
-            values.append(
-                AppleProfileState(
-                    resource_id=profile_id,
-                    name=_string(attributes.get("name"), "profile.data.attributes.name"),
-                    platform=_optional_string(
-                        attributes.get("platform"), "profile.data.attributes.platform"
-                    ),
-                    profile_type=_string(
-                        attributes.get("profileType"), "profile.data.attributes.profileType"
-                    ),
-                    profile_state=_optional_string(
-                        attributes.get("profileState"), "profile.data.attributes.profileState"
-                    ),
-                    uuid=_optional_string(attributes.get("uuid"), "profile.data.attributes.uuid"),
-                    created_date=_optional_string(
-                        attributes.get("createdDate"), "profile.data.attributes.createdDate"
-                    ),
-                    expiration_date=_optional_string(
-                        attributes.get("expirationDate"),
-                        "profile.data.attributes.expirationDate",
-                    ),
-                    profile_sha256=_content_sha256(
-                        attributes.get("profileContent"),
-                        "profile.data.attributes.profileContent",
-                    ),
-                    bundle_resource_id=bundle_ids[0],
-                    certificate_resource_ids=certificate_ids,
-                    device_resource_ids=device_ids,
-                )
-            )
-        return tuple(sorted(values, key=lambda value: value.resource_id))
+        return collect_profiles(self.client)
 
     def collect(self) -> AppleStateSnapshot:
         """Read and normalize one complete signing-resource snapshot."""

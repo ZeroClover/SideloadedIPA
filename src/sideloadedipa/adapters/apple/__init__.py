@@ -21,10 +21,19 @@ from sideloadedipa.adapters.apple.capabilities import (
     capability_rule,
     exact_capability_matches,
 )
+from sideloadedipa.adapters.apple.profiles import (
+    AscProfileGateway,
+    MobileProvisionValidator,
+    ProfileReconciler,
+    ProfileReconciliationResult,
+    ProfileSyncRequest,
+    next_profile_name,
+)
 from sideloadedipa.adapters.apple.state import (
     AppleStateCollector,
     canonical_apple_snapshot_json,
     collect_bundle_identifiers,
+    collect_profiles,
     decode_bundle_identifier_response,
 )
 
@@ -33,6 +42,7 @@ __all__ = [
     "AscBundleIdGateway",
     "AscCapabilityGateway",
     "AscClient",
+    "AscProfileGateway",
     "AscResponse",
     "AscToolIdentity",
     "BundleIdReconciler",
@@ -40,6 +50,10 @@ __all__ = [
     "CapabilityAutomation",
     "CapabilityReconciler",
     "CapabilityRule",
+    "MobileProvisionValidator",
+    "ProfileReconciler",
+    "ProfileReconciliationResult",
+    "ProfileSyncRequest",
     "app_group_association_verified",
     "app_group_requirement",
     "bundle_id_requirement",
@@ -47,7 +61,9 @@ __all__ = [
     "capability_rule",
     "canonical_apple_snapshot_json",
     "collect_bundle_identifiers",
+    "collect_profiles",
     "decode_bundle_identifier_response",
     "exact_bundle_id_matches",
     "exact_capability_matches",
+    "next_profile_name",
 ]

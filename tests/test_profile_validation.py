@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
+from sideloadedipa.adapters.apple import MobileProvisionValidator
 from sideloadedipa.domain import ProfileType, ProfileValidationRequest, normalize_entitlements
 from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
 from sideloadedipa.profile_validation import (
@@ -149,12 +150,17 @@ def test_verifies_cms_and_validates_complete_profile(tmp_path: Path) -> None:
         now=NOW,
         refresh_threshold=timedelta(days=30),
     )
+    validated_in_memory = MobileProvisionValidator(
+        now=NOW,
+        refresh_threshold=timedelta(days=30),
+    ).validate(path.read_bytes(), request(certificate_der))
 
     assert validated.resource_id == "PROFILE_ONE"
     assert validated.application_identifier == APPLICATION_IDENTIFIER
     assert validated.device_ids == request(certificate_der).device_udid_sha256
     assert validated.profile_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert validated.expires_at == datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+    assert validated_in_memory.profile_sha256 == validated.profile_sha256
     assert all(udid not in repr(validated) for udid in DEVICE_UDIDS)
 
 

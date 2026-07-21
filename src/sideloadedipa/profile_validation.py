@@ -23,6 +23,7 @@ from sideloadedipa.subprocesses import SubprocessRunner
 _APPLICATION_IDENTIFIER = "application-identifier"
 _TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
 _KEYCHAIN_GROUPS = "keychain-access-groups"
+_APP_GROUPS = "com.apple.security.application-groups"
 
 
 def _invalid_profile(
@@ -145,6 +146,12 @@ def _value_is_authorized(key: str, allowed: object, expected: object) -> bool:
         return all(
             any(_wildcard_authorizes(candidate, value) for candidate in allowed)
             for value in expected
+        )
+    if key == _APP_GROUPS:
+        return (
+            isinstance(allowed, list)
+            and isinstance(expected, list)
+            and sorted(allowed, key=repr) == sorted(expected, key=repr)
         )
     if isinstance(expected, list):
         return isinstance(allowed, list) and all(value in allowed for value in expected)
@@ -343,6 +350,34 @@ def decode_and_validate_provisioning_profile(
         runner=runner,
         bundle_id=request.target_bundle_id,
     )
+    return validate_provisioning_profile(
+        document,
+        content,
+        request,
+        now=now,
+        refresh_threshold=refresh_threshold,
+    )
+
+
+def validate_mobileprovision_content(
+    content: bytes,
+    request: ProfileValidationRequest,
+    *,
+    now: datetime,
+    refresh_threshold: timedelta,
+    runner: SubprocessRunner | None = None,
+) -> ProvisioningProfile:
+    """Validate in-memory profile content without exposing it outside a private temp directory."""
+
+    with tempfile.TemporaryDirectory(prefix="sideloadedipa-profile-") as directory:
+        profile_path = Path(directory) / "profile.mobileprovision"
+        profile_path.write_bytes(content)
+        profile_path.chmod(0o600)
+        document = decode_mobileprovision(
+            profile_path,
+            runner=runner,
+            bundle_id=request.target_bundle_id,
+        )
     return validate_provisioning_profile(
         document,
         content,
