@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from sideloadedipa.config import load_configuration, parse_configuration
-from sideloadedipa.domain import R2Config, SourceKind
+from sideloadedipa.domain import (
+    EntitlementMode,
+    IdentifierStrategy,
+    ProfileType,
+    R2Config,
+    SourceKind,
+    UnknownProfileBundlePolicy,
+)
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 
 
@@ -80,6 +87,63 @@ def test_parses_existing_repository_source_options_and_icons() -> None:
     assert repository.icon_path == "assets/Icon.png"
 
 
+def test_parses_multi_bundle_signing_schema() -> None:
+    task = direct_task(
+        signing={
+            "id_strategy": "preserve-source-suffix",
+            "unknown_profile_bundles": "error",
+            "profile_type": "IOS_APP_DEVELOPMENT",
+            "app_groups": {
+                "shared": "group.io.zeroclover.livecontainer",
+                "secondary_group": "group.io.zeroclover.secondary",
+            },
+            "bundles": [
+                {
+                    "source_bundle_id": "com.kdt.livecontainer",
+                    "role": "root",
+                    "target_bundle_id": "io.zeroclover.app.livecontainer",
+                    "required_capabilities": ["APP_GROUPS", "HEALTHKIT"],
+                    "entitlement_mode": "template",
+                    "entitlements_file": "configs/signing/livecontainer/root.plist",
+                    "allowed_entitlement_drops": ["com.apple.developer.example"],
+                    "drop_rationale": "Unavailable for development signing",
+                },
+                {
+                    "source_bundle_id": "com.kdt.livecontainer.ShareExtension",
+                    "entitlement_mode": "preserve-source",
+                },
+            ],
+        }
+    )
+
+    signing = parse_configuration({"tasks": [task]}).tasks[0].signing
+
+    assert signing is not None
+    assert signing.id_strategy is IdentifierStrategy.PRESERVE_SOURCE_SUFFIX
+    assert signing.unknown_profile_bundles is UnknownProfileBundlePolicy.ERROR
+    assert signing.profile_type is ProfileType.IOS_APP_DEVELOPMENT
+    assert signing.app_groups == (
+        ("secondary_group", "group.io.zeroclover.secondary"),
+        ("shared", "group.io.zeroclover.livecontainer"),
+    )
+    root = signing.bundles[0]
+    assert root.required_capabilities == ("APP_GROUPS", "HEALTHKIT")
+    assert root.entitlement_policy.mode is EntitlementMode.TEMPLATE
+    assert str(root.entitlement_policy.template_path) == "configs/signing/livecontainer/root.plist"
+    assert root.entitlement_policy.allowed_drops == ("com.apple.developer.example",)
+
+
+def test_signing_schema_uses_documented_defaults() -> None:
+    signing = parse_configuration({"tasks": [direct_task(signing={})]}).tasks[0].signing
+
+    assert signing is not None
+    assert signing.id_strategy is IdentifierStrategy.PRESERVE_SOURCE_SUFFIX
+    assert signing.unknown_profile_bundles is UnknownProfileBundlePolicy.ERROR
+    assert signing.profile_type is ProfileType.IOS_APP_DEVELOPMENT
+    assert signing.app_groups == ()
+    assert signing.bundles == ()
+
+
 @pytest.mark.parametrize(
     ("task", "field"),
     [
@@ -123,6 +187,59 @@ def test_rejects_non_string_optional_field() -> None:
         parse_configuration({"tasks": [direct_task(icon_path=42)]})
 
     assert caught.value.safe_details == (("field", "icon_path"),)
+
+
+@pytest.mark.parametrize(
+    ("signing", "field"),
+    [
+        ("invalid", "signing"),
+        ({"id_strategy": "replace-all"}, "id_strategy"),
+        ({"unknown_profile_bundles": "ignore"}, "unknown_profile_bundles"),
+        ({"profile_type": 1}, "profile_type"),
+        ({"app_groups": []}, "signing.app_groups"),
+        ({"app_groups": {"bad alias": "group.example"}}, "signing.app_groups"),
+        ({"app_groups": {"shared": 42}}, "signing.app_groups.shared"),
+        ({"bundles": {}}, "signing.bundles"),
+        ({"bundles": ["invalid"]}, "signing.bundles[0]"),
+        ({"bundles": [{}]}, "source_bundle_id"),
+        (
+            {"bundles": [{"source_bundle_id": "com.example", "entitlement_mode": "unknown"}]},
+            "entitlement_mode",
+        ),
+        (
+            {"bundles": [{"source_bundle_id": "com.example", "entitlement_mode": "template"}]},
+            "entitlements_file",
+        ),
+        (
+            {"bundles": [{"source_bundle_id": "com.example", "entitlements_file": "file.plist"}]},
+            "entitlements_file",
+        ),
+        (
+            {
+                "bundles": [
+                    {"source_bundle_id": "com.example", "required_capabilities": "APP_GROUPS"}
+                ]
+            },
+            "required_capabilities",
+        ),
+        (
+            {
+                "bundles": [
+                    {
+                        "source_bundle_id": "com.example",
+                        "allowed_entitlement_drops": ["key"],
+                    }
+                ]
+            },
+            "drop_rationale",
+        ),
+    ],
+)
+def test_rejects_invalid_signing_schema(signing: object, field: str) -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        parse_configuration({"tasks": [direct_task(signing=signing)]})
+
+    assert ("field", field) in caught.value.safe_details
 
 
 def test_reports_missing_and_malformed_files(tmp_path: Path) -> None:

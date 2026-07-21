@@ -5,11 +5,25 @@ from __future__ import annotations
 import re
 import tomllib
 from collections.abc import Mapping
-from pathlib import Path
-from typing import NoReturn
+from enum import StrEnum
+from pathlib import Path, PurePosixPath
+from typing import NoReturn, TypeVar
 from urllib.parse import urlsplit
 
-from sideloadedipa.domain import R2Config, SourceConfig, SourceKind, Task, TaskConfiguration
+from sideloadedipa.domain import (
+    BundleRule,
+    EntitlementMode,
+    EntitlementPolicy,
+    IdentifierStrategy,
+    ProfileType,
+    R2Config,
+    SigningPolicy,
+    SourceConfig,
+    SourceKind,
+    Task,
+    TaskConfiguration,
+    UnknownProfileBundlePolicy,
+)
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 
 _SLUG_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -17,6 +31,8 @@ _BUNDLE_ID_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 _GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^(?:https?://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?/?$"
 )
+_ALIAS_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_EnumValue = TypeVar("_EnumValue", bound=StrEnum)
 
 
 def _fail(message: str, field: str, task_name: str | None = None) -> NoReturn:
@@ -56,6 +72,31 @@ def _optional_string(
     if not isinstance(value, str) or not value.strip():
         _fail(f"{field} must be a non-empty string", field, task_name)
     return value.strip()
+
+
+def _string_tuple(value: object, field: str, task_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        _fail(f"{field} must be an array of non-empty strings", field, task_name)
+    return tuple(item.strip() for item in value)
+
+
+def _enum_value(
+    enum_type: type[_EnumValue],
+    value: object,
+    field: str,
+    task_name: str,
+) -> _EnumValue:
+    if not isinstance(value, str):
+        _fail(f"{field} must be a string", field, task_name)
+    try:
+        return enum_type(value)
+    except ValueError:
+        allowed = ", ".join(member.value for member in enum_type)
+        _fail(f"{field} must be one of: {allowed}", field, task_name)
 
 
 def _http_url(value: str, field: str, task_name: str) -> None:
@@ -105,6 +146,104 @@ def _parse_source(raw: Mapping[str, object], task_name: str) -> SourceConfig:
     )
 
 
+def _parse_entitlement_policy(raw: Mapping[str, object], task_name: str) -> EntitlementPolicy:
+    mode = _enum_value(
+        EntitlementMode,
+        raw.get("entitlement_mode", EntitlementMode.PROFILE.value),
+        "entitlement_mode",
+        task_name,
+    )
+    file_value = _optional_string(raw, "entitlements_file", task_name=task_name)
+    if mode is EntitlementMode.TEMPLATE and file_value is None:
+        _fail(
+            "template entitlement mode requires entitlements_file",
+            "entitlements_file",
+            task_name,
+        )
+    if mode is not EntitlementMode.TEMPLATE and file_value is not None:
+        _fail(
+            "entitlements_file is valid only for template entitlement mode",
+            "entitlements_file",
+            task_name,
+        )
+
+    allowed_drops = _string_tuple(
+        raw.get("allowed_entitlement_drops"), "allowed_entitlement_drops", task_name
+    )
+    rationale = _optional_string(raw, "drop_rationale", task_name=task_name)
+    if allowed_drops and rationale is None:
+        _fail(
+            "allowed_entitlement_drops requires drop_rationale",
+            "drop_rationale",
+            task_name,
+        )
+    return EntitlementPolicy(
+        mode=mode,
+        template_path=PurePosixPath(file_value) if file_value is not None else None,
+        allowed_drops=allowed_drops,
+        drop_rationale=rationale,
+    )
+
+
+def _parse_bundle_rule(value: object, index: int, task_name: str) -> BundleRule:
+    raw = _mapping(value, f"signing.bundles[{index}]")
+    source_bundle_id = _string(raw, "source_bundle_id", task_name=task_name)
+    return BundleRule(
+        source_bundle_id=source_bundle_id,
+        target_bundle_id=_optional_string(raw, "target_bundle_id", task_name=task_name),
+        role=_optional_string(raw, "role", task_name=task_name),
+        required_capabilities=_string_tuple(
+            raw.get("required_capabilities"), "required_capabilities", task_name
+        ),
+        entitlement_policy=_parse_entitlement_policy(raw, task_name),
+    )
+
+
+def _parse_signing(value: object, task_name: str) -> SigningPolicy:
+    raw = _mapping(value, "signing")
+    app_groups_raw = _mapping(raw.get("app_groups", {}), "signing.app_groups")
+    app_groups: list[tuple[str, str]] = []
+    for alias, identifier in app_groups_raw.items():
+        if not _ALIAS_PATTERN.fullmatch(alias):
+            _fail("App Group alias has invalid syntax", "signing.app_groups", task_name)
+        if not isinstance(identifier, str) or not identifier.strip():
+            _fail(
+                "App Group identifiers must be non-empty strings",
+                f"signing.app_groups.{alias}",
+                task_name,
+            )
+        app_groups.append((alias, identifier.strip()))
+
+    bundles_raw = raw.get("bundles", [])
+    if not isinstance(bundles_raw, list):
+        _fail("signing.bundles must be an array of tables", "signing.bundles", task_name)
+
+    return SigningPolicy(
+        id_strategy=_enum_value(
+            IdentifierStrategy,
+            raw.get("id_strategy", IdentifierStrategy.PRESERVE_SOURCE_SUFFIX.value),
+            "id_strategy",
+            task_name,
+        ),
+        unknown_profile_bundles=_enum_value(
+            UnknownProfileBundlePolicy,
+            raw.get("unknown_profile_bundles", UnknownProfileBundlePolicy.ERROR.value),
+            "unknown_profile_bundles",
+            task_name,
+        ),
+        profile_type=_enum_value(
+            ProfileType,
+            raw.get("profile_type", ProfileType.IOS_APP_DEVELOPMENT.value),
+            "profile_type",
+            task_name,
+        ),
+        app_groups=tuple(sorted(app_groups)),
+        bundles=tuple(
+            _parse_bundle_rule(bundle, index, task_name) for index, bundle in enumerate(bundles_raw)
+        ),
+    )
+
+
 def _parse_task(value: object, index: int) -> Task:
     raw = _mapping(value, f"tasks[{index}]")
     task_name = _string(raw, "task_name")
@@ -141,6 +280,7 @@ def _parse_task(value: object, index: int) -> Task:
         source=source,
         slug=slug,
         icon_path=icon_path,
+        signing=(_parse_signing(raw["signing"], task_name) if "signing" in raw else None),
     )
 
 

@@ -33,7 +33,7 @@
 ## 4. Signing Configuration and Policy
 
 - [x] 4.1 Implement typed parsing/validation for existing task, R2, source, icon, slug, and root `bundle_id` fields without changing valid legacy configurations.
-- [ ] 4.2 Implement the optional `tasks.signing` schema for identifier strategy, unknown-bundle policy, profile type, App Group aliases, and per-source-bundle rules.
+- [x] 4.2 Implement the optional `tasks.signing` schema for identifier strategy, unknown-bundle policy, profile type, App Group aliases, and per-source-bundle rules.
 - [ ] 4.3 Implement and unit-test `preserve-source-suffix` target-ID derivation, explicit overrides, syntax validation, non-descendant errors, and collision detection.
 - [ ] 4.4 Implement exact inventory-to-rule reconciliation with aggregated diagnostics for duplicate rules, absent required bundles, and newly discovered unconfigured bundles.
 - [ ] 4.5 Implement `profile`, `preserve-source`, and `template` entitlement policies with typed transformations, explicit allowed drops plus rationale, and deterministic expected-document hashes.
