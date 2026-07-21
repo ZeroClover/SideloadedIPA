@@ -87,7 +87,7 @@
 - [x] 8.1 Implement typed semantic entitlement comparison for scalars, booleans, ordered values, set-like arrays, exact App Groups, team-bound values, and narrowly documented wildcards.
 - [x] 8.2 Implement pre-sign expected-versus-profile authorization checks and reject missing values before invoking the backend.
 - [x] 8.3 Reopen the signed IPA and extract each executable's XML/DER entitlements independently of backend success output.
-- [ ] 8.4 Implement three-way expected/profile/signed comparison, unplanned-entitlement detection, exact target-team prefix checks, and explicit profile-default allowlists.
+- [x] 8.4 Implement three-way expected/profile/signed comparison, unplanned-entitlement detection, exact target-team prefix checks, and explicit profile-default allowlists.
 - [ ] 8.5 Verify each profile-bearing bundle's target `CFBundleIdentifier`, embedded profile identity, team, certificate authorization, device eligibility, and dates.
 - [ ] 8.6 Cryptographically verify every planned executable and nested seal, including frameworks/dylibs inside extensions, and fail on stale/ad-hoc/unintended identities.
 - [ ] 8.7 Re-inventory output and compare graph parity, planned identifiers, executable set, safe archive structure, and protected non-signing payload content.
