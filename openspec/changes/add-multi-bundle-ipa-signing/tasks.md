@@ -125,14 +125,14 @@
 
 - [x] 11.1 Extend and uncomment the existing deferred LiveContainer entry in `configs/tasks.toml`, retain `bundle_id = "io.zeroclover.app.livecontainer"`, and add the reviewed exact `LiveContainer.ipa` selector, four bundle rules, target identifier strategy, version-controlled entitlement templates, and publication-disabled state.
 - [x] 11.2 **Manual:** choose and register a team-owned App Group identifier, associate it with root/Launch/LiveProcess/Share App IDs as required, and record non-secret evidence in the readiness checklist.
-- [ ] 11.3 **Manual:** enable HealthKit, Increased Memory Limit, and Keychain Sharing for root and `LiveProcess`; keep Clinical Health Records and HealthKit background delivery in the reviewed local entitlement templates rather than treating them as separate Portal capabilities.
-- [ ] 11.4 Run read-only plan mode and confirm it reports exactly four target App IDs/profiles, the intended App Group mapping, supported automatic changes, and no unresolved/ambiguous bundle.
-- [ ] 11.5 Apply safe Apple changes, generate four profiles, and prove each profile authorizes its target policy, certificate, devices, and validity window.
-- [ ] 11.6 Produce a private non-publishing canary and pass all automated identifier, profile, entitlement, XML/DER, nested-signature, graph, and package checks.
+- [x] 11.3 **Manual:** enable HealthKit, Increased Memory Limit, and Keychain Sharing for root and `LiveProcess`; keep Clinical Health Records and HealthKit background delivery in the reviewed local entitlement templates rather than treating them as separate Portal capabilities.
+- [x] 11.4 Run read-only plan mode and confirm it reports exactly four target App IDs/profiles, the intended App Group mapping, supported automatic changes, and no unresolved/ambiguous bundle.
+- [x] 11.5 Apply safe Apple changes, generate four profiles, and prove each profile authorizes its target policy, certificate, devices, and validity window.
+- [x] 11.6 Produce a private non-publishing canary and pass all automated identifier, profile, entitlement, XML/DER, nested-signature, graph, and package checks.
 - [ ] 11.7 **Manual:** install the canary on a registered device and record install/launch, Launch extension, Share extension, LiveProcess/JIT-less, App Group storage, approved HealthKit behavior, and the 128-keychain-group diagnostic results.
 - [ ] 11.8 Enable production publication only through a reviewed per-task configuration change after both automated and manual evidence pass.
 - [ ] 11.9 Observe one scheduled refresh and one upstream-release transition; verify graph changes block safely and prior published output remains available on failure.
-- [ ] 11.10 Keep `LiveContainer+SideStore.ipa` non-publishing until a separate fifth-profile/widget-policy plan and device acceptance are completed.
+- [x] 11.10 Keep `LiveContainer+SideStore.ipa` non-publishing until a separate fifth-profile/widget-policy plan and device acceptance are completed.
 
 ## 12. Migration, Cleanup, Documentation, and Final Acceptance
 
