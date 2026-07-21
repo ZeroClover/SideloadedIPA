@@ -21,7 +21,12 @@ on:
         default: false
         type: boolean
       qualification_apply:
-        description: Add missing qualification App IDs before the read-only probe
+        description: Add missing qualification App IDs and profiles before the probe
+        required: false
+        default: false
+        type: boolean
+      qualification_reset_names:
+        description: Recreate agent-created qualification resources with standard names
         required: false
         default: false
         type: boolean
@@ -328,6 +333,9 @@ jobs:
           )
           if [[ "${{ inputs.qualification_apply }}" == "true" ]]; then
             args+=(--apply-bundle-ids --apply-profiles)
+          fi
+          if [[ "${{ inputs.qualification_reset_names }}" == "true" ]]; then
+            args+=(--reset-legacy-names)
           fi
           python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
 

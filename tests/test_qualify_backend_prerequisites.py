@@ -13,6 +13,8 @@ from qualify_backend_prerequisites import (
     ProfileEvidence,
     QualificationError,
     certificate_content,
+    delete_legacy_bundle_ids,
+    delete_legacy_profiles,
     ensure_bundle_resources,
     ensure_common_contract,
     ensure_profiles,
@@ -78,6 +80,112 @@ def test_ensure_bundle_resources_creates_only_missing_ids(
             "IOS",
         ]
     ]
+
+
+def test_delete_legacy_bundle_ids_requires_exact_legacy_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run_json(args: list[str], *, allow_empty: bool = False) -> dict:
+        calls.append(args)
+        return {}
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+
+    with pytest.raises(QualificationError, match="refusing to delete"):
+        delete_legacy_bundle_ids(
+            [
+                {
+                    "id": "process-id",
+                    "attributes": {
+                        "identifier": "io.zeroclover.app.livecontainer.LiveProcess",
+                        "name": "Unrelated App ID",
+                    },
+                }
+            ]
+        )
+
+    assert calls == []
+
+
+def test_delete_legacy_bundle_ids_tolerates_already_recreated_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run_json(args: list[str], *, allow_empty: bool = False) -> dict:
+        calls.append(args)
+        return {}
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    delete_legacy_bundle_ids(
+        [
+            {
+                "id": "process-id",
+                "attributes": {
+                    "identifier": "io.zeroclover.app.livecontainer.LiveProcess",
+                    "name": "LiveContainer LiveProcess",
+                },
+            }
+        ]
+    )
+
+    assert calls == []
+
+
+def test_delete_legacy_bundle_ids_deletes_only_exact_legacy_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], bool]] = []
+
+    def fake_run_json(args: list[str], *, allow_empty: bool = False) -> dict:
+        calls.append((args, allow_empty))
+        return {}
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    delete_legacy_bundle_ids(
+        [
+            {
+                "id": "process-id",
+                "attributes": {
+                    "identifier": "io.zeroclover.app.livecontainer.LiveProcess",
+                    "name": "SideloadedIPA LiveContainer Qualification LiveProcess",
+                },
+            }
+        ]
+    )
+
+    assert calls == [(["bundle-ids", "delete", "--id", "process-id", "--confirm"], True)]
+
+
+def test_delete_legacy_profiles_matches_name_and_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], bool]] = []
+
+    def fake_run_json(args: list[str], *, allow_empty: bool = False) -> dict:
+        calls.append((args, allow_empty))
+        return {}
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    delete_legacy_profiles(
+        [
+            {
+                "id": "legacy-profile",
+                "attributes": {"name": "SideloadedIPA LiveContainer Qualification Root Dev"},
+                "relationships": {"bundleId": {"data": {"id": "root-bundle"}}},
+            },
+            {
+                "id": "unrelated-profile",
+                "attributes": {"name": "SideloadedIPA LiveContainer Qualification Root Dev"},
+                "relationships": {"bundleId": {"data": {"id": "other-bundle"}}},
+            },
+        ],
+        {"root": "root-bundle"},
+    )
+
+    assert calls == [(["profiles", "delete", "--id", "legacy-profile", "--confirm"], True)]
 
 
 def test_profile_bundle_resource_id_reads_embedded_relationship() -> None:

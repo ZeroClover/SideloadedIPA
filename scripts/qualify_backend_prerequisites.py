@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only qualification probe for the multi-bundle signing backend gate.
+"""Qualification probe for the multi-bundle signing backend gate.
 
 The probe downloads matching profiles into a private runner directory, validates
 their identity/certificate/device relationships, and emits only redacted hashes
-and entitlement key names. It never creates or deletes Apple resources.
+and entitlement key names. Apple resources are mutated only through explicit
+apply flags used by the manually dispatched qualification workflow.
 """
 
 from __future__ import annotations
@@ -29,12 +30,23 @@ TARGET_BUNDLE_IDS = {
     "share": "io.zeroclover.app.livecontainer.ShareExtension",
 }
 TARGET_NAMES = {
-    "root": "SideloadedIPA LiveContainer Qualification Root",
+    "root": "LiveContainer",
+    "process": "LiveContainer LiveProcess",
+    "launch": "LiveContainer LaunchAppExtension",
+    "share": "LiveContainer ShareExtension",
+}
+PROFILE_NAMES = {role: f"{name} Dev" for role, name in TARGET_NAMES.items()}
+LEGACY_TARGET_NAMES = {
     "process": "SideloadedIPA LiveContainer Qualification LiveProcess",
     "launch": "SideloadedIPA LiveContainer Qualification Launch",
     "share": "SideloadedIPA LiveContainer Qualification Share",
 }
-PROFILE_NAMES = {role: f"{name} Dev" for role, name in TARGET_NAMES.items()}
+LEGACY_PROFILE_NAMES = {
+    "root": "SideloadedIPA LiveContainer Qualification Root Dev",
+    "process": "SideloadedIPA LiveContainer Qualification LiveProcess Dev",
+    "launch": "SideloadedIPA LiveContainer Qualification Launch Dev",
+    "share": "SideloadedIPA LiveContainer Qualification Share Dev",
+}
 
 
 class QualificationError(RuntimeError):
@@ -83,7 +95,7 @@ def _json_object(raw: str, command: Sequence[str]) -> dict[str, Any]:
     return value
 
 
-def run_json(args: Sequence[str]) -> dict[str, Any]:
+def run_json(args: Sequence[str], *, allow_empty: bool = False) -> dict[str, Any]:
     command = ["asc", *args, "--output", "json"]
     result = subprocess.run(
         command,
@@ -110,6 +122,8 @@ def run_json(args: Sequence[str]) -> dict[str, Any]:
         raise QualificationError(
             f"asc command {args[:2]} failed with exit code {result.returncode}"
         )
+    if allow_empty and not result.stdout.strip():
+        return {}
     return _json_object(result.stdout, command)
 
 
@@ -146,6 +160,137 @@ def exact_bundle_resources(
     if problems:
         raise QualificationError("; ".join(problems))
     return resolved
+
+
+def resource_name(resource: Mapping[str, Any]) -> str | None:
+    attributes = resource.get("attributes")
+    if not isinstance(attributes, dict):
+        return None
+    name = attributes.get("name")
+    return name if isinstance(name, str) else None
+
+
+def delete_legacy_profiles(
+    profiles: Sequence[Mapping[str, Any]], bundle_resources: Mapping[str, str]
+) -> None:
+    """Delete only the qualification profiles created with the legacy names."""
+    deletions: list[tuple[str, str]] = []
+    for role, bundle_resource_id in bundle_resources.items():
+        matches = [
+            profile
+            for profile in profiles
+            if resolve_profile_bundle_resource_id(profile) == bundle_resource_id
+            and resource_name(profile) == LEGACY_PROFILE_NAMES[role]
+        ]
+        if len(matches) > 1:
+            raise QualificationError(
+                f"{role} has {len(matches)} profiles named {LEGACY_PROFILE_NAMES[role]!r}"
+            )
+        if not matches:
+            continue
+        profile_id = matches[0].get("id")
+        if not isinstance(profile_id, str) or not profile_id:
+            raise QualificationError(f"{role} legacy profile has no resource ID")
+        deletions.append((role, profile_id))
+
+    for role, profile_id in deletions:
+        print(f"[qualification-reset] deleting legacy profile for {role}")
+        run_json(["profiles", "delete", "--id", profile_id, "--confirm"], allow_empty=True)
+
+
+def delete_legacy_bundle_ids(bundles: Sequence[Mapping[str, Any]], *, apply: bool = True) -> None:
+    """Delete only nested App IDs whose identifiers and legacy names both match."""
+    deletions: list[tuple[str, str, str]] = []
+    for role, legacy_name in LEGACY_TARGET_NAMES.items():
+        identifier = TARGET_BUNDLE_IDS[role]
+        matches = [
+            bundle
+            for bundle in bundles
+            if isinstance(bundle.get("attributes"), dict)
+            and bundle["attributes"].get("identifier") == identifier
+        ]
+        if len(matches) > 1:
+            raise QualificationError(f"{role}:{identifier} has {len(matches)} exact App IDs")
+        if not matches:
+            continue
+
+        actual_name = resource_name(matches[0])
+        if actual_name == TARGET_NAMES[role]:
+            continue
+        if actual_name != legacy_name:
+            raise QualificationError(
+                f"refusing to delete {identifier}: expected name {legacy_name!r}, "
+                f"found {actual_name!r}"
+            )
+        resource_id = matches[0].get("id")
+        if not isinstance(resource_id, str) or not resource_id:
+            raise QualificationError(f"{role} legacy App ID has no resource ID")
+        deletions.append((role, identifier, resource_id))
+
+    if not apply:
+        return
+
+    for role, identifier, resource_id in deletions:
+        print(f"[qualification-reset] deleting legacy App ID for {role}: {identifier}")
+        run_json(["bundle-ids", "delete", "--id", resource_id, "--confirm"], allow_empty=True)
+
+
+def reset_legacy_resources(
+    bundles: Sequence[Mapping[str, Any]], profiles: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Remove the resources created by the earlier qualification naming scheme."""
+    bundle_resources: dict[str, str] = {}
+    for role, identifier in TARGET_BUNDLE_IDS.items():
+        matches = [
+            bundle
+            for bundle in bundles
+            if isinstance(bundle.get("attributes"), dict)
+            and bundle["attributes"].get("identifier") == identifier
+        ]
+        if len(matches) > 1:
+            raise QualificationError(f"{role}:{identifier} has {len(matches)} exact App IDs")
+        if not matches:
+            if role == "root":
+                raise QualificationError(f"root:{identifier} has 0 exact App IDs")
+            continue
+        resource_id = matches[0].get("id")
+        if not isinstance(resource_id, str) or not resource_id:
+            raise QualificationError(f"{role} App ID has no resource ID")
+        bundle_resources[role] = resource_id
+
+    # Validate every App ID before the first profile or App ID is deleted.
+    legacy_app_id_deletions: list[Mapping[str, Any]] = []
+    for role in LEGACY_TARGET_NAMES:
+        if role in bundle_resources:
+            legacy_app_id_deletions.extend(
+                bundle for bundle in bundles if bundle.get("id") == bundle_resources[role]
+            )
+    delete_legacy_bundle_ids(legacy_app_id_deletions, apply=False)
+    delete_legacy_profiles(profiles, bundle_resources)
+
+    remaining_profiles = data_list(
+        run_json(["profiles", "list", "--profile-type", PROFILE_TYPE, "--paginate"]),
+        "profiles",
+    )
+    for role, bundle_resource_id in bundle_resources.items():
+        if any(
+            resolve_profile_bundle_resource_id(profile) == bundle_resource_id
+            and resource_name(profile) == LEGACY_PROFILE_NAMES[role]
+            for profile in remaining_profiles
+        ):
+            raise QualificationError(f"legacy profile deletion was not confirmed for {role}")
+
+    delete_legacy_bundle_ids(bundles)
+    refreshed = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
+    for role, legacy_name in LEGACY_TARGET_NAMES.items():
+        if any(
+            isinstance(bundle.get("attributes"), dict)
+            and bundle["attributes"].get("identifier") == TARGET_BUNDLE_IDS[role]
+            and resource_name(bundle) == legacy_name
+            for bundle in refreshed
+        ):
+            raise QualificationError(f"legacy App ID deletion was not confirmed for {role}")
+    return refreshed
 
 
 def ensure_bundle_resources(
@@ -526,11 +671,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--apply-bundle-ids", action="store_true")
     parser.add_argument("--apply-profiles", action="store_true")
+    parser.add_argument("--reset-legacy-names", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.reset_legacy_names and not (args.apply_bundle_ids and args.apply_profiles):
+        raise QualificationError(
+            "--reset-legacy-names requires --apply-bundle-ids and --apply-profiles"
+        )
     args.private_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     devices = data_list(
@@ -558,6 +708,12 @@ def main() -> int:
         raise QualificationError("no enabled iPhone or iPad is registered")
 
     bundles = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
+    if args.reset_legacy_names:
+        profiles = data_list(
+            run_json(["profiles", "list", "--profile-type", PROFILE_TYPE, "--paginate"]),
+            "profiles",
+        )
+        bundles = reset_legacy_resources(bundles, profiles)
     bundle_resources = ensure_bundle_resources(
         bundles,
         TARGET_BUNDLE_IDS,
