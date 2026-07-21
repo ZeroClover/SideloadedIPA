@@ -80,3 +80,9 @@ class R2Config:
     ipa_prefix: str = "apps"
     registry_key: str = "site/apps.json"
     public_base_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskConfiguration:
+    tasks: tuple[Task, ...]
+    r2: R2Config = R2Config()

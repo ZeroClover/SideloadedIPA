@@ -23,6 +23,7 @@ from sideloadedipa.domain.config import (
     SourceConfig,
     SourceKind,
     Task,
+    TaskConfiguration,
     UnknownProfileBundlePolicy,
 )
 from sideloadedipa.domain.pipeline import (
@@ -79,6 +80,7 @@ __all__ = [
     "StageStatus",
     "StoredArtifact",
     "Task",
+    "TaskConfiguration",
     "UnknownProfileBundlePolicy",
     "VerificationFinding",
     "VerificationResult",
