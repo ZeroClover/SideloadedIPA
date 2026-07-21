@@ -107,7 +107,7 @@
 - [x] 9.7 Preserve the previous registry/object on sign, verify, upload, or registry failure, and implement the configured batch-atomic publication policy.
 - [x] 9.8 Implement bounded retry/idempotency rules and cancellation cleanup for reads, additive Apple operations, signing workspaces, uploads, and registry transactions.
 - [x] 9.9 Emit one redacted run report with stage timings, provenance, manual actions, cache decisions, verification evidence, and publication outcome; retain it as a limited CI artifact.
-- [ ] 9.10 Add failure-injection integration tests at every stage boundary and assert no forbidden downstream side effect occurs.
+- [x] 9.10 Add failure-injection integration tests at every stage boundary and assert no forbidden downstream side effect occurs.
 - [ ] 9.11 Benchmark inventory, planning, profile reuse, signing, verification, memory, API calls, and cache hits against baseline and remove measured redundant I/O or repeated parsing.
 
 ## 10. GitHub Actions and Toolchain Migration
