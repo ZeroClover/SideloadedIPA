@@ -46,3 +46,13 @@ Local acceptance for the final implementation:
 - `uv run mypy src/sideloadedipa`: passed.
 - package Black and isort checks: passed.
 - `openspec validate add-multi-bundle-ipa-signing --strict`: passed.
+
+## Certificate Identity Probe
+
+[Run 29852172410](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29852172410)
+used the configured P12 and password only inside the read-only job. The P12
+certificate SHA-256 matched exactly one active Apple development certificate,
+resource `L7C8RNH3A3`, expiring at `2026-08-25T06:59:45+00:00`. The probe
+reported only the stable resource ID, public certificate/public-key hashes,
+serial number, and expiry. No P12, password, private key, or raw certificate was
+retained as an artifact.
