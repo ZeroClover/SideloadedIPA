@@ -15,6 +15,7 @@ from sideloadedipa.domain.apple import (
     CertificateIdentity,
     CertificateMaterial,
     OperationDisposition,
+    P12CertificateIdentity,
     ProvisioningProfile,
 )
 from sideloadedipa.domain.bundle import (
@@ -114,6 +115,7 @@ __all__ = [
     "IdentifierStrategy",
     "MaterializedEntitlements",
     "OperationDisposition",
+    "P12CertificateIdentity",
     "PipelineStage",
     "PolicyReconciliation",
     "ProfileType",

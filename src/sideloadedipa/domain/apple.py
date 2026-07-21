@@ -140,6 +140,14 @@ class CertificateIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class P12CertificateIdentity:
+    serial_number: str
+    public_key_sha256: str
+    certificate_sha256: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class CertificateMaterial:
     identity: CertificateIdentity
     certificate_path: Path
