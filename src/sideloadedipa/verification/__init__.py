@@ -14,6 +14,7 @@ from sideloadedipa.verification.entitlements import (
     EntitlementIdentityContext,
     compare_entitlements,
 )
+from sideloadedipa.verification.integrity import verify_output_integrity
 from sideloadedipa.verification.signatures import verify_signed_signatures
 from sideloadedipa.verification.three_way import verify_three_way_entitlements
 
@@ -28,6 +29,7 @@ __all__ = [
     "SignedNodeEntitlementEvidence",
     "compare_entitlements",
     "inspect_signed_entitlements",
+    "verify_output_integrity",
     "verify_signed_signatures",
     "verify_three_way_entitlements",
 ]
