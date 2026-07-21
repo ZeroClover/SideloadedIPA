@@ -22,7 +22,7 @@
 ## 3. Typed Package Foundation
 
 - [x] 3.1 Change the build configuration to package `src/sideloadedipa/`, update test/coverage import paths, and prove an editable `uv` install and console entry point work.
-- [ ] 3.2 Implement frozen domain models and enums for tasks, bundle nodes/graphs, entitlement policies, Apple resources, profiles, signing plans, diagnostics, stage state, and publication results.
+- [x] 3.2 Implement frozen domain models and enums for tasks, bundle nodes/graphs, entitlement policies, Apple resources, profiles, signing plans, diagnostics, stage state, and publication results.
 - [ ] 3.3 Implement typed domain/config/adapter error classes carrying stable codes, task/bundle context, remediation, and safe structured details.
 - [ ] 3.4 Define small Protocol interfaces for source retrieval, archive inspection, Apple resources, certificate input, the ADR-selected signing backend, verification, artifact storage, registry publication, clock, and filesystem boundaries.
 - [ ] 3.5 Implement a shared subprocess runner using argv arrays, `shell=False`, timeouts, bounded captured output, environment allowlists, and secret/path redaction, with unit tests for metacharacters and failures.
