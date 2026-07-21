@@ -69,6 +69,7 @@ def dependencies(
     *,
     fail_name: str | None = None,
     fail_graph: bool = False,
+    structure_calls: list[str] | None = None,
 ) -> InspectDependencies:
     def fetch(repository_url: str, **kwargs: object) -> dict[str, object]:
         name = repository_url.rsplit("/", 1)[-1]
@@ -109,12 +110,17 @@ def dependencies(
             )
         return graph(source_sha256)
 
+    def discover_structure(extracted_root: Path) -> tuple[BundleNode, ...]:
+        if structure_calls is not None:
+            structure_calls.append(str(extracted_root))
+        return graph("a" * 64).nodes
+
     return InspectDependencies(
         load=lambda path: TaskConfiguration(tasks),
         fetch_release=fetch,
         download=download,
         extract=lambda source, destination: (object(), object()),
-        discover_structure=lambda extracted: graph("a" * 64).nodes,
+        discover_structure=discover_structure,
         discover=discover,  # type: ignore[arg-type]
     )
 
@@ -160,6 +166,26 @@ def test_inspect_json_is_canonical_redacted_and_selectable(
     assert str(tmp_path) not in serialized
 
 
+def test_success_does_not_repeat_structural_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "fixture-token")
+    calls: list[str] = []
+
+    result = inspect_command(
+        CommandRequest(
+            command=CommandName.INSPECT,
+            config_path=Path("unused.toml"),
+            task_names=(),
+            output_format=OutputFormat.JSON,
+        ),
+        dependencies((task("Example"),), structure_calls=calls),
+    )
+
+    assert result.exit_code == 0
+    assert calls == []
+
+
 def test_inspect_human_report_isolates_task_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -188,6 +214,7 @@ def test_entitlement_failure_retains_download_and_structural_evidence(
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "fixture-token")
     configured = (task("Unsigned"),)
+    calls: list[str] = []
     result = inspect_command(
         CommandRequest(
             command=CommandName.INSPECT,
@@ -195,7 +222,7 @@ def test_entitlement_failure_retains_download_and_structural_evidence(
             task_names=(),
             output_format=OutputFormat.JSON,
         ),
-        dependencies(configured, fail_graph=True),
+        dependencies(configured, fail_graph=True, structure_calls=calls),
     )
 
     report = {key: thaw_json(value) for key, value in result.payload}
@@ -207,3 +234,4 @@ def test_entitlement_failure_retains_download_and_structural_evidence(
     assert task_report["source"]["downloaded_sha256"] == "a" * 64
     assert task_report["structure"]["nodes"][0]["path"] == "Payload/App.app"
     assert task_report["inventory"] is None
+    assert len(calls) == 1

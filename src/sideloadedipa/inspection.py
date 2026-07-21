@@ -240,10 +240,10 @@ def _inspect_task(
                 ),
             )
         entries = dependencies.extract(downloaded.path, workspace.extracted)
-        structural_nodes = dependencies.discover_structure(workspace.extracted)
         try:
             graph = dependencies.discover(workspace.extracted, downloaded.sha256)
         except SideloadedIPAError as error:
+            structural_nodes = dependencies.discover_structure(workspace.extracted)
             source = dict(resolved.evidence)
             source.update(
                 {"downloaded_size": downloaded.size, "downloaded_sha256": downloaded.sha256}
