@@ -48,14 +48,28 @@ The hard gate now has four private real development profiles whose App IDs and e
 
 The upstream profile-only mode failed the exact functional contract: all four signed bundles contained two profile-default keychain groups, while root and LiveProcess require the reviewed 128 exact target-team groups. Both violations were reported independently, the signed IPA remained private, cleanup ran, and publication was skipped. This proves that repeated-profile selection works but profile-derived entitlements cannot replace per-bundle local entitlement documents.
 
-No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
+The private fixture inputs and independent comparison are now complete. No section 3 implementation may start until the task 2.6 backend ADR is accepted and its mandatory contract suite passes for the selected backend.
 
-## Required private inputs
+## Private input controls
 
-Provide these through a private, non-artifact-retained environment rather than committing them:
+The qualification used these inputs only through the private, non-artifact-retained runner workspace:
 
 1. The existing CI development signing identity export matching the profiles.
 2. The four validated `Dev 2` profiles for root, LiveProcess, Launch, and Share.
 3. Version-controlled local entitlement templates that request the reviewed App Group mapping and exact target-team 128-keychain-group contract.
 4. The existing common enabled-device set.
 5. A private non-publishing qualification job that retains no IPA, profile, P12, private key, or raw entitlement/profile artifacts.
+
+## Independent macOS comparison
+
+[Qualification run 29837799905](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29837799905) compared the reviewed Linux result with a separate `macos-15` `codesign` oracle using the same four private profiles and configured development identity. The macOS job imported the P12 into a temporary isolated keychain, embedded the exact role-specific profile in each bundle, signed Launch, LiveProcess, Share, then the root app, and passed per-bundle strict verification plus root `--deep --strict` verification.
+
+The oracle extracted and compared each signed bundle's XML entitlements, raw DER entitlements, DER code-directory slot, embedded-profile digest, and nested-signature result. Root and LiveProcess contained the exact 128 target-team Keychain Groups, Launch and Share retained their own profile-derived entitlement documents without root-only HealthKit or increased-memory values, and all four embedded profiles matched their inputs. The final redacted comparison recorded `codesign_contract_pass: true`, `profile_mapping_matches: true`, `root_last: true`, and `xml_der_evidence_complete: true`.
+
+Only redacted summaries were uploaded. Their SHA-256 digests were:
+
+- Linux zsign summary: `72dfc56667fdf2b1cc29ac47e85b04280c0befbaf369766f848f0e1645a8ecf8`.
+- macOS codesign summary: `9223a282c261bd873da480bf7673091dbd1b9f7b5653d2b32ad257f709c2f102`.
+- comparison summary: `27448d36705db69c9839c2b911869ba000c54cc0041dff948ddf0121a1d38921`.
+
+This completes task 2.5 and preserves the observed backend boundary for the task 2.6 decision: upstream zsign v1.1.1 maps repeated profiles correctly but cannot express the required per-bundle local entitlement documents, while the independent macOS oracle satisfies the full qualification contract.

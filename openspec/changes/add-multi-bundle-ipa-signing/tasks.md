@@ -16,7 +16,7 @@
 - [x] 2.2 Install checksum-verified zsign v1.1.1 in an isolated qualification job and record its executable hash and supported CLI behavior.
 - [x] 2.3 Run zsign with repeated `-m` and no global `-e`, then prove which profile and entitlement document each bundle receives.
 - [x] 2.4 Exercise LiveContainer-equivalent root/`LiveProcess` policies, including App Group plus exactly 128 target-team keychain groups, and verify Launch/Share do not inherit root-only entitlements.
-- [ ] 2.5 Compare Linux output with independent macOS `codesign` XML/DER, embedded-profile, nested-signature, and deepest-first sealing evidence.
+- [x] 2.5 Compare Linux output with independent macOS `codesign` XML/DER, embedded-profile, nested-signature, and deepest-first sealing evidence.
 - [ ] 2.6 Write and accept an ADR selecting upstream zsign, an upstreamable per-bundle-entitlement zsign extension, another Linux backend, or a macOS fallback; include runner cost/runtime consequences, preserve the assertions as the mandatory `SigningBackend` contract suite, update affected design/task assumptions, and do not start section 3 until every assertion passes.
 
 ## 3. Typed Package Foundation
