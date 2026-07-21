@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      apple_state_probe:
+        description: Run the read-only normalized Apple signing-state probe only
+        required: false
+        default: false
+        type: boolean
       qualification_apply:
         description: Add missing qualification App IDs and profiles before the probe
         required: false
@@ -44,7 +49,9 @@ concurrency:
 jobs:
   sign-and-upload:
     name: Sign & Upload IPAs
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backend_qualification != true }}
+    if: >-
+      ${{ github.event_name != 'workflow_dispatch' ||
+          (inputs.backend_qualification != true && inputs.apple_state_probe != true) }}
     runs-on: ubuntu-latest
     env:
       # zsign release whose prebuilt Linux binary we download (https://github.com/zhlynn/zsign)
@@ -216,6 +223,43 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$payload" \
             "$WEBHOOK_URL"
+
+  apple-state-probe:
+    name: Probe normalized Apple signing state
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.apple_state_probe == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install checksum-verified App Store Connect CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asc_bin="asc_${ASC_VERSION}_linux_amd64"
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+
+      - name: Collect redacted read-only snapshot
+        run: PYTHONPATH=src python3 -m sideloadedipa.apple_state_probe
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   backend-qualification:
     name: Qualify multi-bundle signing prerequisites

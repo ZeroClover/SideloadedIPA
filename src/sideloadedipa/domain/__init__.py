@@ -1,10 +1,16 @@
 """Immutable domain types shared across the signing pipeline."""
 
 from sideloadedipa.domain.apple import (
+    AppleBundleIdentifierState,
+    AppleCapabilityState,
+    AppleCertificateState,
+    AppleDeviceState,
     AppleOperation,
+    AppleProfileState,
     AppleResource,
     AppleResourceKind,
     AppleResourcePlan,
+    AppleStateSnapshot,
     CertificateIdentity,
     CertificateMaterial,
     OperationDisposition,
@@ -76,9 +82,15 @@ from sideloadedipa.domain.signing import (
 
 __all__ = [
     "AppleOperation",
+    "AppleBundleIdentifierState",
+    "AppleCapabilityState",
+    "AppleCertificateState",
+    "AppleDeviceState",
+    "AppleProfileState",
     "AppleResource",
     "AppleResourceKind",
     "AppleResourcePlan",
+    "AppleStateSnapshot",
     "BundleGraph",
     "BundleIdentifierMapping",
     "BundleNode",
