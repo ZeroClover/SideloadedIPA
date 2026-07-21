@@ -1,0 +1,66 @@
+name: Start SSH debug session
+description: Start a public-key-only SSH server behind a temporary Cloudflare Tunnel
+
+inputs:
+  public-key:
+    description: SSH public key authorized to access the runner
+    required: true
+  cloudflared-version:
+    description: Pinned cloudflared release
+    required: false
+    default: "2026.7.2"
+  cloudflared-sha256:
+    description: SHA-256 digest for the pinned Linux amd64 binary
+    required: false
+    default: ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd
+
+runs:
+  using: composite
+  steps:
+    - name: Configure authorized key
+      shell: bash
+      env:
+        PUBKEY: ${{ inputs.public-key }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${PUBKEY:-}" ]]; then
+          echo "DEBUG_SSH_PUBLIC_KEY is required when debug is enabled." >&2
+          exit 1
+        fi
+        mkdir -p "$HOME/.ssh"
+        chmod 700 "$HOME/.ssh"
+        printf '%s\n' "$PUBKEY" > "$HOME/.ssh/authorized_keys"
+        chmod 600 "$HOME/.ssh/authorized_keys"
+
+    - name: Start public-key-only SSH server
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get install -y dropbear-bin
+        mkdir -p "$RUNNER_TEMP/dropbear"
+        dropbearkey -t ed25519 -f "$RUNNER_TEMP/dropbear/host_key"
+        dropbear -p 127.0.0.1:2222 -r "$RUNNER_TEMP/dropbear/host_key" \
+          -s -g -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
+        echo "SSH server is listening on 127.0.0.1:2222 (login user: $(whoami))"
+
+    - name: Install checksum-verified cloudflared
+      shell: bash
+      env:
+        CLOUDFLARED_VERSION: ${{ inputs.cloudflared-version }}
+        CLOUDFLARED_SHA256: ${{ inputs.cloudflared-sha256 }}
+      run: |
+        set -euo pipefail
+        asset="cloudflared-linux-amd64"
+        url="https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${asset}"
+        curl -fLsS -o "$RUNNER_TEMP/$asset" "$url"
+        printf '%s  %s\n' "$CLOUDFLARED_SHA256" "$RUNNER_TEMP/$asset" | sha256sum -c -
+        sudo install -m 0755 "$RUNNER_TEMP/$asset" /usr/local/bin/cloudflared
+        cloudflared --version
+
+    - name: Hold runner open with Cloudflare Tunnel
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Connect with: ssh -o ProxyCommand='cloudflared access ssh --hostname %h' runner@<hostname>"
+        cloudflared tunnel --no-autoupdate --url "ssh://localhost:2222" 2>&1 \
+          | tee "$RUNNER_TEMP/cloudflared.log"

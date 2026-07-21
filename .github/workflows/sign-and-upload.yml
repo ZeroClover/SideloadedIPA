@@ -195,49 +195,11 @@ jobs:
             work/cache
           key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
 
-      - name: "Debug: Configure SSH public key for runner"
+      - name: "Debug: Start SSH session"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        env:
-          PUBKEY: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${PUBKEY:-}" ]]; then
-            echo "DEBUG_SSH_PUBLIC_KEY is required when debug is enabled." >&2
-            exit 1
-          fi
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          echo "$PUBKEY" > "$HOME/.ssh/authorized_keys"
-          chmod 600 "$HOME/.ssh/authorized_keys"
-
-      - name: "Debug: Start dropbear SSH server"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euxo pipefail
-          sudo apt-get install -y dropbear-bin
-          # One-shot, unprivileged dropbear: public-key only (-s disables password
-          # auth), bound to localhost:2222, with a throwaway host key. It forks to
-          # the background so the cloudflared step below can hold the job open.
-          mkdir -p "$RUNNER_TEMP/dropbear"
-          dropbearkey -t ed25519 -f "$RUNNER_TEMP/dropbear/host_key"
-          dropbear -p 127.0.0.1:2222 -r "$RUNNER_TEMP/dropbear/host_key" \
-            -s -g -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
-          echo "dropbear is listening on 127.0.0.1:2222 (login user: $(whoami))"
-
-      - name: "Debug: Install cloudflared"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euxo pipefail
-          curl -fLsS -o "$RUNNER_TEMP/cloudflared" \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
-          cloudflared --version
-
-      - name: "Debug: Run cloudflared tunnel"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euo pipefail
-          cloudflared --no-autoupdate --url "ssh://localhost:2222" 2>&1 | tee cloudflared.log
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
       - name: Notify webhook
         if: ${{ always() && (job.status == 'success' || job.status == 'failure') }}
@@ -259,7 +221,7 @@ jobs:
     name: Qualify multi-bundle signing prerequisites
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     env:
       ASC_VERSION: "3.1.1"
       ZSIGN_VERSION: "v1.1.1"
@@ -369,6 +331,12 @@ jobs:
             --certificate "$private_dir/certificate.pem" \
             --profiles-dir "$private_dir/profiles" \
             --output-dir "$private_dir/backend-exercise"
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
       - name: Remove private qualification material
         if: ${{ always() }}
