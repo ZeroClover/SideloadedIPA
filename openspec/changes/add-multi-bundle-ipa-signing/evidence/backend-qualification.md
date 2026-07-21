@@ -42,6 +42,8 @@ The first replacement attempt retained the invalid profiles as required but prov
 
 The hard gate now has four private real development profiles whose App IDs and entitlement authorization deliberately differ across root, process, Launch, and Share bundles. The remaining section 2 work must construct the synthetic bundle graph, test repeated-profile zsign behavior, and compare it with the macOS oracle; synthetic CMS files or ad-hoc signatures alone would not prove Apple's authorization behavior.
 
+[Qualification run 29833747687](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29833747687) built the deterministic synthetic four-bundle IPA on `ubuntu-latest` from only the four audited Mach-O executables in the checksum-pinned LiveContainer 3.8.0 asset. The generated archive contains four minimal profile-bearing bundles and eight files total, has SHA-256 `75fe30fff97b883b374288b31509d9063d7df73e3442aec65ace717dd54020f8`, and matched the locally generated digest. The same run revalidated all four private profiles with `ready: true`; neither the source asset nor private profiles are committed or retained as CI artifacts.
+
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
 
 ## Required private inputs
