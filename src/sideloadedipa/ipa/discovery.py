@@ -55,30 +55,22 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def discover_root_app(extracted_root: Path) -> BundleNode:
-    """Require and decode exactly one direct ``Payload/*.app`` bundle."""
-
-    payload = extracted_root / "Payload"
-    candidates = tuple(
-        sorted(path for path in payload.glob("*.app") if path.is_dir() and path.parent == payload)
-    )
-    candidate_names = tuple(
-        str(PurePosixPath("Payload") / candidate.name) for candidate in candidates
-    )
-    if len(candidates) != 1:
-        raise _inventory_error(
-            ErrorCode.INVENTORY_ROOT_AMBIGUOUS,
-            "IPA must contain exactly one root application",
-            candidates=candidate_names,
-        )
-
-    bundle = candidates[0]
-    relative_bundle = PurePosixPath("Payload") / bundle.name
+def _discover_profile_bundle(
+    extracted_root: Path,
+    relative_bundle: PurePosixPath,
+    *,
+    kind: BundleNodeKind,
+    package_type: str,
+    depth: int,
+    parent_path: PurePosixPath | None,
+    label: str,
+) -> BundleNode:
+    bundle = extracted_root / Path(*relative_bundle.parts)
     info_path = bundle / "Info.plist"
     if not info_path.is_file():
         raise _inventory_error(
             ErrorCode.INVENTORY_METADATA_INVALID,
-            "root application Info.plist is missing",
+            f"{label} Info.plist is missing",
             path=relative_bundle / "Info.plist",
             field="Info.plist",
         )
@@ -88,23 +80,23 @@ def discover_root_app(extracted_root: Path) -> BundleNode:
     except (OSError, plistlib.InvalidFileException) as error:
         raise _inventory_error(
             ErrorCode.INVENTORY_METADATA_INVALID,
-            "root application Info.plist could not be decoded",
+            f"{label} Info.plist could not be decoded",
             path=relative_bundle / "Info.plist",
             field="Info.plist",
         ) from error
     if not isinstance(document, Mapping):
         raise _inventory_error(
             ErrorCode.INVENTORY_METADATA_INVALID,
-            "root application Info.plist must contain a dictionary",
+            f"{label} Info.plist must contain a dictionary",
             path=relative_bundle / "Info.plist",
             field="Info.plist",
         )
 
-    package_type = _required_string(document, "CFBundlePackageType", relative_bundle)
-    if package_type != "APPL":
+    actual_package_type = _required_string(document, "CFBundlePackageType", relative_bundle)
+    if actual_package_type != package_type:
         raise _inventory_error(
             ErrorCode.INVENTORY_METADATA_INVALID,
-            "root application has an unsupported package type",
+            f"{label} has an unsupported package type",
             path=relative_bundle / "Info.plist",
             field="CFBundlePackageType",
         )
@@ -114,7 +106,7 @@ def discover_root_app(extracted_root: Path) -> BundleNode:
     except DomainError as error:
         raise _inventory_error(
             ErrorCode.INVENTORY_METADATA_INVALID,
-            "root application bundle identifier is invalid",
+            f"{label} bundle identifier is invalid",
             path=relative_bundle / "Info.plist",
             field="CFBundleIdentifier",
         ) from error
@@ -150,12 +142,41 @@ def discover_root_app(extracted_root: Path) -> BundleNode:
 
     return BundleNode(
         path=relative_bundle,
-        kind=BundleNodeKind.APP,
-        depth=0,
+        kind=kind,
+        depth=depth,
         executable_path=relative_bundle / executable_name,
         executable_sha256=_sha256(executable),
+        parent_path=parent_path,
         source_bundle_id=bundle_id,
         info_plist_sha256=hashlib.sha256(raw_info).hexdigest(),
         version=version,
         short_version=short_version_value,
+    )
+
+
+def discover_root_app(extracted_root: Path) -> BundleNode:
+    """Require and decode exactly one direct ``Payload/*.app`` bundle."""
+
+    payload = extracted_root / "Payload"
+    candidates = tuple(
+        sorted(path for path in payload.glob("*.app") if path.is_dir() and path.parent == payload)
+    )
+    candidate_names = tuple(
+        str(PurePosixPath("Payload") / candidate.name) for candidate in candidates
+    )
+    if len(candidates) != 1:
+        raise _inventory_error(
+            ErrorCode.INVENTORY_ROOT_AMBIGUOUS,
+            "IPA must contain exactly one root application",
+            candidates=candidate_names,
+        )
+    relative_bundle = PurePosixPath("Payload") / candidates[0].name
+    return _discover_profile_bundle(
+        extracted_root,
+        relative_bundle,
+        kind=BundleNodeKind.APP,
+        package_type="APPL",
+        depth=0,
+        parent_path=None,
+        label="root application",
     )

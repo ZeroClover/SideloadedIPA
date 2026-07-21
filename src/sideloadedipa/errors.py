@@ -31,6 +31,8 @@ class ErrorCode(StrEnum):
     ARCHIVE_LIMIT_EXCEEDED = "archive.limit_exceeded"
     INVENTORY_ROOT_AMBIGUOUS = "inventory.root_ambiguous"
     INVENTORY_METADATA_INVALID = "inventory.metadata_invalid"
+    INVENTORY_EXECUTABLE_INVALID = "inventory.executable_invalid"
+    INVENTORY_DUPLICATE_BUNDLE_ID = "inventory.duplicate_bundle_id"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"
