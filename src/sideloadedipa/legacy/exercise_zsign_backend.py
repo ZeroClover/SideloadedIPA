@@ -13,15 +13,6 @@ import zipfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
-from sideloadedipa.apple_intents import derive_bundle_resource_intents
-from sideloadedipa.config import (
-    EntitlementTemplateContext,
-    load_configuration,
-    load_entitlement_template,
-)
-from sideloadedipa.domain import EntitlementMode
-from sideloadedipa.profile_validation import validate_expected_entitlements
-
 TARGETS = {
     "root": (
         "Payload/Qualification.app",
@@ -210,6 +201,17 @@ def configured_entitlements(
     role: str,
     profile_entitlements: Mapping[str, Any],
 ) -> dict[str, Any]:
+    # The independent macOS oracle imports this module but does not use project
+    # policy loading, so keep optional package dependencies on the canary path.
+    from sideloadedipa.apple_intents import derive_bundle_resource_intents
+    from sideloadedipa.config import (
+        EntitlementTemplateContext,
+        load_configuration,
+        load_entitlement_template,
+    )
+    from sideloadedipa.domain import EntitlementMode
+    from sideloadedipa.profile_validation import validate_expected_entitlements
+
     configuration = load_configuration(config_path)
     tasks = tuple(task for task in configuration.tasks if task.task_name == "LiveContainer")
     if len(tasks) != 1 or tasks[0].signing is None:
