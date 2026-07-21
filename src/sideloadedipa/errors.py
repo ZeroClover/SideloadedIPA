@@ -9,6 +9,9 @@ from sideloadedipa.domain.common import Diagnostic, DiagnosticSeverity, FrozenJs
 
 class ErrorCode(StrEnum):
     DOMAIN_INVARIANT = "domain.invariant"
+    IDENTIFIER_INVALID = "identifier.invalid"
+    IDENTIFIER_NON_DESCENDANT = "identifier.non_descendant"
+    IDENTIFIER_COLLISION = "identifier.collision"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"

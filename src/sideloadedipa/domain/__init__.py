@@ -26,6 +26,12 @@ from sideloadedipa.domain.config import (
     TaskConfiguration,
     UnknownProfileBundlePolicy,
 )
+from sideloadedipa.domain.identifiers import (
+    BundleIdentifierMapping,
+    derive_identifier_mappings,
+    derive_target_bundle_id,
+    validate_bundle_identifier,
+)
 from sideloadedipa.domain.pipeline import (
     PipelineStage,
     PublicationResult,
@@ -50,6 +56,7 @@ __all__ = [
     "AppleResourceKind",
     "AppleResourcePlan",
     "BundleGraph",
+    "BundleIdentifierMapping",
     "BundleNode",
     "BundleNodeKind",
     "BundleRule",
@@ -84,4 +91,7 @@ __all__ = [
     "UnknownProfileBundlePolicy",
     "VerificationFinding",
     "VerificationResult",
+    "derive_identifier_mappings",
+    "derive_target_bundle_id",
+    "validate_bundle_identifier",
 ]
