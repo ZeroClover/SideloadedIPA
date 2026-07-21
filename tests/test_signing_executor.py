@@ -17,6 +17,8 @@ from sideloadedipa.domain import (
     BundleNodeKind,
     CertificateIdentity,
     CertificateMaterial,
+    Diagnostic,
+    DiagnosticSeverity,
     SigningBackendIdentity,
     SigningNodePlan,
     SigningPlan,
@@ -161,7 +163,22 @@ class InspectingVerifier:
         assert self.destination.read_bytes() == self.prior_content
         artifact_sha256 = "0" * 64 if self.wrong_digest else sha256(signed_ipa)
         findings = tuple(
-            VerificationFinding(path, check.replace("*", "arm64"), self.passed)
+            VerificationFinding(
+                path,
+                check.replace("*", "arm64"),
+                self.passed,
+                diagnostics=(
+                    ()
+                    if self.passed
+                    else (
+                        Diagnostic(
+                            "verification.failed",
+                            DiagnosticSeverity.ERROR,
+                            "fixture failure",
+                        ),
+                    )
+                ),
+            )
             for path, check in required_verification_checks(plan)
         )
         return build_verification_result(plan, artifact_sha256, findings)
@@ -232,8 +249,13 @@ def test_failure_preserves_source_and_previous_artifact(tmp_path: Path, failure:
     assert not (tmp_path / ".sideloadedipa-signing").exists()
     if failure == "verification":
         assert isinstance(caught.value, DomainError)
-        failed_checks = dict(caught.value.safe_details)["failed_checks"]
+        details = dict(caught.value.safe_details)
+        failed_checks = details["failed_checks"]
         assert "Payload/Example.app:bundle-identifier" in failed_checks
+        assert (
+            "Payload/Example.app:bundle-identifier:verification.failed:$"
+            in details["failed_diagnostics"]
+        )
 
 
 def test_rejects_source_digest_mismatch_before_creating_workspace(tmp_path: Path) -> None:
