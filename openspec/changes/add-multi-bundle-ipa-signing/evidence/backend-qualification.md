@@ -22,9 +22,16 @@ After explicit operator authorization, [qualification run 29826749998](https://g
 
 [Qualification run 29826924161](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29826924161) matched the configured P12 to exactly one Apple development certificate, selected the enabled iPhone/iPad set, and created one active `IOS_APP_DEVELOPMENT` profile for each of root, LiveProcess, Launch, and Share. Each downloaded profile decoded successfully and contained the configured certificate and target application identifier. Private profile/P12 bytes remained runner-local and were deleted by the cleanup step.
 
+The first additive run used qualification-specific display names that did not match the account's existing LiveContainer naming convention. With explicit operator authorization, [qualification run 29831432451](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29831432451) preflighted exact identifiers, legacy display names, and profile relationships; deleted only the four agent-created legacy-named profiles and three agent-created nested App IDs; retained the pre-existing root App ID; and recreated the nested App IDs and all four profiles with standard names.
+
+[Read-only qualification run 29831598319](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29831598319) then re-listed Apple state without apply or reset flags and verified the persisted names:
+
+- App IDs: `LiveContainer LiveProcess`, `LiveContainer LaunchAppExtension`, and `LiveContainer ShareExtension`.
+- Profiles: `LiveContainer Dev`, `LiveContainer LiveProcess Dev`, `LiveContainer LaunchAppExtension Dev`, and `LiveContainer ShareExtension Dev`.
+
 The post-create validation stopped at the intended capability boundary: all four App IDs currently expose only `IN_APP_PURCHASE`, and the four profiles have no common authorized App Group. These profiles are qualification evidence but cannot satisfy the LiveContainer contract. App Group registration/association and approval-gated root/process capabilities must be completed before replacement profiles are generated; the pipeline will not publish or weaken the entitlement assertions in the meantime.
 
-The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating the three missing profiles requires persistent additive Apple account mutation through the official API, plus App Group/capability setup where the public API permits it. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
+The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating replacement profiles that satisfy it requires App Group/capability setup where the official API permits it and manual account work where it does not. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
 
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
 
