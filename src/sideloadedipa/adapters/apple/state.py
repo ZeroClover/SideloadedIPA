@@ -128,6 +128,57 @@ def collect_bundle_identifiers(
     return tuple(sorted(values, key=lambda value: (value.identifier.casefold(), value.resource_id)))
 
 
+def decode_capability(
+    resource: Mapping[str, object], field: str, bundle_resource_id: str
+) -> AppleCapabilityState:
+    resource_id, attributes = _resource(resource, field, "bundleIdCapabilities")
+    raw_settings = attributes.get("settings", [])
+    if not isinstance(raw_settings, list):
+        raise _invalid("capability settings must be an array", f"{field}.attributes.settings")
+    settings = []
+    for index, raw_setting in enumerate(raw_settings):
+        frozen = freeze_json(raw_setting)
+        if not isinstance(frozen, FrozenJsonObject):
+            raise _invalid(
+                "capability setting must be an object",
+                f"{field}.attributes.settings[{index}]",
+            )
+        settings.append(frozen)
+    return AppleCapabilityState(
+        resource_id=resource_id,
+        bundle_resource_id=bundle_resource_id,
+        capability_type=_string(
+            attributes.get("capabilityType"), f"{field}.attributes.capabilityType"
+        ),
+        settings=tuple(settings),
+    )
+
+
+def decode_capability_response(
+    response: AscResponse, bundle_resource_id: str, field: str = "capability"
+) -> AppleCapabilityState:
+    document = _response_mapping(response, field)
+    resource = _mapping(document.get("data"), f"{field}.data")
+    return decode_capability(resource, f"{field}.data", bundle_resource_id)
+
+
+def collect_capabilities(
+    client: AscStateReader, bundle_resource_id: str
+) -> tuple[AppleCapabilityState, ...]:
+    resources = _data_list(
+        client.run_json(
+            ("bundle-ids", "capabilities", "list", "--bundle", bundle_resource_id),
+            paginate=True,
+        ),
+        "capabilities",
+    )
+    values = tuple(
+        decode_capability(resource, f"capabilities.data[{index}]", bundle_resource_id)
+        for index, resource in enumerate(resources)
+    )
+    return tuple(sorted(values, key=lambda value: (value.capability_type, value.resource_id)))
+
+
 def _content_sha256(value: object, field: str) -> str | None:
     encoded = _optional_string(value, field)
     if encoded is None:
@@ -215,45 +266,9 @@ class AppleStateCollector:
     def _capabilities(
         self, bundle_ids: tuple[AppleBundleIdentifierState, ...]
     ) -> tuple[AppleCapabilityState, ...]:
-        values = []
+        values: list[AppleCapabilityState] = []
         for bundle in bundle_ids:
-            resources = _data_list(
-                self.client.run_json(
-                    ("bundle-ids", "capabilities", "list", "--bundle", bundle.resource_id),
-                    paginate=True,
-                ),
-                "capabilities",
-            )
-            for index, resource in enumerate(resources):
-                resource_id, attributes = _resource(
-                    resource, f"capabilities.data[{index}]", "bundleIdCapabilities"
-                )
-                raw_settings = attributes.get("settings", [])
-                if not isinstance(raw_settings, list):
-                    raise _invalid(
-                        "capability settings must be an array",
-                        f"capabilities.data[{index}].attributes.settings",
-                    )
-                settings = []
-                for setting_index, raw_setting in enumerate(raw_settings):
-                    frozen = freeze_json(raw_setting)
-                    if not isinstance(frozen, FrozenJsonObject):
-                        raise _invalid(
-                            "capability setting must be an object",
-                            f"capabilities.data[{index}].attributes.settings[{setting_index}]",
-                        )
-                    settings.append(frozen)
-                values.append(
-                    AppleCapabilityState(
-                        resource_id=resource_id,
-                        bundle_resource_id=bundle.resource_id,
-                        capability_type=_string(
-                            attributes.get("capabilityType"),
-                            f"capabilities.data[{index}].attributes.capabilityType",
-                        ),
-                        settings=tuple(settings),
-                    )
-                )
+            values.extend(collect_capabilities(self.client, bundle.resource_id))
         return tuple(
             sorted(
                 values,

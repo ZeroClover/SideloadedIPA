@@ -47,6 +47,13 @@ def _validate_requirement(requirement: AppleResourceRequirement) -> None:
             bundle_id=requirement.bundle_id,
             safe_details=(("target", requirement.target),),
         )
+    if requirement.satisfied_without_resource and requirement.matching_resource_ids:
+        raise DomainError(
+            ErrorCode.DOMAIN_INVARIANT,
+            "a locally satisfied requirement cannot reference an Apple resource",
+            bundle_id=requirement.bundle_id,
+            safe_details=(("target", requirement.target),),
+        )
 
 
 def _diagnostic(
@@ -128,7 +135,7 @@ def plan_apple_resources(
         elif len(resource_ids) > 1:
             disposition = OperationDisposition.BLOCKED
             diagnostics = (_diagnostic(requirement, task_name, disposition),)
-        elif resource_ids:
+        elif resource_ids or requirement.satisfied_without_resource:
             disposition = OperationDisposition.NO_OP
         else:
             disposition = requirement.missing_disposition

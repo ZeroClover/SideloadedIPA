@@ -130,3 +130,26 @@ def test_requires_plan_identity() -> None:
         plan_apple_resources(task_name="", snapshot_sha256="", requirements=())
 
     assert caught.value.code is ErrorCode.DOMAIN_INVARIANT
+
+
+def test_locally_satisfied_requirement_is_no_op_without_resource_id() -> None:
+    local = replace(
+        requirement("KEYCHAIN_SHARING", OperationDisposition.BLOCKED),
+        satisfied_without_resource=True,
+    )
+
+    operation = plan_apple_resources(
+        task_name="Example",
+        snapshot_sha256="snapshot-digest",
+        requirements=(local,),
+    ).operations[0]
+
+    assert operation.disposition is OperationDisposition.NO_OP
+    assert operation.existing_resource_id is None
+
+    with pytest.raises(DomainError):
+        plan_apple_resources(
+            task_name="Example",
+            snapshot_sha256="snapshot-digest",
+            requirements=(replace(local, matching_resource_ids=("UNEXPECTED",)),),
+        )

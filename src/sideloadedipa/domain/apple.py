@@ -127,6 +127,7 @@ class AppleResourceRequirement:
     matching_resource_ids: tuple[str, ...]
     missing_disposition: OperationDisposition
     remediation: str
+    satisfied_without_resource: bool = False
 
 
 @dataclass(frozen=True, slots=True)
