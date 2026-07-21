@@ -57,6 +57,7 @@ class ErrorCode(StrEnum):
     SIGNING_VERIFICATION_FAILED = "signing.verification_failed"
     VERIFICATION_EVIDENCE_INVALID = "verification.evidence_invalid"
     PIPELINE_TRANSITION_INVALID = "pipeline.transition_invalid"
+    CACHE_REUSE_INVALID = "cache.reuse_invalid"
 
 
 class SideloadedIPAError(Exception):

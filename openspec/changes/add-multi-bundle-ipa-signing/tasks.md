@@ -102,7 +102,7 @@
 - [x] 9.2 Complete `inspect`, `plan`, `sync`, `sign`, `verify`, and `run` use cases so each consumes predecessor manifests rather than parsing stdout/environment state.
 - [x] 9.3 Implement complete cache fingerprints from source/policy/graph/entitlement/ID/resource/profile/certificate/device/backend/tool/schema inputs.
 - [x] 9.4 Migrate selective rebuild logic to per-task fingerprints and invalidate only affected tasks while forcing full rebuild on fingerprint-schema changes.
-- [ ] 9.5 Require current time-sensitive prerequisite/profile checks and full output reopening/verification even when a signed artifact cache key matches.
+- [x] 9.5 Require current time-sensitive prerequisite/profile checks and full output reopening/verification even when a signed artifact cache key matches.
 - [ ] 9.6 Move existing R2 upload, apps registry update, Vercel revalidation, and stale-object cleanup behind an atomic verified-publication service.
 - [ ] 9.7 Preserve the previous registry/object on sign, verify, upload, or registry failure, and implement the configured batch-atomic publication policy.
 - [ ] 9.8 Implement bounded retry/idempotency rules and cancellation cleanup for reads, additive Apple operations, signing workspaces, uploads, and registry transactions.
