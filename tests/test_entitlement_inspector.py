@@ -171,8 +171,10 @@ def test_rejects_unsigned_macho(tmp_path: Path) -> None:
     executable = tmp_path / "unsigned"
     executable.write_bytes(struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0))
 
-    with pytest.raises(DomainError, match="no embedded code signature"):
+    with pytest.raises(DomainError, match="no embedded code signature") as caught:
         LiefEntitlementInspector().inspect(executable)
+
+    assert dict(caught.value.safe_details)["reason"] == "missing-code-signature"
 
 
 @pytest.mark.parametrize(

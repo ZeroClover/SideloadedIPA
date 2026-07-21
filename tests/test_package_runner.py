@@ -16,6 +16,8 @@ from sideloadedipa.domain import (
     BundleGraph,
     CertificateIdentity,
     CertificateMaterial,
+    EntitlementMode,
+    EntitlementPolicy,
     ProfileManifestEntry,
     SigningBackendIdentity,
     SigningEngine,
@@ -56,6 +58,25 @@ def material(tmp_path: Path) -> CertificateMaterial:
     return CertificateMaterial(identity, tmp_path / "cert.pem", tmp_path / "key.pem")
 
 
+def test_requires_source_entitlements_only_for_preserve_source_policy() -> None:
+    tasks = load_configuration(Path("configs/tasks.toml")).tasks
+    legacy = tasks[0]
+    livecontainer = next(task for task in tasks if task.task_name == "LiveContainer")
+    assert livecontainer.signing is not None
+    preserve_rule = replace(
+        livecontainer.signing.bundles[0],
+        entitlement_policy=EntitlementPolicy(EntitlementMode.PRESERVE_SOURCE),
+    )
+    preserve_task = replace(
+        livecontainer,
+        signing=replace(livecontainer.signing, bundles=(preserve_rule,)),
+    )
+
+    assert runner._source_entitlements_required(legacy) is False
+    assert runner._source_entitlements_required(livecontainer) is False
+    assert runner._source_entitlements_required(preserve_task) is True
+
+
 def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "source.ipa"
     source.write_bytes(b"source")
@@ -66,9 +87,10 @@ def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, mon
         destination.mkdir()
         return ()
 
-    def discover(path: Path, digest: str):
+    def discover(path: Path, digest: str, *, allow_missing_code_signature: bool):
         assert path.name == "extracted"
         assert digest == hashlib.sha256(b"source").hexdigest()
+        assert allow_missing_code_signature is False
         return expected
 
     monkeypatch.setattr(runner, "extract_ipa_safely", extract)
@@ -102,7 +124,7 @@ def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, m
         return profiles
 
     monkeypatch.setattr(runner, "load_synced_profiles", load_profiles)
-    monkeypatch.setattr(runner, "inspect_source_graph", lambda path: graph)
+    monkeypatch.setattr(runner, "inspect_source_graph", lambda path, *, task: graph)
 
     class Backend:
         def __init__(self, **kwargs):

@@ -61,6 +61,19 @@ class FailingEntitlementInspector:
         )
 
 
+class UnsignedEntitlementInspector:
+    def inspect(self, path: Path) -> MachOEntitlementEvidence:
+        raise DomainError(
+            ErrorCode.INVENTORY_ENTITLEMENTS_INVALID,
+            "Mach-O slice has no embedded code signature",
+            safe_details=(
+                ("path", str(path)),
+                ("slice_index", 0),
+                ("reason", "missing-code-signature"),
+            ),
+        )
+
+
 def discover(root: Path, source_sha256: str = "a" * 64):
     return discover_bundle_graph(
         root,
@@ -228,6 +241,27 @@ def test_rejects_xml_der_entitlement_disagreement(tmp_path: Path) -> None:
     assert dict(caught.value.safe_details)["architecture"] == "ARM64"
 
 
+def test_rejects_slice_without_decoded_entitlement_evidence(tmp_path: Path) -> None:
+    make_bundle(
+        tmp_path,
+        "Payload/App.app",
+        identifier="com.example.app",
+        executable="App",
+        package_type="APPL",
+    )
+    evidence = MachOEntitlementEvidence(
+        (EntitlementSliceEvidence(0, "ARM64", None, None, None, None),)
+    )
+
+    with pytest.raises(DomainError, match="no decoded evidence"):
+        discover_bundle_graph(
+            tmp_path,
+            "a" * 64,
+            macho_probe=MarkerMachOProbe(),
+            entitlement_inspector=FixedEntitlementInspector(evidence),
+        )
+
+
 def test_entitlement_failure_replaces_workspace_path_with_bundle_path(tmp_path: Path) -> None:
     make_bundle(
         tmp_path,
@@ -247,6 +281,30 @@ def test_entitlement_failure_replaces_workspace_path_with_bundle_path(tmp_path: 
 
     assert caught.value.bundle_id == "com.example.app"
     assert dict(caught.value.safe_details)["path"] == "Payload/App.app/App"
+
+
+def test_allows_explicit_unsigned_source_without_inventing_entitlements(tmp_path: Path) -> None:
+    bundle = make_bundle(
+        tmp_path,
+        "Payload/App.app",
+        identifier="com.example.app",
+        executable="App",
+        package_type="APPL",
+    )
+    (bundle / "embedded.mobileprovision").write_bytes(b"source profile")
+
+    graph = discover_bundle_graph(
+        tmp_path,
+        "a" * 64,
+        macho_probe=MarkerMachOProbe(),
+        entitlement_inspector=UnsignedEntitlementInspector(),
+        allow_missing_code_signature=True,
+    )
+
+    root = graph.nodes[0]
+    assert root.entitlements == ()
+    assert root.entitlement_slices == ()
+    assert root.embedded_profile_sha256 == hashlib.sha256(b"source profile").hexdigest()
 
 
 def test_rejects_entitlement_disagreement_between_fat_slices(tmp_path: Path) -> None:

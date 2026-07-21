@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sideloadedipa.adapters.signing import ZsignBackend
 from sideloadedipa.certificate_identity import load_p12_certificate_material
-from sideloadedipa.domain import BundleGraph, ProfileType, Task
+from sideloadedipa.domain import BundleGraph, EntitlementMode, ProfileType, Task
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
 from sideloadedipa.profile_storage import load_profile_manifest
@@ -22,12 +22,25 @@ from sideloadedipa.signing_service import (
 from sideloadedipa.verification.service import PackageVerifier
 
 
-def inspect_source_graph(source_ipa: Path) -> BundleGraph:
+def _source_entitlements_required(task: Task) -> bool:
+    return task.signing is not None and any(
+        rule.entitlement_policy.mode is EntitlementMode.PRESERVE_SOURCE
+        for rule in task.signing.bundles
+    )
+
+
+def inspect_source_graph(source_ipa: Path, *, task: Task | None = None) -> BundleGraph:
     with tempfile.TemporaryDirectory(prefix="sideloadedipa-production-inventory-") as directory:
         extracted = Path(directory) / "extracted"
         extract_ipa_safely(source_ipa, extracted)
         source_sha256 = hashlib.sha256(source_ipa.read_bytes()).hexdigest()
-        return discover_bundle_graph(extracted, source_sha256)
+        return discover_bundle_graph(
+            extracted,
+            source_sha256,
+            allow_missing_code_signature=(
+                task is not None and not _source_entitlements_required(task)
+            ),
+        )
 
 
 def run_package_signing(
@@ -73,7 +86,7 @@ def run_package_signing(
         certificate=certificate.identity,
         now=current_time,
     )
-    graph = inspect_source_graph(source_ipa)
+    graph = inspect_source_graph(source_ipa, task=task)
     backend = ZsignBackend(
         executable=zsign_executable,
         expected_executable_sha256=zsign_sha256,

@@ -280,11 +280,21 @@ def _profile_evidence(
     extracted_root: Path,
     node: BundleNode,
     inspector: EntitlementInspector,
+    *,
+    allow_missing_code_signature: bool,
 ) -> BundleNode:
     executable = extracted_root / Path(*node.executable_path.parts)
     try:
         evidence = inspector.inspect(executable)
     except DomainError as error:
+        reason = dict(error.safe_details).get("reason")
+        if allow_missing_code_signature and reason == "missing-code-signature":
+            bundle = extracted_root / Path(*node.path.parts)
+            profile = bundle / "embedded.mobileprovision"
+            return replace(
+                node,
+                embedded_profile_sha256=_sha256(profile) if profile.is_file() else None,
+            )
         details = tuple(
             (key, str(node.executable_path) if key == "path" else value)
             for key, value in error.safe_details
@@ -469,6 +479,7 @@ def discover_bundle_graph(
     *,
     macho_probe: MachOProbe | None = None,
     entitlement_inspector: EntitlementInspector | None = None,
+    allow_missing_code_signature: bool = False,
 ) -> BundleGraph:
     """Discover code and require valid entitlement evidence for profile bundles."""
 
@@ -478,7 +489,16 @@ def discover_bundle_graph(
         macho_probe=macho_probe,
     )
     nodes = [
-        _profile_evidence(extracted_root, node, inspector) if node.profile_bearing else node
+        (
+            _profile_evidence(
+                extracted_root,
+                node,
+                inspector,
+                allow_missing_code_signature=allow_missing_code_signature,
+            )
+            if node.profile_bearing
+            else node
+        )
         for node in structural_nodes
     ]
     root_path = structural_nodes[0].path

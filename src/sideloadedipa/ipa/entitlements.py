@@ -66,10 +66,18 @@ class MachOEntitlementEvidence:
     slices: tuple[EntitlementSliceEvidence, ...]
 
 
-def _error(message: str, path: Path, slice_index: int | None = None) -> DomainError:
+def _error(
+    message: str,
+    path: Path,
+    slice_index: int | None = None,
+    *,
+    reason: str | None = None,
+) -> DomainError:
     details: list[tuple[str, str | int]] = [("path", str(path))]
     if slice_index is not None:
         details.append(("slice_index", slice_index))
+    if reason is not None:
+        details.append(("reason", reason))
     return DomainError(
         ErrorCode.INVENTORY_ENTITLEMENTS_INVALID,
         message,
@@ -210,7 +218,12 @@ class LiefEntitlementInspector:
                 for index, binary in enumerate(parsed):
                     signature = binary.code_signature
                     if signature is None:
-                        raise _error("Mach-O slice has no embedded code signature", path, index)
+                        raise _error(
+                            "Mach-O slice has no embedded code signature",
+                            path,
+                            index,
+                            reason="missing-code-signature",
+                        )
                     executable.seek(binary.fat_offset + signature.data_offset)
                     signature_bytes = executable.read(signature.data_size)
                     if len(signature_bytes) != signature.data_size:
