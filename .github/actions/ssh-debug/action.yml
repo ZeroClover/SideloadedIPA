@@ -57,16 +57,18 @@ runs:
         sudo install -m 0755 "$RUNNER_TEMP/$asset" /usr/local/bin/cloudflared
         cloudflared --version
 
-    - name: Hold runner open with Cloudflare Tunnel
+    - name: Start Cloudflare Tunnel
       shell: bash
       run: |
         set -euo pipefail
-        tunnel_log="$RUNNER_TEMP/cloudflared.log"
+        debug_dir="$RUNNER_TEMP/ssh-debug"
+        mkdir -p "$debug_dir"
+        tunnel_log="$debug_dir/cloudflared.log"
         : > "$tunnel_log"
-        cloudflared tunnel --no-autoupdate --url "ssh://localhost:2222" \
-          > >(tee "$tunnel_log") 2>&1 &
+        nohup cloudflared tunnel --no-autoupdate --url "ssh://localhost:2222" \
+          > "$tunnel_log" 2>&1 < /dev/null &
         tunnel_pid=$!
-        trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
+        printf '%s\n' "$tunnel_pid" > "$debug_dir/cloudflared.pid"
 
         hostname=""
         for _ in $(seq 1 30); do
@@ -89,4 +91,31 @@ runs:
 
         echo "::notice title=SSH Debug::SSH host: $hostname; user: $(whoami)"
         echo "Connect with: ssh -o ProxyCommand='cloudflared access ssh --hostname %h' $(whoami)@$hostname"
-        wait "$tunnel_pid"
+        cat > "$debug_dir/connection.txt" <<EOF
+        host=$hostname
+        user=$(whoami)
+        command=ssh -o ProxyCommand='cloudflared access ssh --hostname %h' $(whoami)@$hostname
+        EOF
+
+    - name: Publish SSH connection information
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ssh-debug-connection
+        path: ${{ runner.temp }}/ssh-debug/connection.txt
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: Hold runner open
+      shell: bash
+      run: |
+        set -euo pipefail
+        debug_dir="$RUNNER_TEMP/ssh-debug"
+        tunnel_pid="$(cat "$debug_dir/cloudflared.pid")"
+        if ! kill -0 "$tunnel_pid" 2>/dev/null; then
+          cat "$debug_dir/cloudflared.log" >&2
+          exit 1
+        fi
+        echo "SSH debug session is ready. Stop cloudflared from SSH to resume cleanup."
+        while kill -0 "$tunnel_pid" 2>/dev/null; do
+          sleep 5
+        done
