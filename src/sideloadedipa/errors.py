@@ -29,6 +29,8 @@ class ErrorCode(StrEnum):
     ARCHIVE_PATH_DUPLICATE = "archive.path_duplicate"
     ARCHIVE_SPECIAL_FILE = "archive.special_file"
     ARCHIVE_LIMIT_EXCEEDED = "archive.limit_exceeded"
+    INVENTORY_ROOT_AMBIGUOUS = "inventory.root_ambiguous"
+    INVENTORY_METADATA_INVALID = "inventory.metadata_invalid"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"
