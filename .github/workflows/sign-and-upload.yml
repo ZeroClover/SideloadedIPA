@@ -327,7 +327,7 @@ jobs:
             --summary "$RUNNER_TEMP/backend-qualification/summary.json"
           )
           if [[ "${{ inputs.qualification_apply }}" == "true" ]]; then
-            args+=(--apply-bundle-ids)
+            args+=(--apply-bundle-ids --apply-profiles)
           fi
           python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
 

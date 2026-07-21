@@ -34,6 +34,7 @@ TARGET_NAMES = {
     "launch": "SideloadedIPA LiveContainer Qualification Launch",
     "share": "SideloadedIPA LiveContainer Qualification Share",
 }
+PROFILE_NAMES = {role: f"{name} Dev" for role, name in TARGET_NAMES.items()}
 
 
 class QualificationError(RuntimeError):
@@ -239,9 +240,9 @@ def resolve_profile_bundle_resource_id(profile: Mapping[str, Any]) -> str | None
     return linked_id if isinstance(linked_id, str) else None
 
 
-def select_profiles(
+def profile_candidates(
     profiles: Sequence[Mapping[str, Any]], bundle_resources: Mapping[str, str]
-) -> dict[str, str]:
+) -> dict[str, list[str]]:
     by_bundle: dict[str, list[str]] = {resource_id: [] for resource_id in bundle_resources.values()}
     for profile in profiles:
         if profile_type(profile) != PROFILE_TYPE or profile_state(profile) != "ACTIVE":
@@ -253,10 +254,19 @@ def select_profiles(
         if bundle_resource_id in by_bundle:
             by_bundle[bundle_resource_id].append(profile_id)
 
+    return {
+        role: by_bundle[bundle_resource_id] for role, bundle_resource_id in bundle_resources.items()
+    }
+
+
+def select_profiles(
+    profiles: Sequence[Mapping[str, Any]], bundle_resources: Mapping[str, str]
+) -> dict[str, str]:
+    candidates_by_role = profile_candidates(profiles, bundle_resources)
+
     selected: dict[str, str] = {}
     problems: list[str] = []
-    for role, bundle_resource_id in bundle_resources.items():
-        candidates = by_bundle[bundle_resource_id]
+    for role, candidates in candidates_by_role.items():
         if len(candidates) != 1:
             problems.append(f"{role} has {len(candidates)} active development profiles")
         else:
@@ -264,6 +274,127 @@ def select_profiles(
     if problems:
         raise QualificationError("; ".join(problems))
     return selected
+
+
+def certificate_content(certificate: Mapping[str, Any]) -> bytes | None:
+    attributes = certificate.get("attributes")
+    if not isinstance(attributes, dict):
+        return None
+    content = attributes.get("certificateContent")
+    if not isinstance(content, str) or not content:
+        return None
+    try:
+        return base64.b64decode(content, validate=True)
+    except ValueError:
+        return None
+
+
+def matching_certificate_resource_id(
+    certificates: Sequence[Mapping[str, Any]], expected_sha256: str
+) -> str:
+    matches: list[str] = []
+    for certificate in certificates:
+        resource_id = certificate.get("id")
+        if not isinstance(resource_id, str) or not resource_id:
+            continue
+        content = certificate_content(certificate)
+        if content is None:
+            viewed = run_json(["certificates", "view", "--id", resource_id]).get("data")
+            if isinstance(viewed, dict):
+                content = certificate_content(viewed)
+        if content is not None and _sha256_bytes(content) == expected_sha256:
+            matches.append(resource_id)
+    if len(matches) != 1:
+        raise QualificationError(
+            f"configured P12 matches {len(matches)} active Apple development certificates"
+        )
+    return matches[0]
+
+
+def ensure_profiles(
+    profiles: Sequence[Mapping[str, Any]],
+    bundle_resources: Mapping[str, str],
+    certificate_resource_id: str,
+    device_ids: Sequence[str],
+    apply: bool,
+) -> dict[str, str]:
+    candidates_by_role = profile_candidates(profiles, bundle_resources)
+    problems = [
+        f"{role} has {len(candidates)} active development profiles"
+        for role, candidates in candidates_by_role.items()
+        if len(candidates) > 1
+    ]
+    if problems:
+        raise QualificationError("; ".join(problems))
+
+    missing_roles = [role for role, candidates in candidates_by_role.items() if not candidates]
+    if not missing_roles:
+        return {role: candidates[0] for role, candidates in candidates_by_role.items()}
+    if not apply:
+        raise QualificationError(
+            "; ".join(f"{role} has 0 active development profiles" for role in missing_roles)
+        )
+
+    for role in missing_roles:
+        bundle_resource_id = bundle_resources[role]
+        print(f"[qualification-apply] creating development profile for {role}")
+        run_json(
+            [
+                "profiles",
+                "create",
+                "--name",
+                PROFILE_NAMES[role],
+                "--profile-type",
+                PROFILE_TYPE,
+                "--bundle",
+                bundle_resource_id,
+                "--certificate",
+                certificate_resource_id,
+                "--device",
+                ",".join(sorted(device_ids)),
+            ]
+        )
+
+    refreshed = data_list(
+        run_json(
+            [
+                "profiles",
+                "list",
+                "--profile-type",
+                PROFILE_TYPE,
+                "--profile-state",
+                "ACTIVE",
+                "--paginate",
+            ]
+        ),
+        "profiles",
+    )
+    return select_profiles(refreshed, bundle_resources)
+
+
+def capability_types(bundle_resource_id: str) -> tuple[str, ...]:
+    capabilities = data_list(
+        run_json(
+            [
+                "bundle-ids",
+                "capabilities",
+                "list",
+                "--bundle",
+                bundle_resource_id,
+                "--paginate",
+            ]
+        ),
+        "bundle ID capabilities",
+    )
+    types: list[str] = []
+    for capability in capabilities:
+        attributes = capability.get("attributes")
+        if not isinstance(attributes, dict):
+            continue
+        capability_type = attributes.get("capabilityType")
+        if isinstance(capability_type, str):
+            types.append(capability_type)
+    return tuple(sorted(types))
 
 
 def decode_profile(profile_path: Path, output_path: Path) -> dict[str, Any]:
@@ -394,6 +525,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--private-dir", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--apply-bundle-ids", action="store_true")
+    parser.add_argument("--apply-profiles", action="store_true")
     return parser.parse_args()
 
 
@@ -432,6 +564,26 @@ def main() -> int:
         TARGET_NAMES,
         apply=args.apply_bundle_ids,
     )
+    for role, bundle_resource_id in bundle_resources.items():
+        print(
+            f"[qualification-plan] {role} capability types: "
+            f"{list(capability_types(bundle_resource_id))}"
+        )
+
+    p12_certificate_sha256 = certificate_sha256(args.certificate_der)
+    certificates = data_list(
+        run_json(
+            [
+                "certificates",
+                "list",
+                "--certificate-type",
+                "IOS_DEVELOPMENT,DEVELOPMENT",
+                "--paginate",
+            ]
+        ),
+        "certificates",
+    )
+    certificate_resource_id = matching_certificate_resource_id(certificates, p12_certificate_sha256)
     profiles = data_list(
         run_json(
             [
@@ -446,7 +598,13 @@ def main() -> int:
         ),
         "profiles",
     )
-    selected_profiles = select_profiles(profiles, bundle_resources)
+    selected_profiles = ensure_profiles(
+        profiles,
+        bundle_resources,
+        certificate_resource_id,
+        sorted(compatible_devices),
+        apply=args.apply_profiles,
+    )
 
     evidence: list[ProfileEvidence] = []
     for role, profile_id in selected_profiles.items():
@@ -464,7 +622,7 @@ def main() -> int:
             )
         )
 
-    common = ensure_common_contract(evidence, certificate_sha256(args.certificate_der))
+    common = ensure_common_contract(evidence, p12_certificate_sha256)
     summary = {
         "schema_version": 1,
         "ready": True,

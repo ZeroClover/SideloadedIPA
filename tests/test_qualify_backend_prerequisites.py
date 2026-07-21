@@ -12,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from qualify_backend_prerequisites import (
     ProfileEvidence,
     QualificationError,
+    certificate_content,
     ensure_bundle_resources,
     ensure_common_contract,
+    ensure_profiles,
     exact_bundle_resources,
     profile_bundle_resource_id,
 )
@@ -82,6 +84,58 @@ def test_profile_bundle_resource_id_reads_embedded_relationship() -> None:
     profile = {"relationships": {"bundleId": {"data": {"id": "bundle-id"}}}}
 
     assert profile_bundle_resource_id(profile) == "bundle-id"
+
+
+def test_certificate_content_decodes_base64_der() -> None:
+    assert (
+        certificate_content({"attributes": {"certificateContent": "Y2VydGlmaWNhdGU="}})
+        == b"certificate"
+    )
+
+
+def test_ensure_profiles_creates_each_missing_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+    refreshed = {
+        "data": [
+            {
+                "id": "root-profile",
+                "attributes": {"profileType": "IOS_APP_DEVELOPMENT", "profileState": "ACTIVE"},
+                "relationships": {"bundleId": {"data": {"id": "root-bundle"}}},
+            },
+            {
+                "id": "extension-profile",
+                "attributes": {"profileType": "IOS_APP_DEVELOPMENT", "profileState": "ACTIVE"},
+                "relationships": {"bundleId": {"data": {"id": "extension-bundle"}}},
+            },
+        ]
+    }
+
+    def fake_run_json(args: list[str]) -> dict:
+        calls.append(args)
+        if args[:2] == ["profiles", "create"]:
+            return {"data": {"id": "created"}}
+        return refreshed
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr(
+        "qualify_backend_prerequisites.PROFILE_NAMES",
+        {"root": "Root Dev", "extension": "Extension Dev"},
+    )
+
+    result = ensure_profiles(
+        [],
+        {"root": "root-bundle", "extension": "extension-bundle"},
+        "certificate-id",
+        ["device-2", "device-1"],
+        apply=True,
+    )
+
+    assert result == {"root": "root-profile", "extension": "extension-profile"}
+    create_calls = [args for args in calls if args[:2] == ["profiles", "create"]]
+    assert len(create_calls) == 2
+    assert all(args[args.index("--device") + 1] == "device-1,device-2" for args in create_calls)
 
 
 def _evidence(
