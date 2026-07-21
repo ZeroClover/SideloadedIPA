@@ -8,11 +8,13 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +22,7 @@ from pathlib import Path
 from botocore.exceptions import BotoCoreError, ClientError
 
 from sideloadedipa.adapters.publication import R2PublicationGateway
-from sideloadedipa.application import CommandRequest, CommandResult
+from sideloadedipa.application import CommandRequest, CommandResult, OutputFormat
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     FrozenJsonObject,
@@ -60,6 +62,15 @@ class _SignedTask:
     artifact_path: Path
     artifact_sha256: str
     result: PlannedSigningExecution
+
+
+@contextmanager
+def _redirect_progress(request: CommandRequest) -> Iterator[None]:
+    if request.output_format is OutputFormat.JSON:
+        with redirect_stdout(sys.stderr):
+            yield
+    else:
+        yield
 
 
 def _selected_tasks(
@@ -268,7 +279,8 @@ def sign_command(
 ) -> CommandResult:
     """Sign and verify selected package-engine tasks without publication."""
 
-    signed = _sign_tasks(request, _selected_tasks(request), dependencies)
+    with _redirect_progress(request):
+        signed = _sign_tasks(request, _selected_tasks(request), dependencies)
     reports = [_task_report(value, "disabled") for value in signed]
     document = {
         "schema_version": 1,
@@ -303,43 +315,45 @@ def run_command(
                 remediation="complete physical-device acceptance before enabling publication",
                 safe_details=(("task_names", disabled),),
             )
-    signed = _sign_tasks(request, tasks, dependencies)
+    with _redirect_progress(request):
+        signed = _sign_tasks(request, tasks, dependencies)
     publication_by_task: dict[str, object] = {value.task.task_name: "disabled" for value in signed}
     if request.publish:
-        store, publisher = _publication_runtime(configuration, dependencies.environment)
-        candidates: list[PublicationCandidate] = []
-        for value in signed:
-            metadata = read_ipa_metadata(value.artifact_path)
-            icon_url: str | None = None
-            if value.task.icon_path is not None:
-                try:
-                    png = build_icon_png(
-                        value.task.icon_path,
-                        value.task.source.location,
-                        ref=value.release_tag,
-                        ipa_path=value.artifact_path,
+        with _redirect_progress(request):
+            store, publisher = _publication_runtime(configuration, dependencies.environment)
+            candidates: list[PublicationCandidate] = []
+            for value in signed:
+                metadata = read_ipa_metadata(value.artifact_path)
+                icon_url: str | None = None
+                if value.task.icon_path is not None:
+                    try:
+                        png = build_icon_png(
+                            value.task.icon_path,
+                            value.task.source.location,
+                            ref=value.release_tag,
+                            ipa_path=value.artifact_path,
+                        )
+                        icon_url = store.upload_icon(value.task.slug, png)
+                    except (BotoCoreError, ClientError, IconError, OSError):
+                        icon_url = None
+                result = value.result
+                candidates.append(
+                    PublicationCandidate(
+                        value.task.task_name,
+                        value.task.slug,
+                        value.task.app_name,
+                        metadata.bundle_id,
+                        metadata.version,
+                        f"{_safe_filename(value.task.app_name)}.ipa",
+                        str(value.artifact_path),
+                        value.artifact_sha256,
+                        icon_url,
+                        value.task.publication_enabled,
+                        result.plan,
+                        result.execution.verification,
                     )
-                    icon_url = store.upload_icon(value.task.slug, png)
-                except (BotoCoreError, ClientError, IconError, OSError):
-                    icon_url = None
-            result = value.result
-            candidates.append(
-                PublicationCandidate(
-                    value.task.task_name,
-                    value.task.slug,
-                    value.task.app_name,
-                    metadata.bundle_id,
-                    metadata.version,
-                    f"{_safe_filename(value.task.app_name)}.ipa",
-                    str(value.artifact_path),
-                    value.artifact_sha256,
-                    icon_url,
-                    value.task.publication_enabled,
-                    result.plan,
-                    result.execution.verification,
                 )
-            )
-        published = publisher.publish(candidates, now=datetime.now(timezone.utc))
+            published = publisher.publish(candidates, now=datetime.now(timezone.utc))
         publication_by_task = {
             result.task_name: {
                 "status": "published",

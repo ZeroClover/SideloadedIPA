@@ -151,7 +151,9 @@ def test_run_rejects_publication_disabled_task_before_signing(
 
 
 def test_run_publishes_only_after_the_complete_verified_batch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     configuration = commands.load_configuration(Path("configs/tasks.toml"))
     tasks = tuple(task for task in configuration.tasks if task.task_name in {"JHenTai", "Asspp"})
@@ -190,12 +192,14 @@ def test_run_publishes_only_after_the_complete_verified_batch(
 
     class Store:
         def upload_icon(self, slug, png):
+            print(f"uploading {slug}")
             events.append(f"icon:{slug}")
             return f"https://cdn.example/{slug}/icon.png"
 
     class Publisher:
         def publish(self, candidates, *, now):
             del now
+            print("publishing registry")
             assert events[0] == "signed-batch"
             events.append("published-batch")
             return tuple(
@@ -231,6 +235,9 @@ def test_run_publishes_only_after_the_complete_verified_batch(
     assert report["task_count"] == 2
     assert events[-1] == "published-batch"
     assert events.count("published-batch") == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "publishing registry" in captured.err
     cache = json.loads((tmp_path / "cache" / "release-versions.json").read_text())
     assert set(cache["tasks"]) == {"JHenTai", "Asspp"}
 
