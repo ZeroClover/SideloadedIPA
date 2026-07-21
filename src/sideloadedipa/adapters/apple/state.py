@@ -102,34 +102,40 @@ def _content_sha256(value: object, field: str) -> str | None:
     return hashlib.sha256(decoded).hexdigest()
 
 
-def _relationship_ids(
-    resource: Mapping[str, object], relationship: str, *, many: bool
+def _linkage_ids(
+    response: AscResponse,
+    field: str,
+    expected_type: str,
+    *,
+    many: bool,
 ) -> tuple[str, ...]:
-    relationships = _mapping(resource.get("relationships"), "profile.data.relationships")
-    relation = _mapping(
-        relationships.get(relationship), f"profile.data.relationships.{relationship}"
-    )
-    data = relation.get("data")
+    document = _response_mapping(response, field)
+    data = document.get("data")
     values: list[object]
     if many:
+        if data is None:
+            return ()
         if not isinstance(data, list):
             raise _invalid(
-                f"profile relationship {relationship} must be an array",
-                f"profile.data.relationships.{relationship}.data",
+                f"{field}.data must be an array",
+                f"{field}.data",
             )
         values = data
     else:
         values = [data]
     identifiers = []
     for index, value in enumerate(values):
-        linkage = _mapping(
-            value,
-            f"profile.data.relationships.{relationship}.data[{index}]",
-        )
+        linkage = _mapping(value, f"{field}.data[{index}]")
+        resource_type = _string(linkage.get("type"), f"{field}.data[{index}].type")
+        if resource_type != expected_type:
+            raise _invalid(
+                f"{field}.data[{index}].type must be {expected_type}",
+                f"{field}.data[{index}].type",
+            )
         identifiers.append(
             _string(
                 linkage.get("id"),
-                f"profile.data.relationships.{relationship}.data[{index}].id",
+                f"{field}.data[{index}].id",
             )
         )
     return tuple(sorted(identifiers))
@@ -345,25 +351,37 @@ class AppleStateCollector:
         for index, summary in enumerate(resources):
             profile_id, _ = _resource(summary, f"profiles.data[{index}]", "profiles")
             detail_document = _response_mapping(
-                self.client.run_json(
-                    (
-                        "profiles",
-                        "view",
-                        "--id",
-                        profile_id,
-                        "--include",
-                        "bundleId,certificates,devices",
-                    )
-                ),
+                self.client.run_json(("profiles", "view", "--id", profile_id)),
                 "profile",
             )
             detail = _mapping(detail_document.get("data"), "profile.data")
             detail_id, attributes = _resource(detail, "profile.data", "profiles")
             if detail_id != profile_id:
                 raise _invalid("profile detail ID differs from list ID", "profile.data.id")
-            bundle_ids = _relationship_ids(detail, "bundleId", many=False)
-            certificate_ids = _relationship_ids(detail, "certificates", many=True)
-            device_ids = _relationship_ids(detail, "devices", many=True)
+            bundle_ids = _linkage_ids(
+                self.client.run_json(("profiles", "links", "bundle-id", "--id", profile_id)),
+                "profile_bundle_id",
+                "bundleIds",
+                many=False,
+            )
+            certificate_ids = _linkage_ids(
+                self.client.run_json(
+                    ("profiles", "links", "certificates", "--id", profile_id),
+                    paginate=True,
+                ),
+                "profile_certificates",
+                "certificates",
+                many=True,
+            )
+            device_ids = _linkage_ids(
+                self.client.run_json(
+                    ("profiles", "links", "devices", "--id", profile_id),
+                    paginate=True,
+                ),
+                "profile_devices",
+                "devices",
+                many=True,
+            )
             values.append(
                 AppleProfileState(
                     resource_id=profile_id,

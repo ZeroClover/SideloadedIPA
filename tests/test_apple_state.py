@@ -46,6 +46,24 @@ class FixtureClient:
             value = self.fixture["devices"]
         elif args[:2] == ("profiles", "list"):
             value = self.fixture["profiles"]
+        elif args[:4] == ("profiles", "links", "bundle-id", "--id"):
+            links = self.fixture["profile_links"]
+            assert isinstance(links, dict)
+            profile_links = links[args[-1]]
+            assert isinstance(profile_links, dict)
+            value = profile_links["bundle_id"]
+        elif args[:4] == ("profiles", "links", "certificates", "--id"):
+            links = self.fixture["profile_links"]
+            assert isinstance(links, dict)
+            profile_links = links[args[-1]]
+            assert isinstance(profile_links, dict)
+            value = profile_links["certificates"]
+        elif args[:4] == ("profiles", "links", "devices", "--id"):
+            links = self.fixture["profile_links"]
+            assert isinstance(links, dict)
+            profile_links = links[args[-1]]
+            assert isinstance(profile_links, dict)
+            value = profile_links["devices"]
         else:
             details = self.fixture["profile_details"]
             assert isinstance(details, dict)
@@ -125,16 +143,12 @@ def test_collects_sorted_redacted_snapshot_from_one_read_session() -> None:
         (("devices", "list", "--platform", "IOS", "--status", "ENABLED"), True),
         (("profiles", "list", "--profile-type", "IOS_APP_DEVELOPMENT"), True),
         (
-            (
-                "profiles",
-                "view",
-                "--id",
-                "PROFILE_ONE",
-                "--include",
-                "bundleId,certificates,devices",
-            ),
+            ("profiles", "view", "--id", "PROFILE_ONE"),
             False,
         ),
+        (("profiles", "links", "bundle-id", "--id", "PROFILE_ONE"), False),
+        (("profiles", "links", "certificates", "--id", "PROFILE_ONE"), True),
+        (("profiles", "links", "devices", "--id", "PROFILE_ONE"), True),
     ]
 
 
