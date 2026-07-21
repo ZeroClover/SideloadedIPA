@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from exercise_zsign_backend import TARGETS, evaluate_contract, zsign_command
+from exercise_zsign_backend import TARGETS, evaluate_contract, redacted_output, zsign_command
 
 
 def entitlement_contract(keychain_groups: list[str]) -> dict[str, dict]:
@@ -44,6 +44,15 @@ def test_zsign_command_uses_four_profiles_without_global_entitlements(tmp_path: 
 
     assert command.count("-m") == 4
     assert "-e" not in command
+
+
+def test_backend_output_is_bounded_and_redacted() -> None:
+    output = f"prefix secret {'x' * 3000}"
+
+    result = redacted_output(output, ["secret"])
+
+    assert "secret" not in result
+    assert len(result) == 2000
 
 
 def test_contract_rejects_profile_wildcard_instead_of_128_exact_groups() -> None:

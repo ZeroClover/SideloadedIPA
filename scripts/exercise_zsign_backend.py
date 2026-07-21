@@ -67,7 +67,19 @@ def zsign_command(
     return command
 
 
-def run(command: Sequence[str], *, cwd: Path | None = None) -> None:
+def redacted_output(value: str, redactions: Sequence[str]) -> str:
+    for secret in redactions:
+        if secret:
+            value = value.replace(secret, "***")
+    return value[-2000:].strip()
+
+
+def run(
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    redactions: Sequence[str] = (),
+) -> None:
     result = subprocess.run(
         command,
         cwd=cwd,
@@ -77,9 +89,11 @@ def run(command: Sequence[str], *, cwd: Path | None = None) -> None:
         timeout=180,
     )
     if result.returncode != 0:
+        stdout = redacted_output(result.stdout, redactions)
+        stderr = redacted_output(result.stderr, redactions)
         raise BackendExerciseError(
             f"backend command {Path(command[0]).name!r} failed with exit code "
-            f"{result.returncode}"
+            f"{result.returncode}; stdout={stdout!r}; stderr={stderr!r}"
         )
 
 
@@ -157,7 +171,7 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
     )
     if "-e" in command or command.count("-m") != len(TARGETS):
         raise BackendExerciseError("qualification command is not repeated-profile/profile-only")
-    run(command)
+    run(command, redactions=(password,))
 
     extracted = args.output_dir / "extracted"
     with zipfile.ZipFile(signed_ipa) as archive:
