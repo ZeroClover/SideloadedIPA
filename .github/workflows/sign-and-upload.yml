@@ -441,6 +441,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
       - name: Install checksum-verified App Store Connect CLI
         shell: bash
         run: |
@@ -566,7 +575,7 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          python3 scripts/exercise_zsign_backend.py \
+          uv run python scripts/exercise_zsign_backend.py \
             --zsign "$RUNNER_TEMP/backend-qualification/zsign" \
             --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
             --private-key "$private_dir/private-key.pem" \
@@ -580,7 +589,7 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          python3 scripts/exercise_zsign_backend.py \
+          uv run python scripts/exercise_zsign_backend.py \
             --zsign "$RUNNER_TEMP/backend-qualification/zsign-per-profile" \
             --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
             --private-key "$private_dir/private-key.pem" \
