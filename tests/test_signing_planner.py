@@ -301,6 +301,23 @@ def test_rejects_unauthorized_expected_entitlements() -> None:
     assert dict(caught.value.safe_details)["key"] == "com.apple.security.application-groups"
 
 
+def test_requires_exact_planned_application_identifier() -> None:
+    request = valid_request()
+    missing = normalize_entitlements({})
+    root_expected = ExpectedNodeEntitlements(ROOT.path, missing.values, missing.sha256)
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(
+            replace(
+                request,
+                expected_entitlements=(request.expected_entitlements[0], root_expected),
+            )
+        )
+
+    assert caught.value.code is ErrorCode.SIGNING_PLAN_INVALID
+    assert "application identifier" in caught.value.message
+
+
 def test_rejects_unsupported_backend_features() -> None:
     request = valid_request()
     backend = replace(request.backend, features=())

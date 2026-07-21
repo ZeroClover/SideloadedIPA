@@ -299,9 +299,21 @@ def _validate_request(request: SigningPlanRequest) -> None:
         intent = intent_by_source[match.source_bundle_id.casefold()]
         profile = profiles_by_target[intent.target_bundle_id.casefold()][0]
         expected = expected_by_path[match.node_path]
+        expected_document = {key: thaw_json(value) for key, value in expected.values}
+        if expected_document.get(
+            "application-identifier"
+        ) != profile.application_identifier or not profile.application_identifier.endswith(
+            f".{intent.target_bundle_id}"
+        ):
+            raise _fail(
+                request,
+                "planned application identifier does not match the exact target bundle identifier",
+                bundle_id=intent.target_bundle_id,
+                safe_details=(("profile_resource_id", profile.resource_id),),
+            )
         validate_expected_entitlements(
             {key: thaw_json(value) for key, value in profile.entitlements},
-            {key: thaw_json(value) for key, value in expected.values},
+            expected_document,
             bundle_id=profile.bundle_id,
         )
 
