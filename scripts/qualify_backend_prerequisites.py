@@ -170,6 +170,26 @@ def resource_name(resource: Mapping[str, Any]) -> str | None:
     return name if isinstance(name, str) else None
 
 
+def validate_resource_names(
+    resources: Sequence[Mapping[str, Any]],
+    resource_ids: Mapping[str, str],
+    expected_names: Mapping[str, str],
+    resource_type: str,
+) -> None:
+    by_id = {
+        resource_id: resource_name(resource)
+        for resource in resources
+        if isinstance((resource_id := resource.get("id")), str)
+    }
+    for role, expected_name in expected_names.items():
+        actual_name = by_id.get(resource_ids[role])
+        if actual_name != expected_name:
+            raise QualificationError(
+                f"{role} {resource_type} name is {actual_name!r}, expected {expected_name!r}"
+            )
+        print(f"[qualification-evidence] {role} {resource_type} name: {actual_name}")
+
+
 def delete_legacy_profiles(
     profiles: Sequence[Mapping[str, Any]], bundle_resources: Mapping[str, str]
 ) -> None:
@@ -720,6 +740,13 @@ def main() -> int:
         TARGET_NAMES,
         apply=args.apply_bundle_ids,
     )
+    current_bundles = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
+    validate_resource_names(
+        current_bundles,
+        bundle_resources,
+        {role: name for role, name in TARGET_NAMES.items() if role != "root"},
+        "App ID",
+    )
     for role, bundle_resource_id in bundle_resources.items():
         print(
             f"[qualification-plan] {role} capability types: "
@@ -760,6 +787,26 @@ def main() -> int:
         certificate_resource_id,
         sorted(compatible_devices),
         apply=args.apply_profiles,
+    )
+    current_profiles = data_list(
+        run_json(
+            [
+                "profiles",
+                "list",
+                "--profile-type",
+                PROFILE_TYPE,
+                "--profile-state",
+                "ACTIVE",
+                "--paginate",
+            ]
+        ),
+        "profiles",
+    )
+    validate_resource_names(
+        current_profiles,
+        selected_profiles,
+        PROFILE_NAMES,
+        "profile",
     )
 
     evidence: list[ProfileEvidence] = []

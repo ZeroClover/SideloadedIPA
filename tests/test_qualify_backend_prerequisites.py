@@ -20,6 +20,7 @@ from qualify_backend_prerequisites import (
     ensure_profiles,
     exact_bundle_resources,
     profile_bundle_resource_id,
+    validate_resource_names,
 )
 
 
@@ -192,6 +193,25 @@ def test_profile_bundle_resource_id_reads_embedded_relationship() -> None:
     profile = {"relationships": {"bundleId": {"data": {"id": "bundle-id"}}}}
 
     assert profile_bundle_resource_id(profile) == "bundle-id"
+
+
+def test_validate_resource_names_requires_exact_display_name() -> None:
+    resources = [{"id": "extension-id", "attributes": {"name": "Extension"}}]
+
+    validate_resource_names(
+        resources,
+        {"extension": "extension-id"},
+        {"extension": "Extension"},
+        "App ID",
+    )
+
+    with pytest.raises(QualificationError, match="expected 'Expected Extension'"):
+        validate_resource_names(
+            resources,
+            {"extension": "extension-id"},
+            {"extension": "Expected Extension"},
+            "App ID",
+        )
 
 
 def test_certificate_content_decodes_base64_der() -> None:
