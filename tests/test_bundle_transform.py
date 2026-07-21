@@ -41,6 +41,7 @@ def node(
         target_bundle_id=target_bundle_id,
         profile_resource_id="PROFILE" if target_bundle_id is not None else None,
         profile_path=(path / "profile.mobileprovision") if target_bundle_id is not None else None,
+        profile_sha256="f" * 64 if target_bundle_id is not None else None,
         expected_entitlements=expected.values,
         expected_entitlements_sha256=expected.sha256,
     )

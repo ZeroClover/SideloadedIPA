@@ -39,6 +39,7 @@ class SigningNodePlan:
     target_bundle_id: str | None
     profile_resource_id: str | None
     profile_path: PurePosixPath | None
+    profile_sha256: str | None
     expected_entitlements: tuple[tuple[str, FrozenJsonValue], ...]
     expected_entitlements_sha256: str
 
@@ -73,3 +74,4 @@ class SigningResult:
     nodes: tuple[SigningNodeResult, ...]
     duration_seconds: float
     diagnostics: tuple[Diagnostic, ...] = ()
+    backend_argv: tuple[str, ...] = ()

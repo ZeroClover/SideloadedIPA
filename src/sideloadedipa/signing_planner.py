@@ -57,6 +57,7 @@ def _node_document(node: SigningNodePlan) -> dict[str, object]:
         "target_bundle_id": node.target_bundle_id,
         "profile_resource_id": node.profile_resource_id,
         "profile_path": node.profile_path.as_posix() if node.profile_path is not None else None,
+        "profile_sha256": node.profile_sha256,
         "expected_entitlements": {
             key: thaw_json(value) for key, value in node.expected_entitlements
         },
@@ -345,6 +346,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
                     target_bundle_id=None,
                     profile_resource_id=None,
                     profile_path=None,
+                    profile_sha256=None,
                     expected_entitlements=empty.values,
                     expected_entitlements_sha256=empty.sha256,
                 )
@@ -364,6 +366,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
                 target_bundle_id=intent.target_bundle_id,
                 profile_resource_id=profile.resource_id,
                 profile_path=entry.profile_path,
+                profile_sha256=profile.profile_sha256,
                 expected_entitlements=entitlement.values,
                 expected_entitlements_sha256=entitlement.sha256,
             )
