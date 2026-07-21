@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import plistlib
 import struct
 from pathlib import Path
@@ -171,4 +172,51 @@ def test_rejects_unsigned_macho(tmp_path: Path) -> None:
     executable.write_bytes(struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0))
 
     with pytest.raises(DomainError, match="no embedded code signature"):
+        LiefEntitlementInspector().inspect(executable)
+
+
+@pytest.mark.parametrize(
+    "document, message",
+    [
+        ({"unsupported": b"bytes"}, "unsupported entitlement plist type"),
+        ({"not-finite": math.nan}, "non-finite number"),
+    ],
+)
+def test_rejects_unsupported_xml_entitlement_values(
+    tmp_path: Path, document: dict[str, object], message: str
+) -> None:
+    executable = tmp_path / "invalid-xml"
+    xml = plistlib.dumps(document, fmt=plistlib.FMT_XML)
+    executable.write_bytes(make_thin(make_superblob(xml=xml, der=None)))
+
+    with pytest.raises(DomainError, match=message):
+        LiefEntitlementInspector().inspect(executable)
+
+
+def test_rejects_unsupported_der_version(tmp_path: Path) -> None:
+    executable = tmp_path / "invalid-der-version"
+    version_two = DER_ENTITLEMENTS.replace(b"\x02\x01\x01", b"\x02\x01\x02", 1)
+    executable.write_bytes(make_thin(make_superblob(xml=None, der=version_two)))
+
+    with pytest.raises(DomainError, match="unsupported entitlement DER version"):
+        LiefEntitlementInspector().inspect(executable)
+
+
+def test_rejects_duplicate_entitlement_slot_and_wrong_blob_magic(tmp_path: Path) -> None:
+    xml = plistlib.dumps(EXPECTED, fmt=plistlib.FMT_XML)
+    blob = struct.pack(">II", 0xFADE7171, len(xml) + 8) + xml
+    duplicate_slot = (
+        struct.pack(">III", 0xFADE0CC0, 28 + len(blob), 2)
+        + struct.pack(">IIII", 5, 28, 5, 28)
+        + blob
+    )
+    executable = tmp_path / "duplicate-slot"
+    executable.write_bytes(make_thin(duplicate_slot))
+    with pytest.raises(DomainError, match="duplicate entitlement slot"):
+        LiefEntitlementInspector().inspect(executable)
+
+    wrong_magic = bytearray(make_superblob(xml=xml, der=None))
+    wrong_magic[20:24] = struct.pack(">I", 0xFADE7172)
+    executable.write_bytes(make_thin(bytes(wrong_magic)))
+    with pytest.raises(DomainError, match="unexpected magic"):
         LiefEntitlementInspector().inspect(executable)

@@ -17,6 +17,7 @@ from sideloadedipa.errors import DomainError, ErrorCode
 @dataclass(frozen=True, slots=True)
 class ArchiveLimits:
     max_entries: int = 50_000
+    max_entry_uncompressed_bytes: int = 1024 * 1024 * 1024
     max_uncompressed_bytes: int = 4 * 1024 * 1024 * 1024
     max_compression_ratio: float = 1_000
 
@@ -101,12 +102,6 @@ def _validate_file_type(info: zipfile.ZipInfo, path: PurePosixPath) -> tuple[boo
             "archive member is a link or special file",
             path=str(path),
         )
-    if is_directory and file_type == stat.S_IFREG:
-        raise _archive_error(
-            ErrorCode.ARCHIVE_SPECIAL_FILE,
-            "archive directory has conflicting file metadata",
-            path=str(path),
-        )
     return is_directory, mode
 
 
@@ -139,6 +134,16 @@ def validate_archive_entries(
         normalized_paths[duplicate_key] = str(path)
 
         is_directory, mode = _validate_file_type(info, path)
+        if info.file_size > limits.max_entry_uncompressed_bytes:
+            raise _archive_error(
+                ErrorCode.ARCHIVE_LIMIT_EXCEEDED,
+                "archive member expanded size exceeds the configured limit",
+                path=str(path),
+                details=(
+                    ("expanded_bytes", info.file_size),
+                    ("limit", limits.max_entry_uncompressed_bytes),
+                ),
+            )
         total_size += info.file_size
         if total_size > limits.max_uncompressed_bytes:
             raise _archive_error(

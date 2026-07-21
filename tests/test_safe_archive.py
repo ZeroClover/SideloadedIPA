@@ -70,6 +70,13 @@ def test_rejects_nul_using_original_filename() -> None:
     assert caught.value.code is ErrorCode.ARCHIVE_PATH_INVALID
 
 
+def test_rejects_empty_archive_path() -> None:
+    with pytest.raises(DomainError) as caught:
+        validate_archive_entries([info("")])
+
+    assert caught.value.code is ErrorCode.ARCHIVE_PATH_INVALID
+
+
 def test_rejects_duplicate_normalized_paths() -> None:
     with pytest.raises(DomainError) as caught:
         validate_archive_entries(
@@ -80,6 +87,15 @@ def test_rejects_duplicate_normalized_paths() -> None:
         )
 
     assert caught.value.code is ErrorCode.ARCHIVE_PATH_DUPLICATE
+
+    with pytest.raises(DomainError) as unicode_duplicate:
+        validate_archive_entries(
+            [
+                info("Payload/Caf\N{LATIN SMALL LETTER E WITH ACUTE}"),
+                info("Payload/Cafe\N{COMBINING ACUTE ACCENT}"),
+            ]
+        )
+    assert unicode_duplicate.value.code is ErrorCode.ARCHIVE_PATH_DUPLICATE
 
 
 @pytest.mark.parametrize("file_type", [stat.S_IFLNK, stat.S_IFIFO, stat.S_IFSOCK])
@@ -97,7 +113,7 @@ def test_rejects_conflicting_directory_metadata() -> None:
     assert caught.value.code is ErrorCode.ARCHIVE_SPECIAL_FILE
 
 
-def test_rejects_entry_count_expanded_size_and_compression_ratio() -> None:
+def test_rejects_entry_count_expanded_sizes_and_compression_ratio() -> None:
     first = info("one")
     first.file_size = 6
     first.compress_size = 3
@@ -108,6 +124,10 @@ def test_rejects_entry_count_expanded_size_and_compression_ratio() -> None:
     with pytest.raises(DomainError) as count:
         validate_archive_entries([first, second], ArchiveLimits(max_entries=1))
     assert count.value.code is ErrorCode.ARCHIVE_LIMIT_EXCEEDED
+
+    with pytest.raises(DomainError) as member_expanded:
+        validate_archive_entries([first], ArchiveLimits(max_entry_uncompressed_bytes=5))
+    assert member_expanded.value.code is ErrorCode.ARCHIVE_LIMIT_EXCEEDED
 
     with pytest.raises(DomainError) as expanded:
         validate_archive_entries([first, second], ArchiveLimits(max_uncompressed_bytes=10))
@@ -135,6 +155,37 @@ def test_preflight_failure_writes_nothing(tmp_path: Path) -> None:
 
     assert not destination.exists()
     assert not (tmp_path / "escape").exists()
+
+
+def test_rejects_target_that_resolves_outside_after_directory_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ipa = tmp_path / "race.ipa"
+    write_archive(
+        ipa,
+        [
+            (info("Payload/", stat.S_IFDIR | 0o755), b""),
+            (info("Payload/file"), b"content"),
+        ],
+    )
+    destination = tmp_path / "extract"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original_mkdir = Path.mkdir
+
+    def substitute_symlink(path: Path, *args: object, **kwargs: object) -> None:
+        if path == destination / "Payload" and not path.exists():
+            path.symlink_to(outside, target_is_directory=True)
+            return
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", substitute_symlink)
+
+    with pytest.raises(DomainError, match="resolves outside") as caught:
+        extract_ipa_safely(ipa, destination)
+
+    assert caught.value.code is ErrorCode.ARCHIVE_PATH_INVALID
+    assert not (outside / "file").exists()
 
 
 def test_rejects_bad_zip_and_non_empty_destination(tmp_path: Path) -> None:
