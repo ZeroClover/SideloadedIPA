@@ -44,7 +44,7 @@ def executable(
         "import json, pathlib, sys\n"
         f"VERSION = {version!r}\n"
         "if sys.argv[1:] == ['-v']:\n"
-        "    print(VERSION)\n"
+        "    print(f'version: {VERSION}')\n"
         "    raise SystemExit(0)\n"
         + ("print('fixture failure', file=sys.stderr)\nraise SystemExit(7)\n" if fail else "")
         + ("import time\ntime.sleep(1)\n" if delay else "")

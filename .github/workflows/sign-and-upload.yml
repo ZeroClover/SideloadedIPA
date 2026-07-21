@@ -631,6 +631,30 @@ jobs:
             --config configs/tasks.toml \
             --per-profile-entitlements
 
+      - name: Apple apply - sync production LiveContainer profiles
+        if: ${{ inputs.multi_bundle_canary == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/backend-qualification"
+          uv run sideloadedipa sync --task LiveContainer --apply --json \
+            > "$report_dir/livecontainer-profile-sync.json"
+          jq -e '.status == "applied"' "$report_dir/livecontainer-profile-sync.json" >/dev/null
+
+      - name: Signing and verification - build installable LiveContainer canary
+        if: ${{ inputs.multi_bundle_canary == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/backend-qualification"
+          export ZSIGN_BIN="$RUNNER_TEMP/backend-qualification/zsign-per-profile"
+          export ZSIGN_SHA256
+          ZSIGN_SHA256="$(sha256sum "$ZSIGN_BIN" | cut -d ' ' -f 1)"
+          uv run sideloadedipa sign --task LiveContainer --json \
+            > "$report_dir/livecontainer-signing.json"
+          jq -e '.status == "passed" and .task_count == 1 and .tasks[0].publication == "disabled"' \
+            "$report_dir/livecontainer-signing.json" >/dev/null
+
       - name: Publication - enforce disabled canary state
         shell: bash
         run: |
@@ -651,7 +675,18 @@ jobs:
           path: |
             ${{ runner.temp }}/backend-qualification/zsign-profile-only-summary.json
             ${{ runner.temp }}/backend-qualification/zsign-summary.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-profile-sync.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-signing.json
             ${{ runner.temp }}/backend-qualification/publication-disabled.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload private installable LiveContainer canary
+        if: ${{ inputs.multi_bundle_canary == true }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: livecontainer-device-canary-${{ github.run_id }}
+          path: work/signed/LiveContainer.ipa
           if-no-files-found: error
           retention-days: 1
 

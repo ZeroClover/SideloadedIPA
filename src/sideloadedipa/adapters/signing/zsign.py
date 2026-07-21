@@ -91,8 +91,8 @@ class ZsignBackend:
             timeout_seconds=30,
             path_redactions=(self.executable,),
         )
-        version = result.stdout.strip()
-        if version != EXPECTED_ZSIGN_VERSION:
+        version_output = result.stdout.strip()
+        if version_output != f"version: {EXPECTED_ZSIGN_VERSION}":
             raise AdapterError(
                 ErrorCode.ADAPTER_VERSION_MISMATCH,
                 "zsign version does not provide the qualified per-profile entitlement contract",
@@ -100,12 +100,12 @@ class ZsignBackend:
                 operation="verify-version",
                 safe_details=(
                     ("expected_version", EXPECTED_ZSIGN_VERSION),
-                    ("actual_version", version),
+                    ("actual_version", version_output),
                 ),
             )
         return SigningBackendIdentity(
             "zsign",
-            version,
+            EXPECTED_ZSIGN_VERSION,
             executable_sha256,
             ZSIGN_CONTRACT_VERSION,
             _FEATURES,

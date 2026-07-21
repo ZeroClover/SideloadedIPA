@@ -139,7 +139,7 @@ def _release_tag(release: Mapping[str, object]) -> str:
     return value
 
 
-def _resolve_source(
+def resolve_source(
     task: Task, dependencies: InspectDependencies, token: str | None
 ) -> ResolvedSource:
     if task.source.kind is SourceKind.DIRECT_URL:
@@ -294,7 +294,7 @@ def inspect_command(
     for task in tasks:
         resolved: ResolvedSource | None = None
         try:
-            resolved = _resolve_source(task, dependencies, token)
+            resolved = resolve_source(task, dependencies, token)
             report, human, passed = _inspect_task(task, resolved, dependencies, workspace_root)
             if not passed:
                 failed += 1
