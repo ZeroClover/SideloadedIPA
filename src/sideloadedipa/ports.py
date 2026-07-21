@@ -1,0 +1,90 @@
+"""Protocol boundaries for pipeline side effects."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from contextlib import AbstractContextManager
+from datetime import datetime
+from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+from sideloadedipa.domain import (
+    AppleResource,
+    AppleResourcePlan,
+    BundleGraph,
+    CertificateMaterial,
+    PublicationResult,
+    SigningPlan,
+    SigningResult,
+    SourceAsset,
+    StoredArtifact,
+    Task,
+    VerificationResult,
+)
+
+
+@runtime_checkable
+class SourceRepository(Protocol):
+    def fetch(self, task: Task, destination: Path) -> SourceAsset: ...
+
+
+@runtime_checkable
+class ArchiveInspector(Protocol):
+    def inspect(self, source: SourceAsset, workspace: Path) -> BundleGraph: ...
+
+
+@runtime_checkable
+class AppleDeveloperClient(Protocol):
+    def collect_state(self) -> tuple[AppleResource, ...]: ...
+
+    def apply(self, plan: AppleResourcePlan) -> tuple[AppleResource, ...]: ...
+
+
+@runtime_checkable
+class CertificateProvider(Protocol):
+    def load(self, workspace: Path) -> CertificateMaterial: ...
+
+
+@runtime_checkable
+class SigningBackend(Protocol):
+    def sign(
+        self,
+        plan: SigningPlan,
+        source_ipa: Path,
+        output_ipa: Path,
+        certificate: CertificateMaterial,
+    ) -> SigningResult: ...
+
+
+@runtime_checkable
+class Verifier(Protocol):
+    def verify(self, plan: SigningPlan, signed_ipa: Path) -> VerificationResult: ...
+
+
+@runtime_checkable
+class ArtifactStore(Protocol):
+    def put(self, task: Task, verified_ipa: Path, sha256: str) -> StoredArtifact: ...
+
+
+@runtime_checkable
+class RegistryPublisher(Protocol):
+    def publish(
+        self,
+        artifacts: Sequence[StoredArtifact],
+    ) -> tuple[PublicationResult, ...]: ...
+
+
+@runtime_checkable
+class Clock(Protocol):
+    def now(self) -> datetime: ...
+
+
+@runtime_checkable
+class Filesystem(Protocol):
+    def temporary_directory(self, prefix: str) -> AbstractContextManager[Path]: ...
+
+    def copy_file(self, source: Path, destination: Path) -> None: ...
+
+    def atomic_replace(self, source: Path, destination: Path) -> None: ...
+
+    def remove_tree(self, path: Path) -> None: ...

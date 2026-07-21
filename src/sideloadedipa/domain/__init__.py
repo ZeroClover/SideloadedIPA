@@ -6,6 +6,7 @@ from sideloadedipa.domain.apple import (
     AppleResourceKind,
     AppleResourcePlan,
     CertificateIdentity,
+    CertificateMaterial,
     OperationDisposition,
     ProvisioningProfile,
 )
@@ -24,7 +25,16 @@ from sideloadedipa.domain.config import (
     Task,
     UnknownProfileBundlePolicy,
 )
-from sideloadedipa.domain.pipeline import PipelineStage, PublicationResult, StageState, StageStatus
+from sideloadedipa.domain.pipeline import (
+    PipelineStage,
+    PublicationResult,
+    SourceAsset,
+    StageState,
+    StageStatus,
+    StoredArtifact,
+    VerificationFinding,
+    VerificationResult,
+)
 from sideloadedipa.domain.signing import (
     SigningBackendIdentity,
     SigningNodePlan,
@@ -43,6 +53,7 @@ __all__ = [
     "BundleNodeKind",
     "BundleRule",
     "CertificateIdentity",
+    "CertificateMaterial",
     "Diagnostic",
     "DiagnosticSeverity",
     "EntitlementMode",
@@ -62,9 +73,13 @@ __all__ = [
     "SigningPolicy",
     "SigningResult",
     "SourceConfig",
+    "SourceAsset",
     "SourceKind",
     "StageState",
     "StageStatus",
+    "StoredArtifact",
     "Task",
     "UnknownProfileBundlePolicy",
+    "VerificationFinding",
+    "VerificationResult",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 
 from sideloadedipa.domain.common import Diagnostic
 
@@ -45,3 +46,41 @@ class PublicationResult:
     registry_key: str
     registry_sha256: str
     stale_keys_removed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAsset:
+    asset_id: str
+    name: str
+    source_url: str
+    version: str
+    published_at: datetime | None
+    path: PurePosixPath
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationFinding:
+    node_path: PurePosixPath
+    check: str
+    passed: bool
+    expected_sha256: str | None = None
+    actual_sha256: str | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationResult:
+    plan_sha256: str
+    artifact_sha256: str
+    passed: bool
+    findings: tuple[VerificationFinding, ...]
+    report_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoredArtifact:
+    key: str
+    url: str
+    sha256: str
+    size: int

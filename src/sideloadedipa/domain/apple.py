@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from sideloadedipa.domain.common import Diagnostic, FrozenJsonValue
 from sideloadedipa.domain.config import ProfileType
@@ -59,6 +59,13 @@ class CertificateIdentity:
     public_key_sha256: str
     certificate_sha256: str
     expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CertificateMaterial:
+    identity: CertificateIdentity
+    certificate_path: Path
+    private_key_path: Path
 
 
 @dataclass(frozen=True, slots=True)
