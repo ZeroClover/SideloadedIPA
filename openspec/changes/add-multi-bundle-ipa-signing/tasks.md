@@ -114,12 +114,12 @@
 
 - [x] 10.1 Update zsign installation to the qualified supported release from `zhlynn/zsign`, verify its published checksum/version, and update PR checks and provenance output.
 - [x] 10.2 Update App Store Connect CLI installation to the verified release from canonical `rorkai/App-Store-Connect-CLI`, verify its checksum/version, and update adapter contract tests.
-- [ ] 10.3 Split the workflow into visible preflight/inventory, Apple plan/apply, signing, verification, and publication steps with manifests passed through files rather than ad-hoc outputs.
-- [ ] 10.4 Introduce a versioned cache namespace/fingerprint and prevent `if: always()` cache saving from marking failed signing or verification state successful.
-- [ ] 10.5 Upload redacted plans/reports on success and failure with retention limits; exclude P12 material, raw profiles, private keys, and extracted IPA workspaces.
-- [ ] 10.6 Add read-only shadow mode for all current tasks and a non-publishing multi-bundle canary path before changing production engine selection.
-- [ ] 10.7 Validate workflow permissions, concurrency, timeouts, secret exposure, canonical download URLs, checksum failure behavior, and fork/PR safety.
-- [ ] 10.8 Run actionlint, YAML formatting checks, shell static checks where configured, and a workflow fixture test before enabling the new job path.
+- [x] 10.3 Split the workflow into visible preflight/inventory, Apple plan/apply, signing, verification, and publication steps with manifests passed through files rather than ad-hoc outputs.
+- [x] 10.4 Introduce a versioned cache namespace/fingerprint and prevent `if: always()` cache saving from marking failed signing or verification state successful.
+- [x] 10.5 Upload redacted plans/reports on success and failure with retention limits; exclude P12 material, raw profiles, private keys, and extracted IPA workspaces.
+- [x] 10.6 Add read-only shadow mode for all current tasks and a non-publishing multi-bundle canary path before changing production engine selection.
+- [x] 10.7 Validate workflow permissions, concurrency, timeouts, secret exposure, canonical download URLs, checksum failure behavior, and fork/PR safety.
+- [x] 10.8 Run actionlint, YAML formatting checks, shell static checks where configured, and a workflow fixture test before enabling the new job path.
 
 ## 11. LiveContainer Prerequisites and Canary
 
