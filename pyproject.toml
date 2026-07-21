@@ -35,6 +35,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: opt-in tests that download checksum-pinned external fixtures",
+]
 addopts = [
     "--strict-markers",
     "--cov=sideloadedipa",

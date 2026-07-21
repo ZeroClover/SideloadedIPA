@@ -362,17 +362,14 @@ def _profile_evidence(
     )
 
 
-def discover_bundle_graph(
+def discover_bundle_structure(
     extracted_root: Path,
-    source_sha256: str,
     *,
     macho_probe: MachOProbe | None = None,
-    entitlement_inspector: EntitlementInspector | None = None,
-) -> BundleGraph:
-    """Recursively inventory supported code and preserve explicit parent edges."""
+) -> tuple[BundleNode, ...]:
+    """Discover stable code nodes without interpreting entitlement evidence."""
 
     probe = macho_probe or LiefMachOProbe()
-    inspector = entitlement_inspector or LiefEntitlementInspector()
     root = discover_root_app(extracted_root)
     root_executable = extracted_root / Path(*root.executable_path.parts)
     if not probe.is_macho(root_executable):
@@ -454,14 +451,31 @@ def discover_bundle_graph(
             )
         profile_ids[key] = node.path
 
+    return tuple(sorted(nodes, key=lambda node: str(node.path)))
+
+
+def discover_bundle_graph(
+    extracted_root: Path,
+    source_sha256: str,
+    *,
+    macho_probe: MachOProbe | None = None,
+    entitlement_inspector: EntitlementInspector | None = None,
+) -> BundleGraph:
+    """Discover code and require valid entitlement evidence for profile bundles."""
+
+    inspector = entitlement_inspector or LiefEntitlementInspector()
+    structural_nodes = discover_bundle_structure(
+        extracted_root,
+        macho_probe=macho_probe,
+    )
     nodes = [
         _profile_evidence(extracted_root, node, inspector) if node.profile_bearing else node
-        for node in nodes
+        for node in structural_nodes
     ]
-    stable_nodes = sorted(nodes, key=lambda node: str(node.path))
+    root_path = structural_nodes[0].path
     return BundleGraph(
-        root_path=root.path,
-        nodes=tuple(stable_nodes),
+        root_path=root_path,
+        nodes=tuple(nodes),
         source_sha256=source_sha256,
-        graph_sha256=_graph_digest(root.path, stable_nodes, source_sha256),
+        graph_sha256=_graph_digest(root_path, nodes, source_sha256),
     )

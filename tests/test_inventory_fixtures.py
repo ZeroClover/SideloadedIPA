@@ -14,6 +14,7 @@ from sideloadedipa.ipa import (
     EntitlementSliceEvidence,
     MachOEntitlementEvidence,
     discover_bundle_graph,
+    discover_bundle_structure,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "inventory"
@@ -94,6 +95,7 @@ def test_livecontainer_inventory_variants(
     fixture = load_fixture(fixture_name)
     materialize_fixture(tmp_path, fixture)
 
+    structure = discover_bundle_structure(tmp_path, macho_probe=MarkerMachOProbe())
     graph = discover_bundle_graph(
         tmp_path,
         "a" * 64,
@@ -102,6 +104,7 @@ def test_livecontainer_inventory_variants(
     )
     profile_nodes = [node for node in graph.nodes if node.profile_bearing]
 
+    assert sum(node.profile_bearing for node in structure) == len(expected_ids)
     assert {node.source_bundle_id for node in profile_nodes} == expected_ids
     assert len(profile_nodes) == len(expected_ids)
     assert graph.nodes[0].path == PurePosixPath("Payload/LiveContainer.app")

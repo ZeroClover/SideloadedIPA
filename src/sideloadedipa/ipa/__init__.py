@@ -19,6 +19,7 @@ from sideloadedipa.ipa.graph import (
     MachOProbe,
     canonical_graph_json,
     discover_bundle_graph,
+    discover_bundle_structure,
 )
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "canonical_graph_json",
     "decode_der_entitlements",
     "discover_bundle_graph",
+    "discover_bundle_structure",
     "extract_ipa_safely",
     "discover_root_app",
     "validate_archive_entries",
