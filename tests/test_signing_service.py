@@ -17,9 +17,13 @@ from sideloadedipa.domain import (
     BundleGraph,
     BundleNode,
     BundleNodeKind,
+    BundleRule,
     CertificateIdentity,
     CertificateMaterial,
+    EntitlementMode,
+    EntitlementPolicy,
     ExpectedNodeEntitlements,
+    IdentifierStrategy,
     ProfileManifestEntry,
     ProfileType,
     ProvisioningProfile,
@@ -27,15 +31,21 @@ from sideloadedipa.domain import (
     SigningBackendIdentity,
     SigningEngine,
     SigningPlan,
+    SigningPolicy,
     SigningResult,
     Task,
+    UnknownProfileBundlePolicy,
     VerificationFinding,
     VerificationResult,
     normalize_entitlements,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
-from sideloadedipa.signing_service import PackageSigningRequest, execute_package_signing
+from sideloadedipa.signing_service import (
+    PackageSigningRequest,
+    build_package_signing_request,
+    execute_package_signing,
+)
 from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
@@ -202,6 +212,81 @@ def test_current_root_only_tasks_run_through_package_planner_and_executor(
     with zipfile.ZipFile(request.destination_ipa) as archive:
         document = plistlib.loads(archive.read("Payload/Upstream.app/Info.plist"))
     assert document["CFBundleIdentifier"] == task.bundle_id
+
+
+def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) -> None:
+    task = next(
+        value
+        for value in load_configuration(Path("configs/tasks.toml")).tasks
+        if value.task_name == "JHenTai"
+    )
+    fixture = request_for(task, tmp_path)
+
+    request = build_package_signing_request(
+        task=fixture.task,
+        graph=fixture.graph,
+        profile_manifest=fixture.profile_manifest,
+        profiles=fixture.profiles,
+        certificate=fixture.certificate,
+        backend_identity=fixture.backend_identity,
+        backend=fixture.backend,
+        verifier=fixture.verifier,
+        source_ipa=fixture.source_ipa,
+        destination_ipa=fixture.destination_ipa,
+        repository_root=tmp_path,
+    )
+
+    assert request.expected_entitlements[0].values == fixture.profiles[0].entitlements
+    assert execute_package_signing(request).execution.verification.passed
+
+
+def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    fixture = request_for(task, tmp_path)
+    source_bundle_id = fixture.graph.nodes[0].source_bundle_id
+    assert source_bundle_id is not None
+    template = tmp_path / "configs/signing/root.plist"
+    template.parent.mkdir(parents=True)
+    template.write_bytes(
+        plistlib.dumps({"application-identifier": "${APP_IDENTIFIER_PREFIX}${TARGET_BUNDLE_ID}"})
+    )
+    configured = replace(
+        fixture.task,
+        signing=SigningPolicy(
+            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
+            UnknownProfileBundlePolicy.ERROR,
+            ProfileType.IOS_APP_DEVELOPMENT,
+            bundles=(
+                BundleRule(
+                    source_bundle_id,
+                    EntitlementPolicy(
+                        EntitlementMode.TEMPLATE,
+                        PurePosixPath("configs/signing/root.plist"),
+                    ),
+                    fixture.task.bundle_id,
+                    "root",
+                ),
+            ),
+        ),
+    )
+
+    request = build_package_signing_request(
+        task=configured,
+        graph=fixture.graph,
+        profile_manifest=fixture.profile_manifest,
+        profiles=fixture.profiles,
+        certificate=fixture.certificate,
+        backend_identity=fixture.backend_identity,
+        backend=fixture.backend,
+        verifier=fixture.verifier,
+        source_ipa=fixture.source_ipa,
+        destination_ipa=fixture.destination_ipa,
+        repository_root=tmp_path,
+    )
+
+    assert dict(request.expected_entitlements[0].values)["application-identifier"] == (
+        f"PREFIX.{fixture.task.bundle_id}"
+    )
 
 
 def test_legacy_engine_cannot_enter_package_route(tmp_path: Path) -> None:
