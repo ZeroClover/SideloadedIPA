@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import base64
 import datetime
-import fnmatch
 import json
 import os
 import plistlib
@@ -17,6 +16,7 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 
 from sideloadedipa.legacy import app_icon, apps_registry, r2_store
+from sideloadedipa.sources import select_release_asset
 
 # Vercel on-demand revalidation hook (shared-secret protected). Overridable via
 # the VERCEL_REVALIDATE_URL env var (e.g. for preview deployments).
@@ -364,7 +364,7 @@ class GitHubAPIClient:
                     return None
                 raise
 
-    def find_matching_asset(self, release: dict, glob_pattern: str) -> Optional[dict]:
+    def find_matching_asset(self, release: dict, glob_pattern: str) -> dict:
         """
         Find release asset matching glob pattern.
 
@@ -373,30 +373,13 @@ class GitHubAPIClient:
             glob_pattern: fnmatch-style pattern (e.g., "*.ipa")
 
         Returns:
-            Asset dict or None if no match
+            The single matching asset dictionary.
+
+        Raises:
+            DomainError: No asset or multiple assets match the pattern.
         """
-        assets = release.get("assets", [])
-        if not assets:
-            print("[warn] Release has no assets")
-            return None
-
-        matched_assets = []
-        for asset in assets:
-            name = asset.get("name", "")
-            if fnmatch.fnmatch(name, glob_pattern):
-                matched_assets.append(asset)
-
-        if not matched_assets:
-            print(f"[error] No assets match pattern '{glob_pattern}'")
-            print(f"[error] Available assets: {[a.get('name') for a in assets]}")
-            return None
-
-        if len(matched_assets) > 1:
-            names = [a.get("name") for a in matched_assets]
-            print(f"[warn] Multiple assets match pattern '{glob_pattern}': {names}")
-            print(f"[warn] Using first match: {matched_assets[0].get('name')}")
-
-        return matched_assets[0]
+        selection = select_release_asset(release, glob_pattern)
+        return release["assets"][selection.index]
 
 
 def parse_repo_url(repo_url: str) -> tuple[str, str]:

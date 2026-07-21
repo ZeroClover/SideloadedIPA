@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from sideloadedipa.errors import DomainError
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import run_signing
@@ -95,8 +97,8 @@ ipa_url = "https://example.com/Legacy.ipa"
     )
 
 
-def test_legacy_release_selection_warns_and_uses_first_match(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_release_selection_rejects_legacy_first_match_ambiguity(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "fixture-token")
     client = run_signing.GitHubAPIClient()
@@ -108,22 +110,25 @@ def test_legacy_release_selection_warns_and_uses_first_match(
         ]
     }
 
-    selected = client.find_matching_asset(release, "*.ipa")
+    with pytest.raises(DomainError) as caught:
+        client.find_matching_asset(release, "*.ipa")
 
-    assert selected == {"name": "first.ipa", "id": 1}
-    assert "Multiple assets match" in capsys.readouterr().out
+    assert caught.value.code.value == "source.asset_ambiguous"
+    assert ("matching_names", ("first.ipa", "second.ipa")) in caught.value.safe_details
 
 
-def test_legacy_release_selection_reports_zero_matches(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_release_selection_reports_zero_matches(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "fixture-token")
     client = run_signing.GitHubAPIClient()
 
-    assert client.find_matching_asset({"assets": [{"name": "readme.txt"}]}, "*.ipa") is None
-    output = capsys.readouterr().out
-    assert "No assets match pattern '*.ipa'" in output
-    assert "readme.txt" in output
+    with pytest.raises(DomainError) as caught:
+        client.find_matching_asset({"assets": [{"name": "readme.txt"}]}, "*.ipa")
+
+    assert caught.value.code.value == "source.asset_not_found"
+    assert ("pattern", "*.ipa") in caught.value.safe_details
+    assert ("available_names", ("readme.txt",)) in caught.value.safe_details
 
 
 def test_certificate_normalization_uses_environment_and_removes_plaintext(

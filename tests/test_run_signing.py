@@ -13,6 +13,8 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
+from sideloadedipa.errors import DomainError, ErrorCode
+
 # Add scripts to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
@@ -153,7 +155,7 @@ class TestGitHubAPIClient:
         """Should find single matching asset by glob pattern."""
         client = GitHubAPIClient()
 
-        asset = client.find_matching_asset(mock_github_release, "*.ipa")
+        asset = client.find_matching_asset(mock_github_release, "app.ipa")
 
         assert asset is not None
         assert asset["name"] == "app.ipa"
@@ -176,37 +178,36 @@ class TestGitHubAPIClient:
         env_with_github_token: None,
         mock_github_release: Dict[str, Any],
     ) -> None:
-        """Should return None when no assets match pattern."""
+        """Should reject when no assets match pattern."""
         client = GitHubAPIClient()
 
-        asset = client.find_matching_asset(mock_github_release, "*.apk")
-        assert asset is None
+        with pytest.raises(DomainError) as caught:
+            client.find_matching_asset(mock_github_release, "*.apk")
+        assert caught.value.code is ErrorCode.SOURCE_ASSET_NOT_FOUND
 
     def test_find_matching_asset_empty_assets(
         self,
         env_with_github_token: None,
     ) -> None:
-        """Should return None when release has no assets."""
+        """Should reject when release has no assets."""
         client = GitHubAPIClient()
         release = {"tag_name": "v1.0.0", "assets": []}
 
-        asset = client.find_matching_asset(release, "*.ipa")
-        assert asset is None
+        with pytest.raises(DomainError) as caught:
+            client.find_matching_asset(release, "*.ipa")
+        assert caught.value.code is ErrorCode.SOURCE_ASSET_NOT_FOUND
 
     def test_find_matching_asset_multiple_matches(
         self,
         env_with_github_token: None,
         mock_github_release: Dict[str, Any],
     ) -> None:
-        """Should return first match and warn when multiple assets match."""
+        """Should reject ambiguous matching assets."""
         client = GitHubAPIClient()
 
-        # Both assets match *.ipa pattern
-        asset = client.find_matching_asset(mock_github_release, "*.ipa")
-
-        assert asset is not None
-        # Should return first match
-        assert asset["name"] == "app.ipa"
+        with pytest.raises(DomainError) as caught:
+            client.find_matching_asset(mock_github_release, "*.ipa")
+        assert caught.value.code is ErrorCode.SOURCE_ASSET_AMBIGUOUS
 
 
 class TestRateLimitHandling:
@@ -823,7 +824,9 @@ class TestPublishRegistry:
     def test_changed_doc_uploads_revalidates_and_cleans(self) -> None:
         store = self._store(None)  # bootstrap: apps.json missing on R2
         with patch("run_signing.trigger_revalidate", return_value=True) as mock_revalidate:
-            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+            ok = publish_registry(
+                store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec"
+            )
         assert ok is True
         store.upload_json.assert_called_once()
         mock_revalidate.assert_called_once_with("https://x/revalidate", "sec")
@@ -838,7 +841,9 @@ class TestPublishRegistry:
         }
         store = self._store(current)
         with patch("run_signing.trigger_revalidate") as mock_revalidate:
-            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+            ok = publish_registry(
+                store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec"
+            )
         assert ok is True
         store.upload_json.assert_not_called()
         mock_revalidate.assert_not_called()
@@ -847,7 +852,9 @@ class TestPublishRegistry:
     def test_revalidate_failure_skips_cleanup(self) -> None:
         store = self._store(None)
         with patch("run_signing.trigger_revalidate", return_value=False):
-            ok = publish_registry(store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec")
+            ok = publish_registry(
+                store, [self._update()], ["ehpanda"], "https://x/revalidate", "sec"
+            )
         assert ok is False
         store.cleanup_stale.assert_not_called()
 
