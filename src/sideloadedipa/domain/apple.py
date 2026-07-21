@@ -169,3 +169,24 @@ class ProvisioningProfile:
     profile_sha256: str
     path: PurePosixPath
     entitlements: tuple[tuple[str, FrozenJsonValue], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileManifestEntry:
+    target_bundle_id: str
+    bundle_resource_id: str
+    profile_resource_id: str
+    certificate_resource_id: str
+    profile_path: PurePosixPath
+    profile_sha256: str
+    device_set_sha256: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileResourceManifest:
+    schema_version: int
+    task_name: str
+    snapshot_sha256: str
+    entries: tuple[ProfileManifestEntry, ...]
+    manifest_sha256: str
