@@ -61,6 +61,32 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        echo "Connect with: ssh -o ProxyCommand='cloudflared access ssh --hostname %h' runner@<hostname>"
-        cloudflared tunnel --no-autoupdate --url "ssh://localhost:2222" 2>&1 \
-          | tee "$RUNNER_TEMP/cloudflared.log"
+        tunnel_log="$RUNNER_TEMP/cloudflared.log"
+        : > "$tunnel_log"
+        cloudflared tunnel --no-autoupdate --url "ssh://localhost:2222" \
+          > >(tee "$tunnel_log") 2>&1 &
+        tunnel_pid=$!
+        trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
+
+        hostname=""
+        for _ in $(seq 1 30); do
+          hostname="$(sed -nE \
+            's#.*https://([a-z0-9-]+\.trycloudflare\.com).*#\1#p' \
+            "$tunnel_log" | head -n 1)"
+          if [[ -n "$hostname" ]]; then
+            break
+          fi
+          if ! kill -0 "$tunnel_pid" 2>/dev/null; then
+            wait "$tunnel_pid"
+          fi
+          sleep 1
+        done
+
+        if [[ -z "$hostname" ]]; then
+          echo "Cloudflare Tunnel did not publish a hostname within 30 seconds." >&2
+          exit 1
+        fi
+
+        echo "::notice title=SSH Debug::SSH host: $hostname; user: $(whoami)"
+        echo "Connect with: ssh -o ProxyCommand='cloudflared access ssh --hostname %h' $(whoami)@$hostname"
+        wait "$tunnel_pid"
