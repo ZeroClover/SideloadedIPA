@@ -78,12 +78,13 @@ def node(
     *,
     source_bundle_id: str | None = None,
     parent: str | None = None,
+    depth: int = 0,
 ) -> BundleNode:
     value = PurePosixPath(path)
     return BundleNode(
         path=value,
         kind=kind,
-        depth=len(value.parts),
+        depth=depth,
         executable_path=value / "Executable",
         executable_sha256=hashlib.sha256(path.encode()).hexdigest(),
         parent_path=PurePosixPath(parent) if parent else None,
@@ -97,11 +98,13 @@ EXTENSION = node(
     BundleNodeKind.APP_EXTENSION,
     source_bundle_id="com.upstream.app.Share",
     parent="Payload/App.app",
+    depth=1,
 )
 FRAMEWORK = node(
     "Payload/App.app/PlugIns/Share.appex/Frameworks/Kit.framework",
     BundleNodeKind.FRAMEWORK,
     parent="Payload/App.app/PlugIns/Share.appex",
+    depth=2,
 )
 
 
@@ -211,19 +214,19 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
     assert plan.graph_sha256 == graph.graph_sha256
     assert plan.certificate_sha256 == certificate.certificate_sha256
     assert plan.backend is backend
-    assert [node.source_path for node in plan.nodes] == [ROOT.path, EXTENSION.path, FRAMEWORK.path]
+    assert [node.source_path for node in plan.nodes] == [FRAMEWORK.path, EXTENSION.path, ROOT.path]
     assert [node.target_bundle_id for node in plan.nodes] == [
-        "io.example.app",
-        "io.example.app.Share",
         None,
+        "io.example.app.Share",
+        "io.example.app",
     ]
     assert [node.profile_resource_id for node in plan.nodes] == [
-        "PROFILE_ROOT",
-        "PROFILE_SHARE",
         None,
+        "PROFILE_SHARE",
+        "PROFILE_ROOT",
     ]
-    assert plan.nodes[-1].expected_entitlements == ()
-    assert plan.nodes[-1].expected_entitlements_sha256 == normalize_entitlements({}).sha256
+    assert plan.nodes[0].expected_entitlements == ()
+    assert plan.nodes[0].expected_entitlements_sha256 == normalize_entitlements({}).sha256
     assert document["plan_sha256"] == plan.plan_sha256
     without_digest = {key: value for key, value in document.items() if key != "plan_sha256"}
     assert (

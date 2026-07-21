@@ -26,6 +26,7 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.profile_validation import validate_expected_entitlements
+from sideloadedipa.signing_order import signing_order
 
 _SUPPORTED_NODE_KINDS = frozenset(BundleNodeKind)
 _REQUIRED_BACKEND_FEATURES = frozenset(
@@ -322,7 +323,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
     empty = normalize_entitlements({})
 
     nodes = []
-    for order, node in enumerate(sorted(request.graph.nodes, key=lambda value: str(value.path))):
+    for order, node in enumerate(signing_order(request.graph)):
         if not node.profile_bearing:
             nodes.append(
                 SigningNodePlan(
