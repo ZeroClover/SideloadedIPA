@@ -104,7 +104,7 @@
 - [x] 9.4 Migrate selective rebuild logic to per-task fingerprints and invalidate only affected tasks while forcing full rebuild on fingerprint-schema changes.
 - [x] 9.5 Require current time-sensitive prerequisite/profile checks and full output reopening/verification even when a signed artifact cache key matches.
 - [x] 9.6 Move existing R2 upload, apps registry update, Vercel revalidation, and stale-object cleanup behind an atomic verified-publication service.
-- [ ] 9.7 Preserve the previous registry/object on sign, verify, upload, or registry failure, and implement the configured batch-atomic publication policy.
+- [x] 9.7 Preserve the previous registry/object on sign, verify, upload, or registry failure, and implement the configured batch-atomic publication policy.
 - [ ] 9.8 Implement bounded retry/idempotency rules and cancellation cleanup for reads, additive Apple operations, signing workspaces, uploads, and registry transactions.
 - [ ] 9.9 Emit one redacted run report with stage timings, provenance, manual actions, cache decisions, verification evidence, and publication outcome; retain it as a limited CI artifact.
 - [ ] 9.10 Add failure-injection integration tests at every stage boundary and assert no forbidden downstream side effect occurs.

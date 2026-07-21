@@ -25,7 +25,8 @@ class R2PublicationGateway:
 
     def upload_artifact(self, candidate: PublicationCandidate) -> StoredArtifact:
         path = Path(candidate.artifact_path)
-        key = self._store.ipa_key(candidate.slug, candidate.version, candidate.filename)
+        immutable_filename = f"{candidate.artifact_sha256[:12]}-{candidate.filename}"
+        key = self._store.ipa_key(candidate.slug, candidate.version, immutable_filename)
         url = self._store.upload_ipa(path, key)
         stored_sha256 = hashlib.sha256(self._store.download_bytes(key)).hexdigest()
         return StoredArtifact(key, url, stored_sha256, path.stat().st_size)
@@ -35,6 +36,12 @@ class R2PublicationGateway:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
         self._store.upload_json(self._store.apps_json_key, payload)
         return self._store.apps_json_key, hashlib.sha256(body).hexdigest()
+
+    def restore_registry(self, document: Mapping[str, object] | None) -> None:
+        if document is None:
+            self._store.delete_keys([self._store.apps_json_key])
+        else:
+            self._store.upload_json(self._store.apps_json_key, dict(document))
 
     def revalidate(self) -> None:
         if not self._trigger_revalidate():

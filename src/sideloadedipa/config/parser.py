@@ -11,11 +11,13 @@ from typing import NoReturn, TypeVar
 from urllib.parse import urlsplit
 
 from sideloadedipa.domain import (
+    BatchPublicationPolicy,
     BundleRule,
     EntitlementMode,
     EntitlementPolicy,
     IdentifierStrategy,
     ProfileType,
+    PublicationConfig,
     R2Config,
     SigningEngine,
     SigningPolicy,
@@ -89,7 +91,7 @@ def _enum_value(
     enum_type: type[_EnumValue],
     value: object,
     field: str,
-    task_name: str,
+    task_name: str | None,
 ) -> _EnumValue:
     if not isinstance(value, str):
         _fail(f"{field} must be a string", field, task_name)
@@ -298,6 +300,18 @@ def _parse_r2(value: object) -> R2Config:
     return R2Config(ipa_prefix=prefix, registry_key=registry_key)
 
 
+def _parse_publication(value: object) -> PublicationConfig:
+    raw = _mapping(value, "publication")
+    return PublicationConfig(
+        batch_policy=_enum_value(
+            BatchPublicationPolicy,
+            raw.get("batch_policy", BatchPublicationPolicy.ATOMIC.value),
+            "batch_policy",
+            None,
+        )
+    )
+
+
 def parse_configuration(document: Mapping[str, object]) -> TaskConfiguration:
     """Validate a decoded TOML document without performing side effects."""
 
@@ -306,7 +320,8 @@ def parse_configuration(document: Mapping[str, object]) -> TaskConfiguration:
         _fail("tasks must be a non-empty array of tables", "tasks")
     tasks = tuple(_parse_task(value, index) for index, value in enumerate(raw_tasks))
     r2 = _parse_r2(document.get("r2", {}))
-    return TaskConfiguration(tasks=tasks, r2=r2)
+    publication = _parse_publication(document.get("publication", {}))
+    return TaskConfiguration(tasks=tasks, r2=r2, publication=publication)
 
 
 def load_configuration(path: Path) -> TaskConfiguration:

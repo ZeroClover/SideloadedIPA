@@ -40,6 +40,10 @@ class FakeR2Store:
         self.registry = payload
         return f"{self.public_base_url}/{key}"
 
+    def delete_keys(self, keys: list[str]) -> None:
+        for key in keys:
+            self.objects.pop(key, None)
+
     def key_from_url(self, url: str) -> str | None:
         prefix = f"{self.public_base_url}/"
         return url.removeprefix(prefix) if url.startswith(prefix) else None
@@ -61,7 +65,7 @@ def test_adapter_uploads_and_confirms_artifact_through_r2_api(tmp_path: Path) ->
 
     stored = gateway(FakeR2Store()).upload_artifact(value)
 
-    assert stored.key == "apps/example/1.2.3/Example.ipa"
+    assert stored.key == f"apps/example/1.2.3/{value.artifact_sha256[:12]}-Example.ipa"
     assert stored.sha256 == hashlib.sha256(b"verified").hexdigest()
     assert stored.size == len(b"verified")
 
@@ -89,6 +93,9 @@ def test_adapter_delegates_registry_revalidation_and_cleanup() -> None:
     assert store.registry == document
     assert adapter.object_key_from_url(ipa_url) == "apps/example/1.2.3/Example.ipa"
     assert removed == ("apps/example/1.0/Example.ipa",)
+
+    adapter.restore_registry({"apps": []})
+    assert store.registry == {"apps": []}
 
 
 def test_adapter_turns_revalidation_rejection_into_domain_failure() -> None:

@@ -17,6 +17,11 @@ class SigningEngine(StrEnum):
     PACKAGE = "package"
 
 
+class BatchPublicationPolicy(StrEnum):
+    ATOMIC = "atomic"
+    INDEPENDENT = "independent"
+
+
 class IdentifierStrategy(StrEnum):
     PRESERVE_SOURCE_SUFFIX = "preserve-source-suffix"
 
@@ -89,6 +94,12 @@ class R2Config:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicationConfig:
+    batch_policy: BatchPublicationPolicy = BatchPublicationPolicy.ATOMIC
+
+
+@dataclass(frozen=True, slots=True)
 class TaskConfiguration:
     tasks: tuple[Task, ...]
     r2: R2Config = R2Config()
+    publication: PublicationConfig = PublicationConfig()

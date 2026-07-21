@@ -8,9 +8,11 @@ import pytest
 
 from sideloadedipa.config import load_configuration, parse_configuration
 from sideloadedipa.domain import (
+    BatchPublicationPolicy,
     EntitlementMode,
     IdentifierStrategy,
     ProfileType,
+    PublicationConfig,
     R2Config,
     SigningEngine,
     SourceKind,
@@ -46,6 +48,7 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.tasks[-1].icon_path == "ipa:"
     assert all(task.signing_engine is SigningEngine.LEGACY for task in configuration.tasks)
     assert configuration.r2 == R2Config()
+    assert configuration.publication == PublicationConfig()
 
 
 def test_preserves_legacy_defaults_and_r2_field_names() -> None:
@@ -61,6 +64,29 @@ def test_preserves_legacy_defaults_and_r2_field_names() -> None:
     assert task.source.kind is SourceKind.DIRECT_URL
     assert task.source.release_glob is None
     assert configuration.r2 == R2Config(ipa_prefix="signed/apps", registry_key="registry/apps.json")
+
+
+def test_parses_batch_publication_policy() -> None:
+    configuration = parse_configuration(
+        {
+            "publication": {"batch_policy": "independent"},
+            "tasks": [direct_task()],
+        }
+    )
+
+    assert configuration.publication.batch_policy is BatchPublicationPolicy.INDEPENDENT
+
+
+def test_rejects_unknown_batch_publication_policy() -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        parse_configuration(
+            {
+                "publication": {"batch_policy": "partial"},
+                "tasks": [direct_task()],
+            }
+        )
+
+    assert "batch_policy" in str(caught.value)
 
 
 def test_parses_existing_repository_source_options_and_icons() -> None:

@@ -8,10 +8,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sideloadedipa.domain import PublicationCandidate, PublicationResult, StoredArtifact
+from sideloadedipa.domain import (
+    BatchPublicationPolicy,
+    PublicationCandidate,
+    PublicationResult,
+    StoredArtifact,
+)
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ports import VerifiedPublicationGateway
-from sideloadedipa.verification import verification_publication_gate
+from sideloadedipa.verification import (
+    verification_publication_gate,
+    verification_report_sha256,
+)
 
 _COPY_BUFFER_BYTES = 1024 * 1024
 _REGISTRY_FIELDS = ("slug", "name", "bundleId", "version", "ipaUrl", "iconUrl")
@@ -38,10 +46,13 @@ def _validate_candidate(candidate: PublicationCandidate) -> None:
     artifact = Path(candidate.artifact_path)
     if (
         not candidate.verification.passed
+        or candidate.task_name != candidate.plan.task_name
         or candidate.verification.plan_sha256 != candidate.plan.plan_sha256
         or candidate.verification.artifact_sha256 != candidate.artifact_sha256
         or _file_sha256(artifact) != candidate.artifact_sha256
         or not verification_publication_gate(candidate.plan, candidate.verification)
+        or candidate.verification.report_sha256
+        != verification_report_sha256(candidate.plan, candidate.verification)
     ):
         raise _publication_error(candidate, "artifact did not pass the verified publication gate")
 
@@ -111,31 +122,65 @@ def _referenced_keys(
 @dataclass(frozen=True, slots=True)
 class VerifiedPublicationService:
     gateway: VerifiedPublicationGateway
+    batch_policy: BatchPublicationPolicy = BatchPublicationPolicy.ATOMIC
 
     def publish(
         self,
         candidates: Sequence[PublicationCandidate],
         *,
         now: datetime,
+        failed_task_names: Sequence[str] = (),
     ) -> tuple[PublicationResult, ...]:
+        if failed_task_names and self.batch_policy is BatchPublicationPolicy.ATOMIC:
+            raise DomainError(
+                ErrorCode.PUBLICATION_FAILED,
+                "batch-atomic publication was blocked by an upstream task failure",
+                remediation="resolve every selected task failure before publishing the batch",
+                safe_details=(("failed_tasks", ",".join(sorted(failed_task_names))),),
+            )
         if not candidates:
             return ()
-        if len({candidate.task_name for candidate in candidates}) != len(candidates):
-            raise DomainError(ErrorCode.PUBLICATION_FAILED, "publication task names must be unique")
+        if len({candidate.task_name for candidate in candidates}) != len(candidates) or len(
+            {candidate.slug for candidate in candidates}
+        ) != len(candidates):
+            raise DomainError(
+                ErrorCode.PUBLICATION_FAILED,
+                "publication task names and slugs must be unique",
+            )
         for candidate in candidates:
             _validate_candidate(candidate)
 
         current = self.gateway.read_registry()
         artifacts: list[StoredArtifact] = []
         for candidate in candidates:
-            artifact = self.gateway.upload_artifact(candidate)
+            try:
+                artifact = self.gateway.upload_artifact(candidate)
+            except Exception as error:
+                raise _publication_error(candidate, "immutable artifact upload failed") from error
             if artifact.sha256 != candidate.artifact_sha256:
                 raise _publication_error(candidate, "uploaded artifact digest was not confirmed")
             artifacts.append(artifact)
 
         document = _merge_registry(current, candidates, artifacts, now=now)
-        registry_key, registry_sha256 = self.gateway.publish_registry(document)
-        self.gateway.revalidate()
+        try:
+            registry_key, registry_sha256 = self.gateway.publish_registry(document)
+            self.gateway.revalidate()
+        except Exception as error:
+            try:
+                self.gateway.restore_registry(current)
+            except Exception as rollback_error:
+                raise DomainError(
+                    ErrorCode.PUBLICATION_FAILED,
+                    "registry publication and rollback both failed",
+                    remediation="restore the previous registry snapshot before another publication",
+                ) from rollback_error
+            if isinstance(error, DomainError):
+                raise
+            raise DomainError(
+                ErrorCode.PUBLICATION_FAILED,
+                "registry publication failed and the previous snapshot was restored",
+                remediation="inspect the registry adapter error before retrying",
+            ) from error
         stale = self.gateway.cleanup_stale(
             [candidate.slug for candidate in candidates],
             _referenced_keys(self.gateway, document),

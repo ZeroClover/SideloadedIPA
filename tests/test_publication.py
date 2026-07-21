@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from sideloadedipa.domain import (
+    BatchPublicationPolicy,
     BundleNodeKind,
     PublicationCandidate,
     SigningBackendIdentity,
@@ -82,6 +83,8 @@ def candidate(artifact: Path) -> PublicationCandidate:
 class RecordingGateway:
     calls: list[str] = field(default_factory=list)
     published: dict[str, object] | None = None
+    restored: dict[str, object] | None = None
+    fail_at: str | None = None
 
     def read_registry(self) -> dict[str, object]:
         self.calls.append("read")
@@ -97,6 +100,8 @@ class RecordingGateway:
 
     def upload_artifact(self, value: PublicationCandidate) -> StoredArtifact:
         self.calls.append("upload")
+        if self.fail_at == "upload":
+            raise OSError("injected upload failure")
         return StoredArtifact(
             f"apps/{value.slug}/{value.version}/{value.filename}",
             f"https://cdn.example/apps/{value.slug}/{value.version}/{value.filename}",
@@ -106,12 +111,21 @@ class RecordingGateway:
 
     def publish_registry(self, document: object) -> tuple[str, str]:
         self.calls.append("registry")
+        if self.fail_at == "registry":
+            raise OSError("injected registry failure")
         assert isinstance(document, dict)
         self.published = document
         return "site/apps.json", "c" * 64
 
+    def restore_registry(self, document: object) -> None:
+        self.calls.append("restore")
+        assert isinstance(document, dict)
+        self.restored = document
+
     def revalidate(self) -> None:
         self.calls.append("revalidate")
+        if self.fail_at == "revalidate":
+            raise OSError("injected revalidation failure")
 
     def object_key_from_url(self, url: str) -> str | None:
         prefix = "https://cdn.example/"
@@ -178,3 +192,72 @@ def test_uploaded_digest_mismatch_stops_before_registry_mutation(tmp_path: Path)
         VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
 
     assert gateway.calls == ["read", "upload"]
+
+
+def test_batch_atomic_policy_blocks_all_candidates_after_upstream_failure(tmp_path: Path) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    gateway = RecordingGateway()
+
+    with pytest.raises(DomainError, match="batch-atomic"):
+        VerifiedPublicationService(gateway).publish(
+            (candidate(artifact),),
+            now=NOW,
+            failed_task_names=("Other",),
+        )
+
+    assert gateway.calls == []
+
+
+def test_batch_validates_every_candidate_before_first_upload(tmp_path: Path) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    first = candidate(artifact)
+    invalid = replace(
+        first,
+        task_name="Other",
+        slug="other",
+        plan=replace(first.plan, task_name="Other"),
+        verification=replace(first.verification, passed=False),
+    )
+    gateway = RecordingGateway()
+
+    with pytest.raises(DomainError):
+        VerifiedPublicationService(gateway).publish((first, invalid), now=NOW)
+
+    assert gateway.calls == []
+
+
+def test_independent_policy_allows_verified_candidates_after_other_failure(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    gateway = RecordingGateway()
+
+    result = VerifiedPublicationService(gateway, BatchPublicationPolicy.INDEPENDENT).publish(
+        (candidate(artifact),), now=NOW, failed_task_names=("Other",)
+    )
+
+    assert len(result) == 1
+    assert gateway.calls[-1] == "cleanup"
+
+
+@pytest.mark.parametrize("failure", ["upload", "registry", "revalidate"])
+def test_failure_preserves_previous_registry_and_blocks_cleanup(
+    tmp_path: Path, failure: str
+) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    gateway = RecordingGateway(fail_at=failure)
+
+    with pytest.raises(DomainError):
+        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+
+    assert "cleanup" not in gateway.calls
+    if failure == "upload":
+        assert gateway.calls == ["read", "upload"]
+        assert gateway.restored is None
+    else:
+        assert gateway.calls[-1] == "restore"
+        assert gateway.restored == gateway.read_registry()
