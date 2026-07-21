@@ -21,6 +21,7 @@ from sideloadedipa.ipa.graph import (
     discover_bundle_graph,
     discover_bundle_structure,
 )
+from sideloadedipa.ipa.metadata import IpaMetadata, read_ipa_metadata
 
 __all__ = [
     "ArchiveEntry",
@@ -31,11 +32,13 @@ __all__ = [
     "LiefMachOProbe",
     "MachOEntitlementEvidence",
     "MachOProbe",
+    "IpaMetadata",
     "canonical_graph_json",
     "decode_der_entitlements",
     "discover_bundle_graph",
     "discover_bundle_structure",
     "extract_ipa_safely",
+    "read_ipa_metadata",
     "discover_root_app",
     "validate_archive_entries",
 ]

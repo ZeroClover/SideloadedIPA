@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -109,20 +110,26 @@ class R2Store:
         )
 
     @classmethod
-    def from_env(cls, key_prefix: str = "apps", apps_json_key: str = "site/apps.json") -> "R2Store":
+    def from_env(
+        cls,
+        key_prefix: str = "apps",
+        apps_json_key: str = "site/apps.json",
+        environment: Mapping[str, str] | None = None,
+    ) -> "R2Store":
         """Build a store from the R2_* environment variables (R2_REGION optional)."""
-        missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+        values = os.environ if environment is None else environment
+        missing = [name for name in REQUIRED_ENV_VARS if not values.get(name)]
         if missing:
             raise RuntimeError("Missing required environment variable(s): " + ", ".join(missing))
         return cls(
-            account_id=os.environ["R2_ACCOUNT_ID"],
-            access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-            secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
-            bucket=os.environ["R2_BUCKET"],
-            public_base_url=os.environ["R2_PUBLIC_BASE_URL"],
+            account_id=values["R2_ACCOUNT_ID"],
+            access_key_id=values["R2_ACCESS_KEY_ID"],
+            secret_access_key=values["R2_SECRET_ACCESS_KEY"],
+            bucket=values["R2_BUCKET"],
+            public_base_url=values["R2_PUBLIC_BASE_URL"],
             key_prefix=key_prefix,
             apps_json_key=apps_json_key,
-            region=os.getenv("R2_REGION", DEFAULT_REGION),
+            region=values.get("R2_REGION", DEFAULT_REGION),
         )
 
     # ── key / URL helpers ────────────────────────────────────────────────

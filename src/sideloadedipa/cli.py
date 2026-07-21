@@ -21,7 +21,7 @@ from sideloadedipa.application import (
 from sideloadedipa.domain import thaw_json
 from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
 from sideloadedipa.inspection import inspect_command
-from sideloadedipa.package_commands import sign_command
+from sideloadedipa.package_commands import run_command, sign_command
 
 
 def _unconfigured(request: CommandRequest) -> CommandResult:
@@ -39,7 +39,7 @@ def default_application() -> Application:
         sync=sync_command,
         sign=sign_command,
         verify=_unconfigured,
-        run=_unconfigured,
+        run=run_command,
     )
 
 

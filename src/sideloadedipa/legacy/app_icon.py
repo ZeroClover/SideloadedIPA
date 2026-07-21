@@ -39,6 +39,8 @@ import zlib
 from pathlib import Path
 from typing import Optional
 
+from sideloadedipa.sources import github_repository_name
+
 # Icons render in an 84px tile; 512 covers @3x (252px) with room to spare while
 # staying far smaller than the 1024 masters (which run to several MB).
 ICON_SIZE = 512
@@ -76,11 +78,7 @@ def resolve_icon_url(icon_path: str, repo_url: Optional[str], ref: Optional[str]
             "use a full HTTP(S) URL instead"
         )
 
-    # Imported lazily: run_signing owns the URL parsing and importing it at
-    # module scope would make this a circular import.
-    from sideloadedipa.legacy.run_signing import parse_repo_url
-
-    owner, repo = parse_repo_url(repo_url)
+    owner, repo = github_repository_name(repo_url).split("/", 1)
     # Upstream filenames contain spaces ("StikDebug New-iOS-Default-...png"),
     # so quote each segment while leaving the separators intact.
     quoted = "/".join(urllib.parse.quote(seg) for seg in icon_path.lstrip("/").split("/"))

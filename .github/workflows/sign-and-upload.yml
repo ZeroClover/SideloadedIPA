@@ -235,10 +235,37 @@ jobs:
 
       - name: Run signer
         id: package-signing
+        if: ${{ steps.check-version.outputs.rebuild_all == 'true' || steps.check-version.outputs.rebuild_tasks != '[]' }}
         env:
           REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
           REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
-        run: uv run python scripts/run_signing.py
+        run: |
+          set -euo pipefail
+          mapfile -t selected_tasks < <(
+            uv run python -c '
+          import json
+          import os
+          from pathlib import Path
+          from sideloadedipa.config import load_configuration
+
+          configuration = load_configuration(Path("configs/tasks.toml"))
+          enabled = {task.task_name for task in configuration.tasks if task.publication_enabled}
+          requested = (
+              [task.task_name for task in configuration.tasks]
+              if os.environ["REBUILD_ALL"] == "true"
+              else json.loads(os.environ["REBUILD_TASKS"])
+          )
+          print("\n".join(name for name in requested if name in enabled))
+          '
+          )
+          args=()
+          for task_name in "${selected_tasks[@]}"; do
+            args+=(--task "$task_name")
+          done
+          test "${#args[@]}" -gt 0
+          mkdir -p "$RUNNER_TEMP/sideloadedipa-reports"
+          uv run sideloadedipa run --publish --json "${args[@]}" \
+            > "$RUNNER_TEMP/sideloadedipa-reports/package-run.json"
 
       - name: Upload redacted run report
         if: ${{ always() }}
