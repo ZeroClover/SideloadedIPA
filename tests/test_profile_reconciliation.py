@@ -233,6 +233,32 @@ def test_recovers_an_accepted_create_after_an_uncertain_response() -> None:
     assert len(gateway.create_calls) == 1
 
 
+def test_blocks_ambiguous_uncertain_create_recovery() -> None:
+    class DuplicateRecoveryGateway(FakeGateway):
+        def create(self, **kwargs: object) -> str:
+            name = kwargs["name"]
+            assert isinstance(name, str)
+            self.create_calls.append(dict(kwargs))
+            self.profiles.extend(
+                (
+                    state("PROFILE_RECOVERED_ONE", name, b"valid-one"),
+                    state("PROFILE_RECOVERED_TWO", name, b"valid-two"),
+                )
+            )
+            raise uncertain_error()
+
+    gateway = DuplicateRecoveryGateway((), {})
+
+    with pytest.raises(AdapterError) as caught:
+        ProfileReconciler(gateway, FakeValidator()).ensure(sync_request())
+
+    assert caught.value.code is ErrorCode.APPLE_RESOURCE_CONFLICT
+    assert dict(caught.value.safe_details)["resource_ids"] == (
+        "PROFILE_RECOVERED_ONE",
+        "PROFILE_RECOVERED_TWO",
+    )
+
+
 def test_does_not_retry_or_hide_an_unrecovered_create_failure() -> None:
     class FailingGateway(FakeGateway):
         def create(self, **kwargs: object) -> str:
@@ -276,6 +302,31 @@ def test_treats_snapshot_content_mismatch_as_stale_but_propagates_read_failures(
     with pytest.raises(AdapterError) as read_failure:
         ProfileReconciler(read_failure_gateway, FakeValidator()).ensure(sync_request())
     assert read_failure.value.code is ErrorCode.APPLE_AUTHORIZATION_FAILED
+
+
+def test_propagates_certain_create_failure_without_relookup() -> None:
+    class UnauthorizedGateway(FakeGateway):
+        list_calls = 0
+
+        def list(self) -> tuple[AppleProfileState, ...]:
+            self.list_calls += 1
+            return super().list()
+
+        def create(self, **kwargs: object) -> str:
+            raise AdapterError(
+                ErrorCode.APPLE_AUTHORIZATION_FAILED,
+                "fixture role failure",
+                adapter="asc",
+                operation="profiles-create",
+            )
+
+    gateway = UnauthorizedGateway((), {})
+
+    with pytest.raises(AdapterError) as caught:
+        ProfileReconciler(gateway, FakeValidator()).ensure(sync_request())
+
+    assert caught.value.code is ErrorCode.APPLE_AUTHORIZATION_FAILED
+    assert gateway.list_calls == 1
 
 
 def test_blocks_missing_devices_and_mismatched_created_state() -> None:
@@ -385,6 +436,38 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
         invalid_gateway.download("PROFILE_CREATED")
     assert invalid.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
     assert "not-base64" not in str(invalid.value.safe_details)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        None,
+        {"data": []},
+        {"data": {"type": "devices", "id": "PROFILE_CREATED"}},
+        {"data": {"type": "profiles", "id": ""}},
+        {"data": {"type": "profiles", "id": "PROFILE_OTHER", "attributes": {}}},
+        {"data": {"type": "profiles", "id": "PROFILE_CREATED", "attributes": {}}},
+    ],
+)
+def test_asc_gateway_rejects_malformed_download_responses(
+    document: dict[str, object] | None,
+) -> None:
+    class StaticClient:
+        def run_json(
+            self,
+            args: tuple[str, ...],
+            *,
+            paginate: bool = False,
+            allow_empty: bool = False,
+        ) -> AscResponse:
+            frozen = freeze_json(document) if document is not None else None
+            assert frozen is None or not isinstance(frozen, tuple)
+            return AscResponse(frozen, ("asc", *args), 0.01)
+
+    with pytest.raises(AdapterError) as caught:
+        AscProfileGateway(StaticClient()).download("PROFILE_CREATED")
+
+    assert caught.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
 
 
 def test_reconciliation_result_repr_does_not_expose_profile_content() -> None:

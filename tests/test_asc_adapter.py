@@ -196,6 +196,17 @@ def test_maps_documented_asc_exit_codes(exit_code: int, expected_code: ErrorCode
     assert caught.value.operation == "devices-list"
 
 
+def test_authorization_failure_directs_operator_to_roles_and_agreements() -> None:
+    runner = RecordingRunner((result("3.1.1"), command_error(3)))
+
+    with pytest.raises(AdapterError) as caught:
+        AscClient(runner=runner).run_json(("profiles", "list"), paginate=True)
+
+    assert caught.value.code is ErrorCode.APPLE_AUTHORIZATION_FAILED
+    assert "agreements" in (caught.value.remediation or "")
+    assert "role" in (caught.value.remediation or "")
+
+
 @pytest.mark.parametrize("args", ((), ("devices", "list", "--paginate")))
 def test_rejects_missing_or_adapter_owned_arguments(args: tuple[str, ...]) -> None:
     client = AscClient(runner=RecordingRunner(()))

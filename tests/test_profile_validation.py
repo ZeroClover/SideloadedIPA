@@ -274,6 +274,28 @@ def test_rejects_missing_entitlement_with_requested_key_and_value() -> None:
     }
 
 
+def test_app_group_authorization_requires_the_exact_expected_set() -> None:
+    _, _, certificate_der = make_certificate()
+    document = profile_document(certificate_der)
+    entitlements = document["Entitlements"]
+    assert isinstance(entitlements, dict)
+    entitlements["com.apple.security.application-groups"] = [
+        "group.io.example.shared",
+        "group.io.example.unrequested",
+    ]
+
+    with pytest.raises(DomainError) as caught:
+        validate_provisioning_profile(
+            document,
+            b"profile",
+            request(certificate_der),
+            now=NOW,
+            refresh_threshold=timedelta(days=30),
+        )
+
+    assert caught.value.code is ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED
+
+
 def test_rejects_invalid_validation_clock_and_planned_identifier() -> None:
     _, _, certificate_der = make_certificate()
     document = profile_document(certificate_der)

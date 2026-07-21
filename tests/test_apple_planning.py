@@ -153,3 +153,30 @@ def test_locally_satisfied_requirement_is_no_op_without_resource_id() -> None:
             snapshot_sha256="snapshot-digest",
             requirements=(replace(local, matching_resource_ids=("UNEXPECTED",)),),
         )
+
+
+def test_partial_previous_apply_only_leaves_missing_safe_work_actionable() -> None:
+    plan = plan_apple_resources(
+        task_name="Example",
+        snapshot_sha256="snapshot-after-partial-apply",
+        requirements=(
+            requirement(
+                "io.example.already-created",
+                OperationDisposition.SAFE_AUTOMATIC,
+                matches=("BUNDLE_CREATED",),
+            ),
+            requirement("APP_GROUPS", OperationDisposition.SAFE_AUTOMATIC),
+            requirement("INCREASED_MEMORY_LIMIT", OperationDisposition.MANUAL_REQUIRED),
+        ),
+    )
+
+    assert [operation.disposition for operation in plan.operations] == [
+        OperationDisposition.SAFE_AUTOMATIC,
+        OperationDisposition.MANUAL_REQUIRED,
+        OperationDisposition.NO_OP,
+    ]
+    assert [
+        operation.target
+        for operation in plan.operations
+        if operation.disposition is OperationDisposition.SAFE_AUTOMATIC
+    ] == ["APP_GROUPS"]
