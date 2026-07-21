@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from exercise_zsign_backend import (
     TARGETS,
+    configured_entitlements,
     evaluate_contract,
     redacted_output,
     signing_order,
@@ -113,3 +114,42 @@ def test_contract_accepts_distinct_root_and_extension_entitlements() -> None:
     keychain_groups = [base, *(f"{base}.{index}" for index in range(1, 128))]
 
     assert evaluate_contract(entitlement_contract(keychain_groups)) == []
+
+
+def test_canary_materializes_production_template_from_profile_authorization() -> None:
+    target = TARGETS["process"][2]
+    profile = {
+        "application-identifier": f"TEAM.{target}",
+        "com.apple.developer.team-identifier": "TEAM",
+        "com.apple.security.application-groups": ["group.io.zeroclover.app.livecontainer"],
+        "com.apple.developer.healthkit": True,
+        "com.apple.developer.healthkit.access": ["health-records"],
+        "com.apple.developer.healthkit.background-delivery": True,
+        "com.apple.developer.kernel.increased-memory-limit": True,
+        "get-task-allow": True,
+        "keychain-access-groups": ["TEAM.*"],
+    }
+
+    values = configured_entitlements(Path("configs/tasks.toml"), "process", profile)
+
+    assert values["application-identifier"] == f"TEAM.{target}"
+    assert values["com.apple.security.application-groups"] == [
+        "group.io.zeroclover.app.livecontainer"
+    ]
+    groups = values["keychain-access-groups"]
+    assert isinstance(groups, list)
+    assert len(groups) == 128
+    assert groups[0] == "TEAM.com.kdt.livecontainer.shared"
+    assert groups[-1] == "TEAM.com.kdt.livecontainer.shared.127"
+
+
+def test_canary_uses_profile_policy_for_launch_extension() -> None:
+    target = TARGETS["launch"][2]
+    profile = {
+        "application-identifier": f"TEAM.{target}",
+        "com.apple.developer.team-identifier": "TEAM",
+        "com.apple.security.application-groups": ["group.io.zeroclover.app.livecontainer"],
+        "get-task-allow": True,
+    }
+
+    assert configured_entitlements(Path("configs/tasks.toml"), "launch", profile) == profile

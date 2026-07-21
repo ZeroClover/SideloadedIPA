@@ -13,6 +13,15 @@ import zipfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
+from sideloadedipa.apple_intents import derive_bundle_resource_intents
+from sideloadedipa.config import (
+    EntitlementTemplateContext,
+    load_configuration,
+    load_entitlement_template,
+)
+from sideloadedipa.domain import EntitlementMode
+from sideloadedipa.profile_validation import validate_expected_entitlements
+
 TARGETS = {
     "root": (
         "Payload/Qualification.app",
@@ -196,6 +205,59 @@ def materialize_entitlements(
     return result
 
 
+def configured_entitlements(
+    config_path: Path,
+    role: str,
+    profile_entitlements: Mapping[str, Any],
+) -> dict[str, Any]:
+    configuration = load_configuration(config_path)
+    tasks = tuple(task for task in configuration.tasks if task.task_name == "LiveContainer")
+    if len(tasks) != 1 or tasks[0].signing is None:
+        raise BackendExerciseError("configuration must contain one signed LiveContainer task")
+    task = tasks[0]
+    _, _, target_bundle_id = TARGETS[role]
+    intents = tuple(
+        intent
+        for intent in derive_bundle_resource_intents(task)
+        if intent.target_bundle_id == target_bundle_id
+    )
+    if len(intents) != 1:
+        raise BackendExerciseError(f"configuration has no exact {role} bundle policy")
+    intent = intents[0]
+    if intent.entitlement_policy.mode is EntitlementMode.PROFILE:
+        return dict(profile_entitlements)
+    if intent.entitlement_policy.mode is not EntitlementMode.TEMPLATE:
+        raise BackendExerciseError(f"{role} canary policy must use profile or template mode")
+    template_path = intent.entitlement_policy.template_path
+    application_identifier = profile_entitlements.get("application-identifier")
+    team_id = profile_entitlements.get("com.apple.developer.team-identifier")
+    if not isinstance(application_identifier, str) or not application_identifier.endswith(
+        target_bundle_id
+    ):
+        raise BackendExerciseError(f"{role} profile has no exact application identifier")
+    if not isinstance(team_id, str) or not team_id:
+        raise BackendExerciseError(f"{role} profile has no team identifier")
+    if template_path is None:
+        raise BackendExerciseError(f"{role} template policy has no template path")
+    app_identifier_prefix = application_identifier[: -len(target_bundle_id)]
+    expected = load_entitlement_template(
+        config_path.resolve().parent.parent,
+        template_path,
+        EntitlementTemplateContext(
+            team_id=team_id,
+            app_identifier_prefix=app_identifier_prefix,
+            target_bundle_id=target_bundle_id,
+            app_groups=task.signing.app_groups,
+        ),
+    )
+    validate_expected_entitlements(
+        profile_entitlements,
+        expected,
+        bundle_id=target_bundle_id,
+    )
+    return expected
+
+
 def decode_profile_entitlements(profile_path: Path) -> dict[str, Any]:
     result = subprocess.run(
         [
@@ -220,11 +282,19 @@ def decode_profile_entitlements(profile_path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], document["Entitlements"])
 
 
-def write_entitlement_files(profiles_dir: Path, entitlements_dir: Path) -> None:
+def write_entitlement_files(
+    profiles_dir: Path,
+    entitlements_dir: Path,
+    config_path: Path | None = None,
+) -> None:
     entitlements_dir.mkdir(parents=True, exist_ok=True)
     for role, (_, _, bundle_identifier) in TARGETS.items():
         profile_entitlements = decode_profile_entitlements(profiles_dir / f"{role}.mobileprovision")
-        entitlements = materialize_entitlements(role, bundle_identifier, profile_entitlements)
+        entitlements = (
+            configured_entitlements(config_path, role, profile_entitlements)
+            if config_path is not None
+            else materialize_entitlements(role, bundle_identifier, profile_entitlements)
+        )
         (entitlements_dir / f"{role}.plist").write_bytes(
             plistlib.dumps(entitlements, fmt=plistlib.FMT_XML, sort_keys=True)
         )
@@ -293,7 +363,7 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
     entitlements_dir = None
     if args.per_profile_entitlements:
         entitlements_dir = args.output_dir / "expected-entitlements"
-        write_entitlement_files(args.profiles_dir, entitlements_dir)
+        write_entitlement_files(args.profiles_dir, entitlements_dir, args.config)
     command = zsign_command(
         args.zsign,
         args.private_key,
@@ -372,6 +442,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profiles-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--config", type=Path)
     parser.add_argument("--per-profile-entitlements", action="store_true")
     return parser.parse_args()
 
@@ -379,6 +450,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     try:
         args = parse_args()
+        if args.per_profile_entitlements and args.config is None:
+            raise BackendExerciseError("--config is required with --per-profile-entitlements")
         summary = exercise(args)
         args.summary.parent.mkdir(parents=True, exist_ok=True)
         args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")

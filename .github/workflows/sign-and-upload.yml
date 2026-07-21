@@ -588,6 +588,7 @@ jobs:
             --profiles-dir "$private_dir/profiles" \
             --output-dir "$private_dir/backend-extension-exercise" \
             --summary "$RUNNER_TEMP/backend-qualification/zsign-summary.json" \
+            --config configs/tasks.toml \
             --per-profile-entitlements
 
       - name: Publication - enforce disabled canary state
