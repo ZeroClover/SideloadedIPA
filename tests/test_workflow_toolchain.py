@@ -94,3 +94,13 @@ def test_pr_workflow_is_fork_safe_and_exercises_file_manifests() -> None:
     assert "run_workflow_fixture.py" in pull_request
     assert "actionlint" in pull_request
     assert pull_request.count("./.github/actions/ssh-debug") == 2
+
+
+def test_workflows_pin_current_stable_action_releases() -> None:
+    workflows = SIGN_WORKFLOW.read_text() + PR_WORKFLOW.read_text()
+
+    assert "astral-sh/setup-uv@v8" not in workflows
+    assert "astral-sh/setup-uv@v9.0.0" in workflows
+    assert "actions/setup-node@v7.0.0" in workflows
+    assert "actions/cache/restore@v6.1.0" in workflows
+    assert "actions/cache/save@v6.1.0" in workflows
