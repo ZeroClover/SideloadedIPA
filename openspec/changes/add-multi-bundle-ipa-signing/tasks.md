@@ -37,7 +37,7 @@
 - [x] 4.3 Implement and unit-test `preserve-source-suffix` target-ID derivation, explicit overrides, syntax validation, non-descendant errors, and collision detection.
 - [x] 4.4 Implement exact inventory-to-rule reconciliation with aggregated diagnostics for duplicate rules, absent required bundles, and newly discovered unconfigured bundles.
 - [x] 4.5 Implement `profile`, `preserve-source`, and `template` entitlement policies with typed transformations, explicit allowed drops plus rationale, and deterministic expected-document hashes.
-- [ ] 4.6 Implement restricted entitlement-template loading and typed placeholders for team ID, App Identifier Prefix, target bundle ID, and named App Groups; reject path escape and arbitrary environment interpolation.
+- [x] 4.6 Implement restricted entitlement-template loading and typed placeholders for team ID, App Identifier Prefix, target bundle ID, and named App Groups; reject path escape and arbitrary environment interpolation.
 - [ ] 4.7 Modify the baseline `github-release-tracking` asset resolver to require exactly one match, retain the default `*.ipa` only when unambiguous, list all candidates on failure, and add regression tests for the five production-task audits plus LiveContainer's two same-release IPA assets.
 - [ ] 4.8 Add configuration fixtures covering a root-only app, multiple extensions, non-descendant IDs, duplicate IDs, App Group remapping, intentional entitlement drops, and the SideStore widget variant.
 - [ ] 4.9 Ensure all configuration and inventory-policy errors are reported before any Apple resource mutation or signing subprocess starts.
