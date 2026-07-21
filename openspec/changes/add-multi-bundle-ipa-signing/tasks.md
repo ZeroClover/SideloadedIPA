@@ -1,14 +1,14 @@
 ## 1. Baseline and Characterization
 
-- [ ] 1.1 Record the implementation-time LiveContainer release tag, commit, asset names, sizes, and SHA-256 digests, and fail the fixture setup if they differ from the reviewed baseline.
-- [ ] 1.2 Add characterization tests for current TOML loading, legacy root `bundle_id` behavior, direct URL sources, GitHub release selection, multiple-match first-asset selection plus warning, zero-match errors, and rebuild selection.
-- [ ] 1.3 Add characterization tests for current certificate normalization, profile lookup/download/regeneration, enabled-device filtering, and missing-profile failures.
-- [ ] 1.4 Add characterization tests for current zsign argv, signed-IPA metadata/icon extraction, output naming, cache updates, R2 keys, registry merge, revalidation, and stale-object cleanup.
-- [ ] 1.5 Capture current CLI environment inputs, exit codes, GitHub Actions outputs, and redaction expectations as compatibility fixtures.
-- [ ] 1.6 Run and record the pre-refactor `pytest`, coverage, strict mypy, Black, isort, workflow, and `git diff --check` baseline; fix or explicitly quarantine only failures that predate this change.
-- [ ] 1.7 Confirm the archived `add-ci-caching-optimization` baseline still specifies first-match-plus-warning and this change's `github-release-tracking` delta is the sole normative owner of the breaking exactly-one-match behavior before implementation semantics change.
-- [ ] 1.8 Record `9e04744` as the planning baseline, fetch `origin/master` at implementation start, integrate a reviewed successor only if it has advanced, and rerun icon/R2 publication characterization against the recorded implementation commit.
-- [ ] 1.9 Query the latest stable release for JHenTai, Eros FE, Asspp, PiliPlus, and StikDebug; record every asset matching their effective default `*.ipa`, and require an explicit reviewed `release_glob` before migration for any task with zero or multiple matches.
+- [x] 1.1 Record the implementation-time LiveContainer release tag, commit, asset names, sizes, and SHA-256 digests, and fail the fixture setup if they differ from the reviewed baseline.
+- [x] 1.2 Add characterization tests for current TOML loading, legacy root `bundle_id` behavior, direct URL sources, GitHub release selection, multiple-match first-asset selection plus warning, zero-match errors, and rebuild selection.
+- [x] 1.3 Add characterization tests for current certificate normalization, profile lookup/download/regeneration, enabled-device filtering, and missing-profile failures.
+- [x] 1.4 Add characterization tests for current zsign argv, signed-IPA metadata/icon extraction, output naming, cache updates, R2 keys, registry merge, revalidation, and stale-object cleanup.
+- [x] 1.5 Capture current CLI environment inputs, exit codes, GitHub Actions outputs, and redaction expectations as compatibility fixtures.
+- [x] 1.6 Run and record the pre-refactor `pytest`, coverage, strict mypy, Black, isort, workflow, and `git diff --check` baseline; fix or explicitly quarantine only failures that predate this change.
+- [x] 1.7 Confirm the archived `add-ci-caching-optimization` baseline still specifies first-match-plus-warning and this change's `github-release-tracking` delta is the sole normative owner of the breaking exactly-one-match behavior before implementation semantics change.
+- [x] 1.8 Record `9e04744` as the planning baseline, fetch `origin/master` at implementation start, integrate a reviewed successor only if it has advanced, and rerun icon/R2 publication characterization against the recorded implementation commit.
+- [x] 1.9 Query the latest stable release for JHenTai, Eros FE, Asspp, PiliPlus, and StikDebug; record every asset matching their effective default `*.ipa`, and require an explicit reviewed `release_glob` before migration for any task with zero or multiple matches.
 
 ## 2. Mandatory Signing-Backend Qualification Gate
 

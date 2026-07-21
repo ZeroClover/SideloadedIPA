@@ -1,0 +1,22 @@
+{
+  "repository": "LiveContainer/LiveContainer",
+  "tag": "3.8.0",
+  "commit": "e370a92dfc03ce109ebce00ed4a7cfc64ad1c801",
+  "published_at": "2026-07-17T07:44:20Z",
+  "assets": [
+    {
+      "id": 480113563,
+      "name": "LiveContainer.ipa",
+      "size": 4707271,
+      "sha256": "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6",
+      "url": "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa"
+    },
+    {
+      "id": 480113517,
+      "name": "LiveContainer+SideStore.ipa",
+      "size": 35403538,
+      "sha256": "97dc0fd2202fd4460efcab389943b8d5fdbb4988efff76b116b92b84a4662425",
+      "url": "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer%2BSideStore.ipa"
+    }
+  ]
+}

@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      backend_qualification:
+        description: Run the private multi-bundle backend qualification probe only
+        required: false
+        default: false
+        type: boolean
   repository_dispatch:
     types: [sign_ipas]
 
@@ -29,6 +34,7 @@ concurrency:
 jobs:
   sign-and-upload:
     name: Sign & Upload IPAs
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backend_qualification != true }}
     runs-on: ubuntu-latest
     env:
       # zsign release whose prebuilt Linux binary we download (https://github.com/zhlynn/zsign)
@@ -238,3 +244,88 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$payload" \
             "$WEBHOOK_URL"
+
+  backend-qualification:
+    name: Qualify multi-bundle signing prerequisites
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ASC_VERSION: "3.1.1"
+      ZSIGN_VERSION: "v1.1.1"
+      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install checksum-verified App Store Connect CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asc_bin="asc_${ASC_VERSION}_linux_amd64"
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          asc --version
+
+      - name: Install checksum-verified zsign
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asset="zsign-linux-musl-static.tar.gz"
+          base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          curl -fLsS -o "$RUNNER_TEMP/zsign_SHA256SUMS.txt" "$base/SHA256SUMS.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asset" zsign_SHA256SUMS.txt | sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/backend-qualification/bin"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/backend-qualification/bin"
+          install -m 0755 "$RUNNER_TEMP/backend-qualification/bin/zsign-musl" \
+            "$RUNNER_TEMP/backend-qualification/zsign"
+          "$RUNNER_TEMP/backend-qualification/zsign" -v
+          printf 'zsign executable sha256: '
+          sha256sum "$RUNNER_TEMP/backend-qualification/zsign" | cut -d ' ' -f 1
+
+      - name: Extract configured public signing certificate
+        shell: bash
+        env:
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          mkdir -p "$private_dir"
+          printf '%s' "$APPLE_DEV_CERT_P12_ENCODED" | base64 --decode > "$private_dir/certificate.p12"
+          openssl pkcs12 -legacy -in "$private_dir/certificate.p12" -clcerts -nokeys \
+            -passin env:P12_PASSWORD -out "$private_dir/certificate.pem"
+          openssl x509 -in "$private_dir/certificate.pem" -outform DER \
+            -out "$private_dir/certificate.der"
+          printf 'configured certificate sha256: '
+          sha256sum "$private_dir/certificate.der" | cut -d ' ' -f 1
+
+      - name: Probe private Apple qualification prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          python3 scripts/qualify_backend_prerequisites.py \
+            --certificate-der "$private_dir/certificate.der" \
+            --private-dir "$private_dir/profiles" \
+            --summary "$RUNNER_TEMP/backend-qualification/summary.json"
+
+      - name: Remove private qualification material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
+          test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
+          rm -rf -- "$private_dir"

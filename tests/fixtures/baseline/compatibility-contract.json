@@ -1,0 +1,71 @@
+{
+  "run_signing": {
+    "environment": {
+      "required": [
+        "APPLE_DEV_CERT_P12_ENCODED",
+        "APPLE_DEV_CERT_PASSWORD",
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "R2_PUBLIC_BASE_URL"
+      ],
+      "conditional": ["GITHUB_TOKEN"],
+      "optional": [
+        "CONFIG_TOML",
+        "REBUILD_ALL",
+        "REBUILD_TASKS",
+        "R2_REGION",
+        "VERCEL_REVALIDATE_URL",
+        "VERCEL_REVALIDATE_SECRET",
+        "ZSIGN_BIN",
+        "OPENSSL_BIN",
+        "DEBUG"
+      ]
+    },
+    "exit_codes": {
+      "0": "success or no tasks",
+      "2": "configuration error",
+      "3": "missing signing or R2 environment",
+      "4": "certificate normalization failure",
+      "5": "one or more task or publication failures",
+      "6": "GitHub authentication missing"
+    }
+  },
+  "check_changes": {
+    "environment": [
+      "CONFIG_TOML",
+      "FORCE_REBUILD",
+      "DEVICES_CHANGED",
+      "GITHUB_TOKEN",
+      "GITHUB_OUTPUT",
+      "DEBUG"
+    ],
+    "github_outputs": ["rebuild_all", "rebuild_tasks"],
+    "exit_codes": {"0": "success", "2": "configuration or GitHub authentication error"}
+  },
+  "sync_profiles_asc": {
+    "environment": [
+      "CONFIG_TOML",
+      "REBUILD_ALL",
+      "REBUILD_TASKS",
+      "SKIP_PROFILE_REGENERATION",
+      "GITHUB_OUTPUT",
+      "DEBUG"
+    ],
+    "github_outputs": ["devices_changed", "all_profiles_present", "missing_profiles"],
+    "exit_codes": {"0": "success", "1": "profile, API, or configuration failure"}
+  },
+  "redaction": {
+    "never_log": [
+      "APPLE_DEV_CERT_P12_ENCODED",
+      "APPLE_DEV_CERT_PASSWORD",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "VERCEL_REVALIDATE_SECRET",
+      "GITHUB_TOKEN",
+      "ASC_PRIVATE_KEY_B64"
+    ],
+    "password_transport": "environment for OpenSSL and one argv element for legacy zsign"
+  }
+}
