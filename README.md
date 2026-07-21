@@ -164,7 +164,7 @@ Example `repository_dispatch` payload:
      - Only rebuilds if version or publish timestamp changed
    - Re-signs with `zsign` using the P12 certificate and synced profile
    - Reads the signed IPA's actual bundle id + version, uploads the IPA to R2 under a versioned, immutable key (`apps/<slug>/<version>/<App>.ipa`)
-   - Uploads the card icon under a content-addressed, immutable key (`apps/<slug>/icon-<sha12>.png`), so a changed icon lands on a fresh URL rather than waiting out the zone's 4-hour browser cache
+   - Uploads the card icon under a content-addressed, immutable key (`apps/<slug>/icon-<sha12>.png`), so a changed icon lands on a fresh URL rather than waiting out the zone's 4-hour browser cache. The `no-transform` directive opts icons out of Cloudflare Polish, which otherwise re-encodes them lossily at the edge
    - Updates release cache with new versions
 7. **Publish registry**: merges results into `site/apps.json` on R2, calls the Vercel `/api/revalidate` hook (shared secret), then deletes stale keys — superseded IPA versions and superseded icons alike — that the registry no longer references (skipped if any step fails)
 8. **Save Cache**: Saves updated cache state for next run

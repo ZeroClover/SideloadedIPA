@@ -344,3 +344,11 @@ class TestUploadIcon:
     def test_icon_cache_control_is_immutable(self) -> None:
         """The zone's 4h browser TTL can't be purged; hashed keys must be immutable."""
         assert "immutable" in ICON_CACHE_CONTROL
+
+    def test_icon_cache_control_opts_out_of_polish(self) -> None:
+        """Polish is on zone-wide and lossily re-encodes PNGs; no-transform disables it."""
+        assert "no-transform" in ICON_CACHE_CONTROL
+
+    def test_ipa_cache_control_has_no_transform_opt_out(self) -> None:
+        """Only images are Polished — IPAs must not carry the directive needlessly."""
+        assert "no-transform" not in IPA_CACHE_CONTROL
