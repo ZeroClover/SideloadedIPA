@@ -9,6 +9,9 @@ dependencies = [
     "tomli>=2.0.0; python_version < '3.11'",
 ]
 
+[project.scripts]
+sideloadedipa = "sideloadedipa.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=7.4.0",
@@ -19,12 +22,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = []
-only-include = ["scripts/*.py"]
+packages = ["src/sideloadedipa"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,7 +35,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
-    "--cov=scripts",
+    "--cov=sideloadedipa",
     "--cov-report=term-missing",
     "--cov-report=html",
 ]
@@ -79,7 +81,7 @@ ensure_newline_before_comments = true
 skip_glob = ["work/*"]
 
 [tool.coverage.run]
-source = ["scripts"]
+source = ["sideloadedipa"]
 omit = ["tests/*", "**/__pycache__/*", "work/*"]
 
 [tool.coverage.report]
