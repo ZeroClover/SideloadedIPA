@@ -283,10 +283,10 @@ If `debug` is enabled for a manual run (workflow_dispatch), the workflow will:
 - Start a throwaway [`dropbear`](https://matt.ucc.asn.au/dropbear/dropbear.html) SSH server on `127.0.0.1:2222` — public-key auth only (password auth disabled), with a per-run host key.
 - Download `cloudflared` and run `cloudflared --no-autoupdate --url ssh://localhost:2222` in the foreground, which prints a `trycloudflare.com` hostname.
 
-Connect with the private key matching `DEBUG_SSH_PUBLIC_KEY`, tunnelling raw TCP through Cloudflare (end-to-end encrypted, no third-party SSH relay):
+Connect with the private key matching `DEBUG_SSH_PUBLIC_KEY`, tunnelling SSH through Cloudflare (end-to-end encrypted, no third-party SSH relay):
 
 ```bash
-ssh -o ProxyCommand='cloudflared access tcp --hostname <printed-host>.trycloudflare.com' runner@localhost
+ssh -o ProxyCommand='cloudflared access ssh --hostname %h' runner@<printed-host>.trycloudflare.com
 ```
 
 The tunnel runs in the foreground and keeps the job alive until you exit or cancel the run.
