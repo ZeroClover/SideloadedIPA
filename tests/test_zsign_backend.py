@@ -99,6 +99,21 @@ def profile_node(
     )
 
 
+def profile_free_node() -> SigningNodePlan:
+    empty = normalize_entitlements({})
+    return SigningNodePlan(
+        source_path=PurePosixPath("Payload/App.app/Frameworks/Kit.framework"),
+        kind=BundleNodeKind.FRAMEWORK,
+        order=0,
+        target_bundle_id=None,
+        profile_resource_id=None,
+        profile_path=None,
+        profile_sha256=None,
+        expected_entitlements=empty.values,
+        expected_entitlements_sha256=empty.sha256,
+    )
+
+
 def plan(profile_root: Path, backend: SigningBackendIdentity) -> SigningPlan:
     return SigningPlan(
         task_name="Example",
@@ -107,21 +122,26 @@ def plan(profile_root: Path, backend: SigningBackendIdentity) -> SigningPlan:
         certificate_sha256="b" * 64,
         backend=backend,
         nodes=(
+            profile_free_node(),
             profile_node(
                 profile_root,
-                order=0,
+                order=1,
                 target="io.example.app.Share",
                 resource_id="PROFILE_SHARE",
             ),
             profile_node(
                 profile_root,
-                order=1,
+                order=2,
                 target="io.example.app",
                 resource_id="PROFILE_ROOT",
             ),
         ),
         plan_sha256="e" * 64,
     )
+
+
+def first_profile(signing_plan: SigningPlan) -> SigningNodePlan:
+    return next(node for node in signing_plan.nodes if node.profile_resource_id is not None)
 
 
 def backend(tmp_path: Path, executable_path: Path) -> ZsignBackend:
@@ -161,6 +181,7 @@ def test_signs_with_adjacent_profile_entitlement_pairs_and_redacted_argv(
     assert len(profile_indexes) == 2
     assert all(argv[index + 2] == "-e" for index in profile_indexes)
     assert "-p" not in argv
+    assert str(profile_free_node().source_path) not in argv
     assert "PROFILE_SHARE.mobileprovision" in argv[profile_indexes[0] + 1]
     assert "PROFILE_ROOT.mobileprovision" in argv[profile_indexes[1] + 1]
     assert argv[-2:] == [str(output), str(source)]
@@ -207,7 +228,7 @@ def test_rejects_profile_content_changed_after_planning(tmp_path: Path) -> None:
     executable_path = executable(tmp_path)
     adapter = backend(tmp_path, executable_path)
     signing_plan = plan(tmp_path / "profiles", adapter.identity())
-    node = signing_plan.nodes[0]
+    node = first_profile(signing_plan)
     assert node.profile_path is not None
     tmp_path.joinpath("profiles", *node.profile_path.parts).write_bytes(b"tampered")
 
@@ -231,7 +252,7 @@ def test_rejects_incomplete_or_changed_plan_evidence(tmp_path: Path, mutation: s
     executable_path = executable(tmp_path)
     adapter = backend(tmp_path, executable_path)
     signing_plan = plan(tmp_path / "profiles", adapter.identity())
-    first = signing_plan.nodes[0]
+    first = first_profile(signing_plan)
     if mutation == "certificate":
         signing_plan = replace(signing_plan, certificate_sha256="0" * 64)
     elif mutation == "no-profile":
