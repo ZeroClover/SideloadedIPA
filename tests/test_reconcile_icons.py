@@ -1,4 +1,4 @@
-"""Tests for scripts/migrate_icon_keys.py - one-time icon re-keying migration."""
+"""Tests for scripts/reconcile_icons.py - icon key + header reconciliation."""
 
 import hashlib
 import sys
@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 # Add scripts to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from migrate_icon_keys import migrate
-from r2_store import R2Store
+from r2_store import ICON_CACHE_CONTROL, R2Store
+from reconcile_icons import reconcile
 
 BASE_URL = "https://ipa.zeroclover.io"
 PNG = b"\x89PNG\r\n\x1a\nehpanda"
@@ -37,14 +37,23 @@ def _doc(apps: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"updatedAt": "2026-07-18T04:00:00Z", "apps": apps}
 
 
-def _legacy_app() -> Dict[str, Any]:
+def _app(icon_url: str) -> Dict[str, Any]:
     return {
         "slug": "ehpanda",
         "name": "EhPanda",
         "version": "2.7.4",
         "ipaUrl": f"{BASE_URL}/apps/ehpanda/2.7.4/EhPanda.ipa",
-        "iconUrl": f"{BASE_URL}/apps/ehpanda/icon.png",
+        "iconUrl": icon_url,
     }
+
+
+def _legacy_app() -> Dict[str, Any]:
+    return _app(f"{BASE_URL}/apps/ehpanda/icon.png")
+
+
+def _hashed_app() -> Dict[str, Any]:
+    """An entry already on its correct content-addressed key (header-only work)."""
+    return _app(f"{BASE_URL}/apps/ehpanda/icon-{DIGEST}.png")
 
 
 class TestDryRun:
@@ -54,21 +63,21 @@ class TestDryRun:
         client = MagicMock()
         store = _store(_doc([_legacy_app()]), client)
 
-        assert migrate(store, apply=False, delete_legacy=False) == 0
+        assert reconcile(store, apply=False, delete_legacy=False) == 0
 
         store.upload_json.assert_not_called()
         client.put_object.assert_not_called()
         client.delete_objects.assert_not_called()
 
 
-class TestApply:
-    """The migration re-uploads under the hashed key and rewrites apps.json."""
+class TestRekey:
+    """Legacy-keyed icons move to their content-addressed key."""
 
     def test_rekeys_legacy_icon(self) -> None:
         client = MagicMock()
         store = _store(_doc([_legacy_app()]), client)
 
-        assert migrate(store, apply=True, delete_legacy=False) == 0
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
 
         # Re-uploaded under the content-addressed key...
         assert client.put_object.call_args.kwargs["Key"] == f"apps/ehpanda/icon-{DIGEST}.png"
@@ -78,11 +87,11 @@ class TestApply:
         assert uploaded_doc["updatedAt"] != "2026-07-18T04:00:00Z"
 
     def test_legacy_object_kept_by_default(self) -> None:
-        """cleanup_stale retires it on the next run; the migration doesn't delete."""
+        """cleanup_stale retires it on the next run; reconcile doesn't delete."""
         client = MagicMock()
         store = _store(_doc([_legacy_app()]), client)
 
-        migrate(store, apply=True, delete_legacy=False)
+        reconcile(store, apply=True, delete_legacy=False)
 
         client.delete_objects.assert_not_called()
 
@@ -90,7 +99,7 @@ class TestApply:
         client = MagicMock()
         store = _store(_doc([_legacy_app()]), client)
 
-        migrate(store, apply=True, delete_legacy=True)
+        reconcile(store, apply=True, delete_legacy=True)
 
         client.delete_objects.assert_called_once_with(
             Bucket="zeroclover-ipa",
@@ -105,49 +114,85 @@ class TestApply:
         store.upload_json.side_effect = lambda *a, **k: calls.append("upload_json")
         client.delete_objects.side_effect = lambda *a, **k: calls.append("delete_objects")
 
-        migrate(store, apply=True, delete_legacy=True)
+        reconcile(store, apply=True, delete_legacy=True)
 
         assert calls == ["upload_json", "delete_objects"]
 
 
-class TestSkips:
-    """Entries that are not legacy-keyed are left alone."""
+class TestHeaderRefresh:
+    """An already-correct key still gets re-uploaded, to restamp its headers."""
 
-    def test_already_hashed_entry_untouched(self) -> None:
+    def test_reuploads_in_place_with_current_headers(self) -> None:
         client = MagicMock()
-        app = dict(_legacy_app(), iconUrl=f"{BASE_URL}/apps/ehpanda/icon-abc123abc123.png")
-        store = _store(_doc([app]), client)
+        store = _store(_doc([_hashed_app()]), client)
 
-        assert migrate(store, apply=True, delete_legacy=False) == 0
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
+
+        kwargs = client.put_object.call_args.kwargs
+        assert kwargs["Key"] == f"apps/ehpanda/icon-{DIGEST}.png"
+        assert kwargs["CacheControl"] == ICON_CACHE_CONTROL
+        assert "no-transform" in kwargs["CacheControl"]
+
+    def test_apps_json_untouched_when_no_key_moved(self) -> None:
+        """A header-only pass changes no URL, so the registry must not be rewritten."""
+        store = _store(_doc([_hashed_app()]), MagicMock())
+
+        reconcile(store, apply=True, delete_legacy=False)
+
+        store.upload_json.assert_not_called()
+
+    def test_delete_legacy_deletes_nothing_when_no_legacy_key(self) -> None:
+        """--delete-legacy on an already-migrated bucket must not delete the live icon."""
+        client = MagicMock()
+        store = _store(_doc([_hashed_app()]), client)
+
+        reconcile(store, apply=True, delete_legacy=True)
+
+        client.delete_objects.assert_not_called()
+
+    def test_idempotent_second_pass(self) -> None:
+        """Re-running after a successful pass repeats the upload and nothing else."""
+        client = MagicMock()
+        store = _store(_doc([_hashed_app()]), client)
+
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
+
+        assert client.put_object.call_count == 2
+        store.upload_json.assert_not_called()
+
+
+class TestSkips:
+    """Entries with nothing actionable are left alone."""
+
+    def test_iconless_entry_untouched(self) -> None:
+        client = MagicMock()
+        store = _store(_doc([_app("")]), client)
+
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
 
         store.upload_json.assert_not_called()
         client.put_object.assert_not_called()
 
-    def test_iconless_entry_untouched(self) -> None:
-        store = _store(_doc([dict(_legacy_app(), iconUrl="")]))
-
-        assert migrate(store, apply=True, delete_legacy=False) == 0
-
-        store.upload_json.assert_not_called()
-
     def test_foreign_host_icon_untouched(self) -> None:
         """A manual app hosted elsewhere maps to no key on this bucket."""
-        app = dict(_legacy_app(), iconUrl="https://itms.zeroclover.io/ehpanda/icon.png")
-        store = _store(_doc([app]))
+        client = MagicMock()
+        store = _store(_doc([_app("https://itms.zeroclover.io/ehpanda/icon.png")]), client)
 
-        assert migrate(store, apply=True, delete_legacy=False) == 0
+        assert reconcile(store, apply=True, delete_legacy=False) == 0
 
         store.upload_json.assert_not_called()
+        client.put_object.assert_not_called()
 
     def test_missing_apps_json_fails(self) -> None:
         store = _store(None)
-        assert migrate(store, apply=True, delete_legacy=False) == 1
+        assert reconcile(store, apply=True, delete_legacy=False) == 1
 
     def test_unreadable_icon_aborts_without_writing(self) -> None:
-        """Abort whole-hog rather than leave apps.json half-migrated."""
+        """Abort whole-hog rather than leave apps.json half-reconciled."""
         store = _store(_doc([_legacy_app()]))
         store.download_bytes.side_effect = RuntimeError("NoSuchKey")  # type: ignore[attr-defined]
 
-        assert migrate(store, apply=True, delete_legacy=False) == 1
+        assert reconcile(store, apply=True, delete_legacy=False) == 1
 
         store.upload_json.assert_not_called()

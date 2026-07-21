@@ -5,6 +5,7 @@ The bucket holds every publishable artifact of the signing pipeline:
 
     apps/<slug>/<version>/<App>.ipa   # versioned IPA (immutable, one per release)
     apps/<slug>/icon-<sha12>.png      # card icon (immutable, keyed by content)
+                                      # (see ICON_CACHE_CONTROL: also no-transform)
     site/apps.json                    # the single data source for page + plist
 
 Credentials and bucket settings come from environment variables (GitHub
@@ -52,9 +53,16 @@ JSON_CACHE_CONTROL = "public, max-age=60"
 # icon lands on a NEW key and is visible immediately — no purge needed, which
 # matters because the zone overrides short max-ages with a 4-hour browser TTL
 # and the pipeline holds no Cloudflare API token. Keys are never reused, so the
-# same immutable headers as the versioned IPAs apply.
+# same immutable caching as the versioned IPAs applies.
+#
+# 'no-transform' additionally opts these objects out of Cloudflare Polish, which
+# is enabled zone-wide and was lossily re-encoding them at quality 85 (a 1024px
+# master would reach the page visibly softened, and app icons are mostly flat
+# colour and hard edges — exactly what lossy re-encoding handles worst). It also
+# forgoes gzip/brotli at the edge, which costs nothing here: PNG is already
+# deflate-compressed, so transfer encoding saves no meaningful bytes.
 ICON_CONTENT_TYPE = "image/png"
-ICON_CACHE_CONTROL = IPA_CACHE_CONTROL
+ICON_CACHE_CONTROL = f"{IPA_CACHE_CONTROL}, no-transform"
 
 # Length of the hex sha256 prefix in an icon key. 12 hex chars = 48 bits, far
 # beyond collision range for a handful of icons per app.
