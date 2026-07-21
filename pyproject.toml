@@ -86,6 +86,7 @@ source = ["sideloadedipa"]
 omit = ["tests/*", "**/__pycache__/*", "work/*", "src/sideloadedipa/legacy/*"]
 
 [tool.coverage.report]
+fail_under = 95
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

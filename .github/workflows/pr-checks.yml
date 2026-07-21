@@ -63,7 +63,7 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Run pytest
+      - name: Run pytest with package coverage gate
         run: uv run pytest
 
       - name: Lint (black + isort)
