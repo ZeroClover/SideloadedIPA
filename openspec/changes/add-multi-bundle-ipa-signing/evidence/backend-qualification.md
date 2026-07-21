@@ -18,6 +18,12 @@ Recorded on 2026-07-21 while starting task section 2.
 
 The repository and local provisioning-profile directory contain no development `.mobileprovision` fixtures. CI has valid App Store Connect and P12 credentials, but the read-only qualification run proved that only the root target App ID currently exists. The exact `LiveProcess`, `LaunchAppExtension`, and `ShareExtension` target App IDs are absent, so no corresponding development profiles can exist yet.
 
+After explicit operator authorization, [qualification run 29826749998](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29826749998) created the three missing explicit App IDs through the canonical ASC 3.1.1 API path and then re-listed all four exact identifiers. The operation was additive; no identifier was deleted or renamed.
+
+[Qualification run 29826924161](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29826924161) matched the configured P12 to exactly one Apple development certificate, selected the enabled iPhone/iPad set, and created one active `IOS_APP_DEVELOPMENT` profile for each of root, LiveProcess, Launch, and Share. Each downloaded profile decoded successfully and contained the configured certificate and target application identifier. Private profile/P12 bytes remained runner-local and were deleted by the cleanup step.
+
+The post-create validation stopped at the intended capability boundary: all four App IDs currently expose only `IN_APP_PURCHASE`, and the four profiles have no common authorized App Group. These profiles are qualification evidence but cannot satisfy the LiveContainer contract. App Group registration/association and approval-gated root/process capabilities must be completed before replacement profiles are generated; the pipeline will not publish or weaken the entitlement assertions in the meantime.
+
 The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating the three missing profiles requires persistent additive Apple account mutation through the official API, plus App Group/capability setup where the public API permits it. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
 
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
