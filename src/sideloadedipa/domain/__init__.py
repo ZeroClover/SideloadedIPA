@@ -42,6 +42,11 @@ from sideloadedipa.domain.pipeline import (
     VerificationFinding,
     VerificationResult,
 )
+from sideloadedipa.domain.reconciliation import (
+    PolicyReconciliation,
+    ReconciledBundleRule,
+    reconcile_bundle_rules,
+)
 from sideloadedipa.domain.signing import (
     SigningBackendIdentity,
     SigningNodePlan,
@@ -70,10 +75,12 @@ __all__ = [
     "IdentifierStrategy",
     "OperationDisposition",
     "PipelineStage",
+    "PolicyReconciliation",
     "ProfileType",
     "ProvisioningProfile",
     "PublicationResult",
     "R2Config",
+    "ReconciledBundleRule",
     "SigningBackendIdentity",
     "SigningNodePlan",
     "SigningNodeResult",
@@ -93,5 +100,6 @@ __all__ = [
     "VerificationResult",
     "derive_identifier_mappings",
     "derive_target_bundle_id",
+    "reconcile_bundle_rules",
     "validate_bundle_identifier",
 ]
