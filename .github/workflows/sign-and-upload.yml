@@ -25,6 +25,16 @@ on:
         required: false
         default: false
         type: boolean
+      package_shadow:
+        description: Run read-only package inventory and Apple planning only
+        required: false
+        default: false
+        type: boolean
+      multi_bundle_canary:
+        description: Run the private non-publishing multi-bundle canary
+        required: false
+        default: false
+        type: boolean
       qualification_apply:
         description: Add missing qualification App IDs and profiles before the probe
         required: false
@@ -51,8 +61,10 @@ jobs:
     name: Sign & Upload IPAs
     if: >-
       ${{ github.event_name != 'workflow_dispatch' ||
-          (inputs.backend_qualification != true && inputs.apple_state_probe != true) }}
+          (inputs.backend_qualification != true && inputs.apple_state_probe != true &&
+           inputs.package_shadow != true && inputs.multi_bundle_canary != true) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       ZSIGN_VERSION: "v1.1.1"
       ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
@@ -106,11 +118,10 @@ jobs:
         with:
           path: |
             work/cache
-          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
+          key: pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-${{ github.run_id }}
           restore-keys: |
-            ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-
-            ci-cache-v1-${{ github.ref_name }}-
-            ci-cache-v1-
+            pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-
+            pipeline-cache-v2-${{ runner.os }}-
 
       - name: Preserve cached device list for comparison
         run: |
@@ -122,7 +133,7 @@ jobs:
             echo "No cached device list found (first run)"
           fi
 
-      - name: Install checksum-verified App Store Connect CLI
+      - name: Preflight - install checksum-verified App Store Connect CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -137,7 +148,7 @@ jobs:
           printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
             "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
 
-      - name: Install checksum-verified zsign
+      - name: Preflight - install checksum-verified zsign
         shell: bash
         run: |
           set -euo pipefail
@@ -192,6 +203,7 @@ jobs:
           fi
 
       - name: Run signer
+        id: legacy-signing
         env:
           REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
           REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
@@ -207,13 +219,13 @@ jobs:
           retention-days: 7
 
       - name: Save cache
-        if: always()
+        if: ${{ success() && steps.legacy-signing.outcome == 'success' }}
         uses: actions/cache/save@v5
         continue-on-error: true
         with:
           path: |
             work/cache
-          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
+          key: pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-${{ github.run_id }}
 
       - name: "Debug: Start SSH session"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
@@ -236,6 +248,124 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$payload" \
             "$WEBHOOK_URL"
+
+  package-shadow:
+    name: Read-only package pipeline shadow
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_shadow == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_BYPASS_KEYCHAIN: "1"
+      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Preflight - checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Preflight - set up Python with uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Preflight - install Python dependencies
+        run: uv sync --frozen
+
+      - name: Preflight - install checksum-verified App Store Connect CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asc_bin="asc_${ASC_VERSION}_linux_amd64"
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+
+      - name: Preflight - verify file-backed manifest handoff
+        run: |
+          uv run python scripts/run_workflow_fixture.py \
+            --output "$RUNNER_TEMP/sideloadedipa-shadow/fixture"
+
+      - name: Inventory - inspect every current task without mutation
+        id: shadow-inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          mkdir -p "$report_dir"
+          set +e
+          uv run sideloadedipa inspect --json > "$report_dir/inventory.json"
+          status=$?
+          set -e
+          if (( status > 1 )); then
+            exit "$status"
+          fi
+          jq empty "$report_dir/inventory.json"
+          printf '%s\n' "$status" > "$report_dir/inventory-exit-code.txt"
+
+      - name: Apple plan - read-only resource plan for every current task
+        id: shadow-apple-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          set +e
+          uv run sideloadedipa plan --json > "$report_dir/apple-plan.json"
+          status=$?
+          set -e
+          if (( status > 1 )); then
+            exit "$status"
+          fi
+          jq empty "$report_dir/apple-plan.json"
+          printf '%s\n' "$status" > "$report_dir/apple-plan-exit-code.txt"
+
+      - name: Apple apply, signing, verification, and publication - enforce shadow mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          jq -n \
+            --arg inventory_status "$(cat "$report_dir/inventory-exit-code.txt")" \
+            --arg plan_status "$(cat "$report_dir/apple-plan-exit-code.txt")" \
+            '{schema_version: 1, mode: "read-only-shadow", inventory_exit_code: ($inventory_status | tonumber), apple_plan_exit_code: ($plan_status | tonumber), apple_apply: "skipped", signing: "skipped", verification: "skipped", publication: "disabled"}' \
+            > "$report_dir/shadow-summary.json"
+          if env | cut -d= -f1 | grep -Eq '^(R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)$'; then
+            echo "R2 credentials must not be present in read-only shadow mode." >&2
+            exit 1
+          fi
+          if grep -ERq 'BEGIN PRIVATE KEY|ASC_PRIVATE_KEY|APPLE_DEV_CERT_PASSWORD' "$report_dir"; then
+            echo "A redacted shadow report contains a credential marker." >&2
+            exit 1
+          fi
+
+      - name: Upload redacted shadow plans and reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: package-shadow-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sideloadedipa-shadow/inventory.json
+            ${{ runner.temp }}/sideloadedipa-shadow/apple-plan.json
+            ${{ runner.temp }}/sideloadedipa-shadow/shadow-summary.json
+            ${{ runner.temp }}/sideloadedipa-shadow/fixture/workflow-fixture-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   apple-state-probe:
     name: Probe normalized Apple signing state
@@ -290,8 +420,8 @@ jobs:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   backend-qualification:
-    name: Qualify multi-bundle signing prerequisites
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    name: Private non-publishing multi-bundle canary
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -349,7 +479,7 @@ jobs:
           printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
             "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
 
-      - name: Build pinned per-profile-entitlement zsign extension
+      - name: Preflight - build pinned per-profile-entitlement zsign extension
         shell: bash
         run: |
           set -euo pipefail
@@ -377,7 +507,7 @@ jobs:
           printf 'extended zsign executable sha256: '
           sha256sum "$RUNNER_TEMP/backend-qualification/zsign-per-profile" | cut -d ' ' -f 1
 
-      - name: Extract configured public signing certificate
+      - name: Preflight - extract configured public signing certificate
         shell: bash
         env:
           P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
@@ -396,7 +526,7 @@ jobs:
           printf 'configured certificate sha256: '
           sha256sum "$private_dir/certificate.der" | cut -d ' ' -f 1
 
-      - name: Build pinned synthetic four-bundle fixture
+      - name: Inventory - build pinned synthetic four-bundle fixture
         shell: bash
         run: |
           set -euo pipefail
@@ -412,7 +542,7 @@ jobs:
             "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6"
           unzip -l "$fixture_dir/qualification.ipa"
 
-      - name: Probe private Apple qualification prerequisites
+      - name: Apple plan and optional apply - reconcile private prerequisites
         shell: bash
         run: |
           set -euo pipefail
@@ -430,7 +560,7 @@ jobs:
           fi
           python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
 
-      - name: Exercise repeated-profile zsign backend contract
+      - name: Signing and verification - exercise upstream negative control
         continue-on-error: true
         shell: bash
         run: |
@@ -445,7 +575,7 @@ jobs:
             --output-dir "$private_dir/backend-exercise" \
             --summary "$RUNNER_TEMP/backend-qualification/zsign-profile-only-summary.json"
 
-      - name: Exercise per-profile-entitlement zsign contract
+      - name: Signing and verification - exercise qualified backend
         shell: bash
         run: |
           set -euo pipefail
@@ -460,6 +590,18 @@ jobs:
             --summary "$RUNNER_TEMP/backend-qualification/zsign-summary.json" \
             --per-profile-entitlements
 
+      - name: Publication - enforce disabled canary state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env | cut -d= -f1 | grep -Eq '^(R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|R2_BUCKET)$'; then
+            echo "R2 publication credentials must not be present in the canary job." >&2
+            exit 1
+          fi
+          printf '%s\n' \
+            '{"mode":"private-canary","publication":"disabled","schema_version":1}' \
+            > "$RUNNER_TEMP/backend-qualification/publication-disabled.json"
+
       - name: Upload redacted Linux qualification summary
         if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
@@ -468,6 +610,7 @@ jobs:
           path: |
             ${{ runner.temp }}/backend-qualification/zsign-profile-only-summary.json
             ${{ runner.temp }}/backend-qualification/zsign-summary.json
+            ${{ runner.temp }}/backend-qualification/publication-disabled.json
           if-no-files-found: error
           retention-days: 1
 
@@ -489,7 +632,7 @@ jobs:
   backend-qualification-macos:
     name: Qualify with independent macOS codesign oracle
     needs: backend-qualification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
     runs-on: macos-15
     timeout-minutes: 20
     env:
@@ -588,7 +731,7 @@ jobs:
             --private-dir "$private_dir/profiles" \
             --summary "$RUNNER_TEMP/backend-qualification/profile-summary.json"
 
-      - name: Exercise independent codesign oracle
+      - name: Verification - exercise independent codesign oracle
         shell: bash
         run: |
           set -euo pipefail
@@ -625,7 +768,7 @@ jobs:
   backend-qualification-comparison:
     name: Compare Linux and macOS backend evidence
     needs: [backend-qualification, backend-qualification-macos]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -644,7 +787,7 @@ jobs:
           name: backend-qualification-macos
           path: ${{ runner.temp }}/backend-comparison/macos
 
-      - name: Compare backend qualification evidence
+      - name: Verification - compare Linux and macOS evidence
         shell: bash
         run: |
           set -euo pipefail

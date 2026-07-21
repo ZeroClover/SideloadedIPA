@@ -11,9 +11,17 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       ASC_VERSION: "3.1.1"
       ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
@@ -63,19 +71,12 @@ jobs:
           printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
             "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
 
-      - name: Validate ASC authentication
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-          ASC_BYPASS_KEYCHAIN: "1"
-        run: asc devices list --limit 1 --output json > /dev/null
-
       - name: Validate config syntax
         run: uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
 
   python-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -116,8 +117,66 @@ jobs:
         with:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
+  workflow-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install checksum-verified actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asset" \
+            | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+
+      - name: Validate workflow YAML and shell
+        shell: bash
+        run: "$RUNNER_TEMP/actionlint -no-color .github/workflows/*.yml"
+
+      - name: Run file-backed workflow fixture
+        run: |
+          uv run python scripts/run_workflow_fixture.py \
+            --output "$RUNNER_TEMP/sideloadedipa-workflow-fixture"
+          uv run pytest --no-cov \
+            tests/test_workflow_toolchain.py tests/test_manifest_store.py
+
+      - name: Upload redacted workflow fixture report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: workflow-fixture-${{ github.run_id }}
+          path: ${{ runner.temp }}/sideloadedipa-workflow-fixture/workflow-fixture-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web

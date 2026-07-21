@@ -7,15 +7,19 @@ import json
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
+from typing import cast
 
 from sideloadedipa.domain import (
     Diagnostic,
+    DiagnosticSeverity,
+    FrozenJsonObject,
     PipelineStage,
     StageManifest,
     StageStatus,
+    freeze_json,
     thaw_json,
 )
-from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 
 STAGE_MANIFEST_SCHEMA_VERSION = 1
 PIPELINE_STAGE_ORDER = (
@@ -74,6 +78,75 @@ def canonical_stage_manifest_json(manifest: StageManifest) -> bytes:
     document = _document(manifest)
     document["manifest_sha256"] = manifest.manifest_sha256
     return _canonical_json(document)
+
+
+def _manifest_parse_error(message: str) -> ConfigurationError:
+    return ConfigurationError(
+        ErrorCode.CONFIG_INVALID,
+        message,
+        remediation="discard the manifest and restart from the source stage",
+    )
+
+
+def parse_stage_manifest_json(payload: bytes) -> StageManifest:
+    """Decode a canonical manifest and verify its content digest."""
+
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise _manifest_parse_error("stage manifest is not valid JSON") from error
+    if not isinstance(document, dict):
+        raise _manifest_parse_error("stage manifest root must be an object")
+    try:
+        diagnostics_document = document["diagnostics"]
+        if not isinstance(diagnostics_document, list):
+            raise TypeError
+        diagnostics: list[Diagnostic] = []
+        for value in diagnostics_document:
+            if not isinstance(value, dict) or not isinstance(value.get("details"), dict):
+                raise TypeError
+            details = freeze_json(value["details"])
+            if not isinstance(details, FrozenJsonObject):
+                raise TypeError
+            diagnostics.append(
+                Diagnostic(
+                    code=cast(str, value["code"]),
+                    severity=DiagnosticSeverity(cast(str, value["severity"])),
+                    message=cast(str, value["message"]),
+                    task_name=cast(str | None, value["task_name"]),
+                    bundle_id=cast(str | None, value["bundle_id"]),
+                    remediation=cast(str | None, value["remediation"]),
+                    details=details.items,
+                )
+            )
+        manifest = StageManifest(
+            schema_version=cast(int, document["schema_version"]),
+            task_name=cast(str, document["task_name"]),
+            stage=PipelineStage(cast(str, document["stage"])),
+            status=StageStatus(cast(str, document["status"])),
+            input_sha256=cast(str | None, document["input_sha256"]),
+            predecessor_sha256=cast(str | None, document["predecessor_sha256"]),
+            result_sha256=cast(str | None, document["result_sha256"]),
+            started_at=datetime.fromisoformat(cast(str, document["started_at"])),
+            completed_at=(
+                datetime.fromisoformat(cast(str, document["completed_at"]))
+                if document["completed_at"] is not None
+                else None
+            ),
+            diagnostics=tuple(diagnostics),
+            manifest_sha256=cast(str, document["manifest_sha256"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise _manifest_parse_error("stage manifest fields are invalid") from error
+    if manifest.schema_version != STAGE_MANIFEST_SCHEMA_VERSION:
+        raise _manifest_parse_error("stage manifest schema version is unsupported")
+    if manifest.started_at.tzinfo is None or (
+        manifest.completed_at is not None and manifest.completed_at.tzinfo is None
+    ):
+        raise _manifest_parse_error("stage manifest timestamps must include a timezone")
+    if manifest.manifest_sha256 != stage_manifest_sha256(manifest):
+        raise _manifest_parse_error("stage manifest digest is invalid")
+    return manifest
 
 
 def _transition_error(

@@ -25,7 +25,7 @@ def test_workflows_pin_current_canonical_tool_releases() -> None:
     assert "ZSIGN_VERSION: v1.0.4" not in workflows
     assert "github.com/rorkai/App-Store-Connect-CLI/releases/download/" in workflows
     assert "github.com/zhlynn/zsign/releases/download/" in workflows
-    assert workflows.count(ASC_SHA256) == 4
+    assert workflows.count(ASC_SHA256) == 5
     assert workflows.count(ASC_MACOS_SHA256) == 1
     assert workflows.count(ZSIGN_SHA256) == 3
 
@@ -51,3 +51,46 @@ def test_asc_adapter_contract_matches_workflow_release() -> None:
     assert contract["upstream"]["repository"] == "rorkai/App-Store-Connect-CLI"
     assert contract["tools"]["linux_amd64_sha256"] == ASC_SHA256
     assert f'ASC_VERSION: "{SUPPORTED_ASC_VERSION}"' in workflows
+
+
+def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+
+    assert "pipeline-cache-v2-${{ runner.os }}" in signing
+    assert "ci-cache-v1" not in signing
+    assert "if: ${{ success() && steps.legacy-signing.outcome == 'success' }}" in signing
+    save_cache = signing.split("- name: Save cache", maxsplit=1)[1].split(
+        '- name: "Debug:', maxsplit=1
+    )[0]
+    assert "always()" not in save_cache
+
+
+def test_shadow_and_canary_are_non_publishing_and_retain_only_reports() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+    shadow = signing.split("  package-shadow:", maxsplit=1)[1].split(
+        "  apple-state-probe:", maxsplit=1
+    )[0]
+    canary = signing.split("  backend-qualification:", maxsplit=1)[1].split(
+        "  backend-qualification-macos:", maxsplit=1
+    )[0]
+
+    assert "sideloadedipa inspect --json" in shadow
+    assert "sideloadedipa plan --json" in shadow
+    assert 'publication: "disabled"' in shadow
+    assert "retention-days: 3" in shadow
+    assert "R2_ACCESS_KEY_ID:" not in shadow
+    assert "Publication - enforce disabled canary state" in canary
+    assert "R2_ACCESS_KEY_ID:" not in canary
+    assert "publication-disabled.json" in canary
+    assert "retention-days: 1" in canary
+
+
+def test_pr_workflow_is_fork_safe_and_exercises_file_manifests() -> None:
+    pull_request = PR_WORKFLOW.read_text()
+
+    assert "permissions:\n  contents: read" in pull_request
+    assert "secrets.ASC_" not in pull_request
+    assert "secrets.APPLE_DEV_CERT" not in pull_request
+    assert "run_workflow_fixture.py" in pull_request
+    assert "actionlint" in pull_request
+    assert pull_request.count("./.github/actions/ssh-debug") == 2
