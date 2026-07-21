@@ -66,6 +66,23 @@ class TestMergeApps:
         jhentai = next(a for a in merged if a["slug"] == "JHenTai")
         assert jhentai["bundleId"] == "io.zeroclover.app.jhentai.new"
 
+    def test_empty_icon_url_preserves_existing(self) -> None:
+        """A task with no icon_path reports iconUrl="" and must not clear the entry.
+
+        Load-bearing since icon keys became content-addressed: there is no
+        conventional URL to reconstruct, so the old hashed one is all there is.
+        """
+        existing = [dict(SAMPLE_APPS[0], iconUrl="https://ipa.zeroclover.io/a/icon-abc123.png")]
+        merged, _ = merge_apps(existing, [_update("ehpanda", version="2.8.0", iconUrl="")])
+        assert merged[0]["iconUrl"] == "https://ipa.zeroclover.io/a/icon-abc123.png"
+        assert merged[0]["version"] == "2.8.0"
+
+    def test_new_entry_tolerates_empty_icon_url(self) -> None:
+        """A brand-new app whose icon fetch failed is still published, icon-less."""
+        merged, changed = merge_apps([], [_update("newapp", iconUrl="")])
+        assert changed is True
+        assert merged[0]["iconUrl"] == ""
+
     def test_refreshes_name_from_app_name(self) -> None:
         """Existing entries adopt the task's app_name (no curated-name logic)."""
         updates = [_update("ehpanda", name="EhPanda Reloaded", version="2.8.0")]

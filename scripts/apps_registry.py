@@ -16,7 +16,7 @@ created by the first full CI build). Structure::
           "bundleId": "io.zeroclover.app.ehpanda",
           "version": "2.7.4",
           "ipaUrl": "https://ipa.zeroclover.io/apps/ehpanda/2.7.4/EhPanda.ipa",
-          "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon.png"
+          "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon-1f3a9c2b7d04.png"
         }
       ]
     }
@@ -27,6 +27,11 @@ Merge semantics (per plan v3):
   ``version`` / ``ipaUrl`` / ``iconUrl`` refreshed from the task result;
 - updates whose ``slug`` is not present are appended as new entries;
 - entries the pipeline does not mention are left as they were.
+
+Only truthy update values overwrite, which is load-bearing for the
+content-addressed icon keys: a task with no ``icon_path`` (or whose icon fetch
+failed) reports an empty ``iconUrl``, and the entry must keep pointing at the
+hashed key it already has rather than losing its icon.
 """
 
 from __future__ import annotations

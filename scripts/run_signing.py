@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 
-import apps_registry
 import app_icon
+import apps_registry
 import r2_store
 
 # Vercel on-demand revalidation hook (shared-secret protected). Overridable via
@@ -935,10 +935,12 @@ def main() -> int:
         )
 
         # Refresh the card icon from the task's declared asset. Pinned to the
-        # release tag so the icon tracks the build being published. A failure
-        # here is non-fatal: the icon key keeps whatever it already held, and
-        # the download page falls back to a lettered tile if it is empty.
-        icon_url = store.public_url(store.icon_key(slug))
+        # release tag so the icon tracks the build being published. Icon keys
+        # are content-addressed, so there is no conventional URL to fall back
+        # on: leaving iconUrl empty makes merge_apps keep the entry's existing
+        # icon (and the download page render a lettered tile if there is none).
+        # A failure here is therefore non-fatal.
+        icon_url = ""
         icon_path = task.get("icon_path")
         if icon_path:
             try:

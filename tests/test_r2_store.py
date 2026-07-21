@@ -1,5 +1,6 @@
 """Tests for scripts/r2_store.py - Cloudflare R2 (S3-compatible) storage wrapper."""
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -94,9 +95,24 @@ class TestKeyHelpers:
             "apps/ehpanda/2.7.4/EhPanda.ipa"
         )
 
-    def test_icon_key(self) -> None:
+    def test_icon_key_is_content_addressed(self) -> None:
         store = _store()
-        assert store.icon_key("ehpanda") == "apps/ehpanda/icon.png"
+        png = b"\x89PNG\r\n\x1a\nfake"
+        digest = hashlib.sha256(png).hexdigest()[:12]
+        assert store.icon_key("ehpanda", png) == f"apps/ehpanda/icon-{digest}.png"
+
+    def test_icon_key_changes_with_content(self) -> None:
+        store = _store()
+        assert store.icon_key("ehpanda", b"one") != store.icon_key("ehpanda", b"two")
+
+    def test_icon_key_stable_for_same_content(self) -> None:
+        """An unchanged icon must re-key identically, or every run churns the URL."""
+        store = _store()
+        assert store.icon_key("ehpanda", b"same") == store.icon_key("ehpanda", b"same")
+
+    def test_legacy_icon_key(self) -> None:
+        store = _store()
+        assert store.legacy_icon_key("ehpanda") == "apps/ehpanda/icon.png"
 
     def test_public_url(self) -> None:
         store = _store()
@@ -221,6 +237,55 @@ class TestCleanupStale:
         assert deleted == []
         client.delete_objects.assert_not_called()
 
+    def test_superseded_hashed_icon_is_collected(self) -> None:
+        """A refreshed icon leaves its predecessor unreferenced; cleanup must reap it."""
+        client = MagicMock()
+        self._paginated(
+            client,
+            [
+                {
+                    "Contents": [
+                        {"Key": "apps/ehpanda/2.7.4/EhPanda.ipa"},
+                        {"Key": "apps/ehpanda/icon-aaaaaaaaaaaa.png"},  # previous icon
+                        {"Key": "apps/ehpanda/icon-bbbbbbbbbbbb.png"},  # current icon
+                        {"Key": "apps/ehpanda/icon.png"},  # pre-migration leftover
+                    ]
+                }
+            ],
+        )
+        store = _store(client)
+        referenced = referenced_keys_from_apps(
+            store,
+            [
+                {
+                    "slug": "ehpanda",
+                    "ipaUrl": f"{BASE_URL}/apps/ehpanda/2.7.4/EhPanda.ipa",
+                    "iconUrl": f"{BASE_URL}/apps/ehpanda/icon-bbbbbbbbbbbb.png",
+                }
+            ],
+        )
+
+        deleted = store.cleanup_stale(["ehpanda"], referenced)
+
+        assert deleted == ["apps/ehpanda/icon-aaaaaaaaaaaa.png", "apps/ehpanda/icon.png"]
+
+    def test_icon_kept_when_refresh_skipped(self) -> None:
+        """No icon_path -> empty iconUrl -> merge keeps the old URL -> key survives."""
+        client = MagicMock()
+        self._paginated(
+            client,
+            [{"Contents": [{"Key": "apps/ehpanda/icon-aaaaaaaaaaaa.png"}]}],
+        )
+        store = _store(client)
+        # merge_apps preserved the pre-existing iconUrl, so it is still referenced.
+        referenced = referenced_keys_from_apps(
+            store,
+            [{"slug": "ehpanda", "iconUrl": f"{BASE_URL}/apps/ehpanda/icon-aaaaaaaaaaaa.png"}],
+        )
+
+        assert store.cleanup_stale(["ehpanda"], referenced) == []
+        client.delete_objects.assert_not_called()
+
     def test_only_requested_slugs_scanned(self) -> None:
         """Manual apps are never touched: only the given slugs get listed."""
         client = MagicMock()
@@ -259,17 +324,23 @@ class TestReferencedKeysFromApps:
 
 
 class TestUploadIcon:
-    """Icons sit at a stable, mutable key and must not be cached immutably."""
+    """Icons sit at a content-addressed key, so they cache immutably."""
 
     def test_uploads_png_with_icon_headers(self) -> None:
         client = MagicMock()
         store = _store(client)
-        url = store.upload_icon("JHenTai", b"\x89PNG\r\n\x1a\nfake")
+        png = b"\x89PNG\r\n\x1a\nfake"
+        expected_key = store.icon_key("JHenTai", png)
 
-        assert url == f"{BASE_URL}/apps/JHenTai/icon.png"
+        url = store.upload_icon("JHenTai", png)
+
+        assert url == f"{BASE_URL}/{expected_key}"
         kwargs = client.put_object.call_args.kwargs
-        assert kwargs["Key"] == "apps/JHenTai/icon.png"
-        assert kwargs["Body"] == b"\x89PNG\r\n\x1a\nfake"
+        assert kwargs["Key"] == expected_key
+        assert kwargs["Body"] == png
         assert kwargs["ContentType"] == ICON_CONTENT_TYPE
         assert kwargs["CacheControl"] == ICON_CACHE_CONTROL
-        assert "immutable" not in kwargs["CacheControl"]
+
+    def test_icon_cache_control_is_immutable(self) -> None:
+        """The zone's 4h browser TTL can't be purged; hashed keys must be immutable."""
+        assert "immutable" in ICON_CACHE_CONTROL

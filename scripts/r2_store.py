@@ -4,7 +4,7 @@
 The bucket holds every publishable artifact of the signing pipeline:
 
     apps/<slug>/<version>/<App>.ipa   # versioned IPA (immutable, one per release)
-    apps/<slug>/icon.png              # card icon (from the task's icon_path)
+    apps/<slug>/icon-<sha12>.png      # card icon (immutable, keyed by content)
     site/apps.json                    # the single data source for page + plist
 
 Credentials and bucket settings come from environment variables (GitHub
@@ -28,6 +28,7 @@ accepts its own location hints plus "auto".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -47,10 +48,17 @@ IPA_CACHE_CONTROL = "public, max-age=31536000, immutable"
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
 JSON_CACHE_CONTROL = "public, max-age=60"
 
-# Icons live at a stable, mutable key (apps/<slug>/icon.png) and are refreshed
-# whenever upstream changes theirs, so they cannot be cached immutably.
+# Icons are content-addressed (apps/<slug>/icon-<sha12>.png), so a refreshed
+# icon lands on a NEW key and is visible immediately — no purge needed, which
+# matters because the zone overrides short max-ages with a 4-hour browser TTL
+# and the pipeline holds no Cloudflare API token. Keys are never reused, so the
+# same immutable headers as the versioned IPAs apply.
 ICON_CONTENT_TYPE = "image/png"
-ICON_CACHE_CONTROL = "public, max-age=3600"
+ICON_CACHE_CONTROL = IPA_CACHE_CONTROL
+
+# Length of the hex sha256 prefix in an icon key. 12 hex chars = 48 bits, far
+# beyond collision range for a handful of icons per app.
+ICON_DIGEST_LENGTH = 12
 
 REQUIRED_ENV_VARS = (
     "R2_ACCOUNT_ID",
@@ -115,7 +123,17 @@ class R2Store:
         """Versioned object key for a signed IPA: ``apps/<slug>/<version>/<file>``."""
         return f"{self.key_prefix}/{slug}/{version}/{filename}"
 
-    def icon_key(self, slug: str) -> str:
+    def icon_key(self, slug: str, png_bytes: bytes) -> str:
+        """Content-addressed icon key: ``apps/<slug>/icon-<sha12>.png``.
+
+        Derived from the bytes rather than the slug, so re-uploading an
+        unchanged icon is a no-op and a changed one gets a fresh, uncached URL.
+        """
+        digest = hashlib.sha256(png_bytes).hexdigest()[:ICON_DIGEST_LENGTH]
+        return f"{self.key_prefix}/{slug}/icon-{digest}.png"
+
+    def legacy_icon_key(self, slug: str) -> str:
+        """The pre-content-addressing icon key; only the migration still needs it."""
         return f"{self.key_prefix}/{slug}/icon.png"
 
     def public_url(self, key: str) -> str:
@@ -158,8 +176,8 @@ class R2Store:
         )
 
     def upload_icon(self, slug: str, png_bytes: bytes) -> str:
-        """Upload a normalised PNG icon to ``apps/<slug>/icon.png``; returns its URL."""
-        key = self.icon_key(slug)
+        """Upload a normalised PNG icon to its content-addressed key; returns its URL."""
+        key = self.icon_key(slug, png_bytes)
         self._client.put_object(
             Bucket=self.bucket,
             Key=key,
@@ -187,6 +205,12 @@ class R2Store:
 
     # ── downloads ────────────────────────────────────────────────────────
 
+    def download_bytes(self, key: str) -> bytes:
+        """Fetch an object's raw bytes; raises ``ClientError`` when it is missing."""
+        response = self._client.get_object(Bucket=self.bucket, Key=key)
+        body: bytes = response["Body"].read()
+        return body
+
     def download_json(self, key: str) -> Optional[dict[str, Any]]:
         """Fetch and parse a JSON object; ``None`` when the key does not exist."""
         try:
@@ -201,10 +225,13 @@ class R2Store:
     # ── stale-version cleanup (D7) ───────────────────────────────────────
 
     def cleanup_stale(self, slugs: list[str], referenced_keys: set[str]) -> list[str]:
-        """Delete versioned IPA objects under ``apps/<slug>/`` no longer referenced.
+        """Delete objects under ``apps/<slug>/`` that apps.json no longer references.
 
-        The whitelist is derived from the *current* apps.json reference set (not
-        from time), so a version is only ever deleted once nothing points at it.
+        Covers superseded IPA versions and superseded content-addressed icons
+        alike. The whitelist is derived from the *current* apps.json reference
+        set (not from time), so a key is only ever deleted once nothing points
+        at it — an app whose icon refresh was skipped keeps the icon its entry
+        still names.
         Only the given slugs (the ones this run rebuilt) are inspected — manual
         app entries are never touched. Returns the list of deleted keys.
         """
@@ -220,15 +247,21 @@ class R2Store:
             stale = [key for key in keys if key not in referenced_keys]
             if not stale:
                 continue
-            # S3 delete_objects accepts up to 1000 keys per call; our volumes are tiny.
-            self._client.delete_objects(
-                Bucket=self.bucket,
-                Delete={"Objects": [{"Key": key} for key in stale]},
-            )
+            self.delete_keys(stale)
             deleted.extend(stale)
-            for key in stale:
-                print(f"[info] Deleted stale object: {key}")
         return deleted
+
+    def delete_keys(self, keys: list[str]) -> None:
+        """Delete the given object keys in one batch."""
+        if not keys:
+            return
+        # S3 delete_objects accepts up to 1000 keys per call; our volumes are tiny.
+        self._client.delete_objects(
+            Bucket=self.bucket,
+            Delete={"Objects": [{"Key": key} for key in keys]},
+        )
+        for key in keys:
+            print(f"[info] Deleted object: {key}")
 
 
 def referenced_keys_from_apps(store: R2Store, apps: list[dict[str, Any]]) -> set[str]:

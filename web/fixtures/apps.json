@@ -7,7 +7,7 @@
       "bundleId": "io.zeroclover.app.ehpanda",
       "version": "2.7.4",
       "ipaUrl": "https://ipa.zeroclover.io/apps/ehpanda/2.7.4/EhPanda.ipa",
-      "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon.png"
+      "iconUrl": "https://ipa.zeroclover.io/apps/ehpanda/icon-be92b2f7c2a8.png"
     },
     {
       "slug": "JHenTai",
@@ -15,7 +15,7 @@
       "bundleId": "io.zeroclover.app.jhentai",
       "version": "8.0.14",
       "ipaUrl": "https://ipa.zeroclover.io/apps/JHenTai/8.0.14/JHenTai.ipa",
-      "iconUrl": "https://ipa.zeroclover.io/apps/JHenTai/icon.png"
+      "iconUrl": "https://ipa.zeroclover.io/apps/JHenTai/icon-1c70bf269ccc.png"
     }
   ]
 }
