@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from qualify_backend_prerequisites import (
     ProfileEvidence,
     QualificationError,
+    ensure_bundle_resources,
     ensure_common_contract,
     exact_bundle_resources,
     profile_bundle_resource_id,
@@ -32,6 +33,49 @@ def test_exact_bundle_resources_requires_one_exact_match() -> None:
 def test_exact_bundle_resources_reports_all_missing_roles() -> None:
     with pytest.raises(QualificationError, match="root:example.root has 0 exact App IDs"):
         exact_bundle_resources([], {"root": "example.root"})
+
+
+def test_ensure_bundle_resources_creates_only_missing_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = [{"id": "root-id", "attributes": {"identifier": "example.root"}}]
+    refreshed = {
+        "data": [
+            *existing,
+            {"id": "extension-id", "attributes": {"identifier": "example.extension"}},
+        ]
+    }
+    calls: list[list[str]] = []
+
+    def fake_run_json(args: list[str]) -> dict:
+        calls.append(args)
+        if args[:2] == ["bundle-ids", "create"]:
+            return {"data": {"id": "extension-id"}}
+        return refreshed
+
+    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+
+    result = ensure_bundle_resources(
+        existing,
+        {"root": "example.root", "extension": "example.extension"},
+        {"root": "Root", "extension": "Extension"},
+        apply=True,
+    )
+
+    assert result == {"root": "root-id", "extension": "extension-id"}
+    create_calls = [args for args in calls if args[:2] == ["bundle-ids", "create"]]
+    assert create_calls == [
+        [
+            "bundle-ids",
+            "create",
+            "--identifier",
+            "example.extension",
+            "--name",
+            "Extension",
+            "--platform",
+            "IOS",
+        ]
+    ]
 
 
 def test_profile_bundle_resource_id_reads_embedded_relationship() -> None:

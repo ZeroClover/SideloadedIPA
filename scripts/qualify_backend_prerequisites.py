@@ -28,6 +28,12 @@ TARGET_BUNDLE_IDS = {
     "launch": "io.zeroclover.app.livecontainer.LaunchAppExtension",
     "share": "io.zeroclover.app.livecontainer.ShareExtension",
 }
+TARGET_NAMES = {
+    "root": "SideloadedIPA LiveContainer Qualification Root",
+    "process": "SideloadedIPA LiveContainer Qualification LiveProcess",
+    "launch": "SideloadedIPA LiveContainer Qualification Launch",
+    "share": "SideloadedIPA LiveContainer Qualification Share",
+}
 
 
 class QualificationError(RuntimeError):
@@ -139,6 +145,54 @@ def exact_bundle_resources(
     if problems:
         raise QualificationError("; ".join(problems))
     return resolved
+
+
+def ensure_bundle_resources(
+    bundles: Sequence[Mapping[str, Any]],
+    targets: Mapping[str, str],
+    names: Mapping[str, str],
+    apply: bool,
+) -> dict[str, str]:
+    try:
+        return exact_bundle_resources(bundles, targets)
+    except QualificationError:
+        if not apply:
+            raise
+
+    existing_identifiers = {
+        attributes["identifier"]
+        for bundle in bundles
+        if isinstance((attributes := bundle.get("attributes")), dict)
+        and isinstance(attributes.get("identifier"), str)
+    }
+    for role, identifier in targets.items():
+        if identifier in existing_identifiers:
+            continue
+        print(f"[qualification-apply] creating explicit App ID for {role}: {identifier}")
+        try:
+            run_json(
+                [
+                    "bundle-ids",
+                    "create",
+                    "--identifier",
+                    identifier,
+                    "--name",
+                    names[role],
+                    "--platform",
+                    "IOS",
+                ]
+            )
+        except QualificationError:
+            # The request may have succeeded before a timeout or transport error.
+            # Re-read exact state before deciding whether a retry is safe.
+            refreshed = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
+            try:
+                exact_bundle_resources(refreshed, {role: identifier})
+            except QualificationError:
+                raise
+
+    refreshed = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
+    return exact_bundle_resources(refreshed, targets)
 
 
 def profile_bundle_resource_id(profile: Mapping[str, Any]) -> str | None:
@@ -339,6 +393,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--certificate-der", type=Path, required=True)
     parser.add_argument("--private-dir", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--apply-bundle-ids", action="store_true")
     return parser.parse_args()
 
 
@@ -371,7 +426,12 @@ def main() -> int:
         raise QualificationError("no enabled iPhone or iPad is registered")
 
     bundles = data_list(run_json(["bundle-ids", "list", "--paginate"]), "bundle IDs")
-    bundle_resources = exact_bundle_resources(bundles, TARGET_BUNDLE_IDS)
+    bundle_resources = ensure_bundle_resources(
+        bundles,
+        TARGET_BUNDLE_IDS,
+        TARGET_NAMES,
+        apply=args.apply_bundle_ids,
+    )
     profiles = data_list(
         run_json(
             [

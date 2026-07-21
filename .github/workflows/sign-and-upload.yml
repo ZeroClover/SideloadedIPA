@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      qualification_apply:
+        description: Add missing qualification App IDs before the read-only probe
+        required: false
+        default: false
+        type: boolean
   repository_dispatch:
     types: [sign_ipas]
 
@@ -316,10 +321,15 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          python3 scripts/qualify_backend_prerequisites.py \
-            --certificate-der "$private_dir/certificate.der" \
-            --private-dir "$private_dir/profiles" \
+          args=(
+            --certificate-der "$private_dir/certificate.der"
+            --private-dir "$private_dir/profiles"
             --summary "$RUNNER_TEMP/backend-qualification/summary.json"
+          )
+          if [[ "${{ inputs.qualification_apply }}" == "true" ]]; then
+            args+=(--apply-bundle-ids)
+          fi
+          python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
 
       - name: Remove private qualification material
         if: ${{ always() }}
