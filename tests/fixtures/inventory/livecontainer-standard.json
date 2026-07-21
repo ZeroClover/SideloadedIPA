@@ -1,0 +1,38 @@
+{
+  "profile_bundles": [
+    {
+      "path": "Payload/LiveContainer.app",
+      "bundle_id": "com.kdt.livecontainer",
+      "executable": "LiveContainer",
+      "package_type": "APPL"
+    },
+    {
+      "path": "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex",
+      "bundle_id": "com.kdt.livecontainer.LaunchAppExtension",
+      "executable": "LaunchAppExtension",
+      "package_type": "XPC!"
+    },
+    {
+      "path": "Payload/LiveContainer.app/PlugIns/LiveProcess.appex",
+      "bundle_id": "com.kdt.livecontainer.LiveProcess",
+      "executable": "LiveProcess",
+      "package_type": "XPC!"
+    },
+    {
+      "path": "Payload/LiveContainer.app/PlugIns/ShareExtension.appex",
+      "bundle_id": "com.kdt.livecontainer.ShareExtension",
+      "executable": "ShareExtension",
+      "package_type": "XPC!"
+    }
+  ],
+  "frameworks": [
+    {
+      "path": "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/Frameworks/LiveProcessKit.framework",
+      "bundle_id": "com.kdt.livecontainer.LiveProcessKit",
+      "executable": "LiveProcessKit"
+    }
+  ],
+  "dylibs": [
+    "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/Frameworks/LiveProcessKit.framework/Support.dylib"
+  ]
+}
