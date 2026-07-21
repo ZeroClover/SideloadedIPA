@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // closer to the Liquid Glass aesthetic than bundled webfonts, with zero download cost.
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Vercel Speed Insights — real-user Core Web Vitals. The /next entrypoint
+            resolves the App Router route automatically; no props needed. */}
+        <SpeedInsights />
+      </body>
     </html>
   );
 }

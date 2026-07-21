@@ -9,6 +9,7 @@
     "test": "tsx scripts/check-plist-golden.ts"
   },
   "dependencies": {
+    "@vercel/speed-insights": "^2.0.0",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
