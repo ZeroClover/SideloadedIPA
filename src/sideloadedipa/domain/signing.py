@@ -18,6 +18,13 @@ class SigningBackendIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class ExpectedNodeEntitlements:
+    source_path: PurePosixPath
+    values: tuple[tuple[str, FrozenJsonValue], ...]
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class SigningNodePlan:
     source_path: PurePosixPath
     kind: BundleNodeKind

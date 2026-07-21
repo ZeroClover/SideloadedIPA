@@ -78,6 +78,7 @@ from sideloadedipa.domain.reconciliation import (
     reconcile_bundle_rules,
 )
 from sideloadedipa.domain.signing import (
+    ExpectedNodeEntitlements,
     SigningBackendIdentity,
     SigningNodePlan,
     SigningNodeResult,
@@ -111,6 +112,7 @@ __all__ = [
     "EntitlementSliceDigest",
     "EntitlementContext",
     "EntitlementTransformation",
+    "ExpectedNodeEntitlements",
     "FrozenJsonValue",
     "FrozenJsonObject",
     "freeze_json",
