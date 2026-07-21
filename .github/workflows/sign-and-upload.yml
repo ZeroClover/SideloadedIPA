@@ -193,6 +193,15 @@ jobs:
           REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
         run: uv run python scripts/run_signing.py
 
+      - name: Upload redacted run report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: signing-run-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/sideloadedipa-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Save cache
         if: always()
         uses: actions/cache/save@v5
