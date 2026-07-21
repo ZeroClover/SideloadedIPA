@@ -83,7 +83,7 @@ def test_run_parses_apply_publish_and_json_without_executing_business_logic() ->
 def test_default_application_returns_typed_error() -> None:
     stderr = io.StringIO()
 
-    exit_code = main(["inspect", "--json"], stderr=stderr)
+    exit_code = main(["plan", "--json"], stderr=stderr)
 
     assert exit_code == 2
     assert json.loads(stderr.getvalue())["code"] == "config.missing"

@@ -53,7 +53,7 @@
 - [x] 5.7 Add malicious-archive fixtures for every extraction guard plus malformed plist, missing/duplicate root, duplicate bundle ID, unknown executable type, and invalid entitlement payload cases.
 - [x] 5.8 Add synthetic graph fixtures for root app, multiple extensions, nested frameworks/dylibs, and a SideStore-style fifth extension.
 - [x] 5.9 Add an opt-in integration fixture that downloads only the pinned LiveContainer assets, verifies reviewed SHA-256 values, and asserts the four- versus five-profile-bearing-bundle inventories.
-- [ ] 5.10 Complete the `inspect` CLI and redacted canonical JSON/human reports, and shadow-run it against every current production task.
+- [x] 5.10 Complete the `inspect` CLI and redacted canonical JSON/human reports, and shadow-run it against every current production task.
 
 ## 6. Apple Resource Planning and Reconciliation
 

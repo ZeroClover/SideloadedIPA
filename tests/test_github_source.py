@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import json
+from email.message import Message
+from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request
 
 import pytest
 
-from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.sources import GitHubReleaseAsset, select_release_asset
+from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
+from sideloadedipa.sources import (
+    GitHubReleaseAsset,
+    fetch_github_release,
+)
+from sideloadedipa.sources import github as github_source
+from sideloadedipa.sources import (
+    github_repository_name,
+    select_release_asset,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "baseline"
 
@@ -22,6 +34,81 @@ def asset(name: str, **overrides: object) -> dict[str, object]:
     }
     value.update(overrides)
     return value
+
+
+class Response(BytesIO):
+    def __enter__(self) -> Response:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+
+def test_fetch_latest_release_uses_current_versioned_github_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[Request] = []
+
+    def open_request(request: Request, timeout: float) -> Response:
+        requests.append(request)
+        assert timeout == 30
+        return Response(json.dumps({"tag_name": "v1", "assets": []}).encode())
+
+    monkeypatch.setattr(github_source, "urlopen", open_request)
+
+    release = fetch_github_release(
+        "https://github.com/example/application.git", token="private-token"
+    )
+
+    assert release["tag_name"] == "v1"
+    assert (
+        requests[0].full_url == "https://api.github.com/repos/example/application/releases/latest"
+    )
+    headers = {key.lower(): value for key, value in requests[0].headers.items()}
+    assert headers["accept"] == "application/vnd.github+json"
+    assert headers["x-github-api-version"] == "2026-03-10"
+    assert headers["authorization"] == "Bearer private-token"
+
+
+def test_fetch_prerelease_skips_drafts_and_falls_back_to_published_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    releases = [
+        {"tag_name": "draft", "draft": True, "prerelease": True},
+        {"tag_name": "preview", "draft": False, "prerelease": True},
+        {"tag_name": "stable", "draft": False, "prerelease": False},
+    ]
+    monkeypatch.setattr(
+        github_source,
+        "urlopen",
+        lambda request, timeout: Response(json.dumps(releases).encode()),
+    )
+
+    release = fetch_github_release("git@github.com:example/application.git", use_prerelease=True)
+
+    assert release["tag_name"] == "preview"
+
+
+def test_repository_name_and_adapter_failures_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert (
+        github_repository_name("https://github.com/example/application/") == "example/application"
+    )
+    with pytest.raises(DomainError):
+        github_repository_name("https://example.com/example/application")
+
+    def fail(request: Request, timeout: float) -> Response:
+        raise HTTPError(request.full_url, 403, "secret body", Message(), None)
+
+    monkeypatch.setattr(github_source, "urlopen", fail)
+    with pytest.raises(AdapterError) as caught:
+        fetch_github_release("https://github.com/example/application", token="private-token")
+
+    assert caught.value.safe_details == (
+        ("adapter", "github-rest"),
+        ("operation", "read-release"),
+        ("status", 403),
+    )
+    assert "private-token" not in str(caught.value)
 
 
 def test_selects_one_asset_and_records_complete_evidence() -> None:

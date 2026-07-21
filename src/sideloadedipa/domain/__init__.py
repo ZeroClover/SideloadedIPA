@@ -21,6 +21,8 @@ from sideloadedipa.domain.common import (
     DiagnosticSeverity,
     FrozenJsonObject,
     FrozenJsonValue,
+    freeze_json,
+    thaw_json,
 )
 from sideloadedipa.domain.config import (
     BundleRule,
@@ -93,6 +95,8 @@ __all__ = [
     "EntitlementTransformation",
     "FrozenJsonValue",
     "FrozenJsonObject",
+    "freeze_json",
+    "thaw_json",
     "IdentifierStrategy",
     "MaterializedEntitlements",
     "OperationDisposition",

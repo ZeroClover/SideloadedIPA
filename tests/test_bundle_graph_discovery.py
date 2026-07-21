@@ -52,6 +52,15 @@ class FixedEntitlementInspector:
         return self.evidence
 
 
+class FailingEntitlementInspector:
+    def inspect(self, path: Path) -> MachOEntitlementEvidence:
+        raise DomainError(
+            ErrorCode.INVENTORY_ENTITLEMENTS_INVALID,
+            "fixture entitlement failure",
+            safe_details=(("path", str(path)), ("slice_index", 0)),
+        )
+
+
 def discover(root: Path, source_sha256: str = "a" * 64):
     return discover_bundle_graph(
         root,
@@ -219,6 +228,27 @@ def test_rejects_xml_der_entitlement_disagreement(tmp_path: Path) -> None:
     assert dict(caught.value.safe_details)["architecture"] == "ARM64"
 
 
+def test_entitlement_failure_replaces_workspace_path_with_bundle_path(tmp_path: Path) -> None:
+    make_bundle(
+        tmp_path,
+        "Payload/App.app",
+        identifier="com.example.app",
+        executable="App",
+        package_type="APPL",
+    )
+
+    with pytest.raises(DomainError) as caught:
+        discover_bundle_graph(
+            tmp_path,
+            "a" * 64,
+            macho_probe=MarkerMachOProbe(),
+            entitlement_inspector=FailingEntitlementInspector(),
+        )
+
+    assert caught.value.bundle_id == "com.example.app"
+    assert dict(caught.value.safe_details)["path"] == "Payload/App.app/App"
+
+
 def test_rejects_entitlement_disagreement_between_fat_slices(tmp_path: Path) -> None:
     make_bundle(
         tmp_path,
@@ -245,7 +275,9 @@ def test_rejects_entitlement_disagreement_between_fat_slices(tmp_path: Path) -> 
     assert caught.value.code is ErrorCode.INVENTORY_ENTITLEMENTS_DISAGREE
 
 
-def test_rejects_non_macho_bundle_dylib_and_unknown_executable(tmp_path: Path) -> None:
+def test_rejects_non_macho_bundle_and_dylib_but_ignores_executable_resource(
+    tmp_path: Path,
+) -> None:
     app = make_bundle(
         tmp_path,
         "Payload/App.app",
@@ -267,8 +299,8 @@ def test_rejects_non_macho_bundle_dylib_and_unknown_executable(tmp_path: Path) -
     unknown = app / "unknown-tool"
     unknown.write_bytes(b"script")
     unknown.chmod(0o755)
-    with pytest.raises(DomainError, match="not a supported Mach-O"):
-        discover(tmp_path)
+    graph = discover(tmp_path)
+    assert all(node.path.name != "unknown-tool" for node in graph.nodes)
 
 
 def test_rejects_duplicate_profile_bundle_identifiers(tmp_path: Path) -> None:

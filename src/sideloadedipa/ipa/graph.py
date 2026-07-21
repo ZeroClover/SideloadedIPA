@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import plistlib
-import stat
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -283,7 +282,21 @@ def _profile_evidence(
     inspector: EntitlementInspector,
 ) -> BundleNode:
     executable = extracted_root / Path(*node.executable_path.parts)
-    evidence = inspector.inspect(executable)
+    try:
+        evidence = inspector.inspect(executable)
+    except DomainError as error:
+        details = tuple(
+            (key, str(node.executable_path) if key == "path" else value)
+            for key, value in error.safe_details
+        )
+        raise DomainError(
+            error.code,
+            error.message,
+            task_name=error.task_name,
+            bundle_id=error.bundle_id or node.source_bundle_id,
+            remediation=error.remediation,
+            safe_details=details,
+        ) from error
     normalized = []
     slice_digests: list[EntitlementSliceDigest] = []
     xml_raw: list[tuple[str, bytes]] = []
@@ -426,12 +439,8 @@ def discover_bundle_structure(
                 raise _error("dylib is not a valid Mach-O binary", relative)
             nodes.append(_file_node(extracted_root, path, BundleNodeKind.DYLIB, nodes))
             continue
-        is_macho = probe.is_macho(path)
-        if is_macho:
+        if probe.is_macho(path):
             nodes.append(_file_node(extracted_root, path, BundleNodeKind.EXECUTABLE, nodes))
-            continue
-        if path.stat().st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
-            raise _error("executable file is not a supported Mach-O binary", relative)
 
     profile_ids: dict[str, PurePosixPath] = {}
     for node in nodes:

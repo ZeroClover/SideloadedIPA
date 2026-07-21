@@ -17,7 +17,9 @@ from sideloadedipa.application import (
     CommandResult,
     OutputFormat,
 )
+from sideloadedipa.domain import thaw_json
 from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
+from sideloadedipa.inspection import inspect_command
 
 
 def _unconfigured(request: CommandRequest) -> CommandResult:
@@ -30,7 +32,7 @@ def _unconfigured(request: CommandRequest) -> CommandResult:
 
 def default_application() -> Application:
     return Application(
-        inspect=_unconfigured,
+        inspect=inspect_command,
         plan=_unconfigured,
         sync=_unconfigured,
         sign=_unconfigured,
@@ -68,7 +70,14 @@ def _request(namespace: argparse.Namespace) -> CommandRequest:
 
 def _write_result(result: CommandResult, output_format: OutputFormat, stdout: TextIO) -> None:
     if output_format is OutputFormat.JSON:
-        print(json.dumps(dict(result.payload), sort_keys=True), file=stdout)
+        print(
+            json.dumps(
+                {key: thaw_json(value) for key, value in result.payload},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            file=stdout,
+        )
     elif result.human_output:
         print(result.human_output, file=stdout)
 
