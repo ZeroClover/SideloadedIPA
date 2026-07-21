@@ -116,5 +116,6 @@ class PublicationCandidate:
     artifact_path: str
     artifact_sha256: str
     icon_url: str | None
+    publication_enabled: bool
     plan: SigningPlan
     verification: VerificationResult

@@ -43,6 +43,8 @@ def _publication_error(candidate: PublicationCandidate, message: str) -> DomainE
 
 
 def _validate_candidate(candidate: PublicationCandidate) -> None:
+    if not candidate.publication_enabled:
+        raise _publication_error(candidate, "task publication is disabled by configuration")
     artifact = Path(candidate.artifact_path)
     if (
         not candidate.verification.passed

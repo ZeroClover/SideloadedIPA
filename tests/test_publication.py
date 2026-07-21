@@ -74,6 +74,7 @@ def candidate(artifact: Path) -> PublicationCandidate:
         str(artifact),
         digest,
         "https://cdn.example/apps/example/icon.png",
+        True,
         plan,
         verification,
     )
@@ -204,6 +205,20 @@ def test_batch_atomic_policy_blocks_all_candidates_after_upstream_failure(tmp_pa
             (candidate(artifact),),
             now=NOW,
             failed_task_names=("Other",),
+        )
+
+    assert gateway.calls == []
+
+
+def test_disabled_task_is_rejected_before_registry_or_upload(tmp_path: Path) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    gateway = RecordingGateway()
+
+    with pytest.raises(DomainError, match="publication is disabled"):
+        VerifiedPublicationService(gateway).publish(
+            (replace(candidate(artifact), publication_enabled=False),),
+            now=NOW,
         )
 
     assert gateway.calls == []
