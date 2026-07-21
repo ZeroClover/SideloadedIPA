@@ -9,6 +9,7 @@ dependencies = [
     "lief==1.0.0",
     "pillow>=10.4.0",
     "pyasn1==0.6.4",
+    "pyasn1-modules==0.4.2",
     "tomli>=2.0.0; python_version < '3.11'",
 ]
 
