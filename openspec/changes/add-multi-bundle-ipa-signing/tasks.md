@@ -91,7 +91,7 @@
 - [x] 8.5 Verify each profile-bearing bundle's target `CFBundleIdentifier`, embedded profile identity, team, certificate authorization, device eligibility, and dates.
 - [x] 8.6 Cryptographically verify every planned executable and nested seal, including frameworks/dylibs inside extensions, and fail on stale/ad-hoc/unintended identities.
 - [x] 8.7 Re-inventory output and compare graph parity, planned identifiers, executable set, safe archive structure, and protected non-signing payload content.
-- [ ] 8.8 Implement schema-versioned human/JSON verification reports and a single boolean publication gate derived only from required checks.
+- [x] 8.8 Implement schema-versioned human/JSON verification reports and a single boolean publication gate derived only from required checks.
 - [ ] 8.9 Add LiveContainer contract tests for four distinct profiles/IDs, root and `LiveProcess` sensitive entitlements plus exactly 128 keychain groups, and App Group-only Launch/Share policies.
 - [ ] 8.10 Add SideStore-variant tests requiring a fifth `LiveWidget` profile and its own reviewed policy rather than root-policy inheritance.
 - [ ] 8.11 Run an independent macOS oracle job for qualification/canary artifacts and investigate every Linux/macOS verification disagreement.

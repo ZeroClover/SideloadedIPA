@@ -21,11 +21,13 @@ from sideloadedipa.domain import (
     SigningNodePlan,
     SigningPlan,
     SigningResult,
+    VerificationFinding,
     VerificationResult,
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing_executor import execute_signing_plan, package_workspace_ipa
+from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 
 def sha256(path: Path) -> str:
@@ -158,7 +160,11 @@ class InspectingVerifier:
         self.called = True
         assert self.destination.read_bytes() == self.prior_content
         artifact_sha256 = "0" * 64 if self.wrong_digest else sha256(signed_ipa)
-        return VerificationResult(plan.plan_sha256, artifact_sha256, self.passed, (), "f" * 64)
+        findings = tuple(
+            VerificationFinding(path, check.replace("*", "arm64"), self.passed)
+            for path, check in required_verification_checks(plan)
+        )
+        return build_verification_result(plan, artifact_sha256, findings)
 
 
 def test_signs_copy_rewrites_identifier_and_promotes_after_verification(tmp_path: Path) -> None:

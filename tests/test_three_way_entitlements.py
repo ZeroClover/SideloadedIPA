@@ -162,6 +162,21 @@ def test_detects_xml_der_disagreement_and_wrong_team_prefix() -> None:
     )
 
 
+def test_missing_xml_or_der_evidence_fails_the_exact_slice() -> None:
+    evidence = artifact()
+    node = evidence.nodes[0]
+    missing_der = replace(node.slices[0], der=None)
+
+    findings = verify_three_way_entitlements(
+        plan(),
+        (profile(),),
+        replace(evidence, nodes=(replace(node, slices=(missing_der,)),)),
+    )
+
+    assert "signed-entitlements:ARM64:der" in failed_checks(findings)
+    assert "xml-der-entitlements:ARM64" in failed_checks(findings)
+
+
 def test_allows_only_exact_explicit_profile_defaults_for_one_node() -> None:
     signed = {**EXPECTED, "get-task-allow": True}
     defaults = {ROOT: {"get-task-allow": True}}

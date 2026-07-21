@@ -29,12 +29,14 @@ from sideloadedipa.domain import (
     SigningPlan,
     SigningResult,
     Task,
+    VerificationFinding,
     VerificationResult,
     normalize_entitlements,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
 from sideloadedipa.signing_service import PackageSigningRequest, execute_package_signing
+from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 BACKEND_IDENTITY = SigningBackendIdentity(
@@ -91,12 +93,12 @@ class CopyBackend:
 @dataclass
 class PassingVerifier:
     def verify(self, plan: SigningPlan, signed_ipa: Path) -> VerificationResult:
-        return VerificationResult(
-            plan.plan_sha256,
-            hashlib.sha256(signed_ipa.read_bytes()).hexdigest(),
-            True,
-            (),
-            "b" * 64,
+        findings = tuple(
+            VerificationFinding(path, check.replace("*", "arm64"), True)
+            for path, check in required_verification_checks(plan)
+        )
+        return build_verification_result(
+            plan, hashlib.sha256(signed_ipa.read_bytes()).hexdigest(), findings
         )
 
 

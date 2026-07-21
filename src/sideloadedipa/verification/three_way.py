@@ -152,7 +152,18 @@ def verify_three_way_entitlements(
             continue
 
         for item in evidence.slices:
-            if item.xml is not None and item.der is not None:
+            if item.xml is None or item.der is None:
+                missing_name = "xml" if item.xml is None else "der"
+                findings.append(
+                    _finding(
+                        node.source_path,
+                        f"xml-der-entitlements:{item.architecture}",
+                        _missing_comparison(f"missing-signed-{missing_name}-evidence"),
+                        task_name=plan.task_name,
+                        bundle_id=node.target_bundle_id,
+                    )
+                )
+            else:
                 xml_der = compare_entitlements(
                     _representation_document(item.xml),
                     _representation_document(item.der),
@@ -170,6 +181,16 @@ def verify_three_way_entitlements(
                 )
             for representation_name, signed in (("xml", item.xml), ("der", item.der)):
                 if signed is None:
+                    findings.append(
+                        _finding(
+                            node.source_path,
+                            f"signed-entitlements:{item.architecture}:{representation_name}",
+                            _missing_comparison(f"missing-signed-{representation_name}-evidence"),
+                            task_name=plan.task_name,
+                            bundle_id=node.target_bundle_id,
+                            expected_sha256=expected_sha256,
+                        )
+                    )
                     continue
                 signed_comparison = compare_entitlements(
                     expected,

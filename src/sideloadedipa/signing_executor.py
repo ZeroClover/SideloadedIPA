@@ -22,6 +22,10 @@ from sideloadedipa.domain import (
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.ports import SigningBackend, Verifier
+from sideloadedipa.verification.report import (
+    verification_publication_gate,
+    verification_report_sha256,
+)
 from sideloadedipa.workspace import task_workspace
 
 _ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -135,12 +139,15 @@ def _validate_verification_result(
     artifact_sha256: str,
 ) -> None:
     mismatches: list[tuple[str, str]] = []
-    if not result.passed:
+    publication_allowed = verification_publication_gate(plan, result)
+    if not publication_allowed or result.passed != publication_allowed:
         mismatches.append(("verification_passed", "false"))
     if result.plan_sha256 != plan.plan_sha256:
         mismatches.append(("verification_plan_sha256", result.plan_sha256))
     if result.artifact_sha256 != artifact_sha256:
         mismatches.append(("verification_artifact_sha256", result.artifact_sha256))
+    if result.report_sha256 != verification_report_sha256(plan, result):
+        mismatches.append(("verification_report_sha256", result.report_sha256))
     if mismatches:
         raise _execution_error(
             plan,
