@@ -44,7 +44,7 @@
 
 ## 5. Safe IPA Inventory
 
-- [ ] 5.1 Implement source-asset streaming/download digest verification and immutable task-scoped workspace management.
+- [x] 5.1 Implement source-asset streaming/download digest verification and immutable task-scoped workspace management.
 - [ ] 5.2 Implement ZIP preflight and safe extraction checks for absolute/traversal/NUL/duplicate-normalized paths, links/special files, entry count, expanded size, and compression ratio.
 - [ ] 5.3 Implement exactly-one-root `Payload/*.app` discovery with validated `Info.plist`, executable path, bundle identifier, and version metadata.
 - [ ] 5.4 Implement recursive graph discovery for profile-bearing apps/extensions and profile-free frameworks, dylibs, and Mach-O executables, including nested frameworks inside extensions.
