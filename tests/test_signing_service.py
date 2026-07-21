@@ -32,7 +32,7 @@ from sideloadedipa.domain import (
     VerificationResult,
     normalize_entitlements,
 )
-from sideloadedipa.errors import ConfigurationError, ErrorCode
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
 from sideloadedipa.signing_service import PackageSigningRequest, execute_package_signing
 
@@ -66,6 +66,8 @@ def write_source(path: Path, source_bundle_id: str) -> str:
 
 @dataclass
 class CopyBackend:
+    called: bool = False
+
     def sign(
         self,
         plan: SigningPlan,
@@ -74,6 +76,7 @@ class CopyBackend:
         certificate: CertificateMaterial,
     ) -> SigningResult:
         del certificate
+        self.called = True
         shutil.copy2(source, output)
         return SigningResult(
             plan.plan_sha256,
@@ -208,3 +211,19 @@ def test_legacy_engine_cannot_enter_package_route(tmp_path: Path) -> None:
 
     assert caught.value.code is ErrorCode.CONFIG_INVALID
     assert not request.destination_ipa.exists()
+
+
+def test_profile_authorization_failure_precedes_backend_and_workspace(tmp_path: Path) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    request = request_for(task, tmp_path)
+    profile = replace(request.profiles[0], entitlements=normalize_entitlements({}).values)
+    backend = request.backend
+    assert isinstance(backend, CopyBackend)
+
+    with pytest.raises(DomainError) as caught:
+        execute_package_signing(replace(request, profiles=(profile,)))
+
+    assert caught.value.code is ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED
+    assert backend.called is False
+    assert not request.destination_ipa.exists()
+    assert not (tmp_path / ".sideloadedipa-signing").exists()

@@ -251,7 +251,7 @@ def test_rejects_identity_type_certificate_device_and_date_mismatches(
     assert caught.value.bundle_id == BUNDLE_ID
 
 
-def test_rejects_missing_entitlement_with_requested_key_and_value() -> None:
+def test_rejects_missing_entitlement_with_redacted_comparison_evidence() -> None:
     _, _, certificate_der = make_certificate()
     document = profile_document(certificate_der)
     entitlements = document["Entitlements"]
@@ -268,10 +268,12 @@ def test_rejects_missing_entitlement_with_requested_key_and_value() -> None:
         )
 
     assert caught.value.code is ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED
-    assert dict(caught.value.safe_details) == {
-        "key": "com.apple.security.application-groups",
-        "expected_value": ("group.io.example.shared",),
-    }
+    details = dict(caught.value.safe_details)
+    assert details["key"] == "com.apple.security.application-groups"
+    assert details["reason"] == "set-mismatch"
+    assert len(details["expected_sha256"]) == 64
+    assert len(details["actual_sha256"]) == 64
+    assert "group.io.example" not in repr(caught.value.safe_details)
 
 
 def test_app_group_authorization_requires_the_exact_expected_set() -> None:

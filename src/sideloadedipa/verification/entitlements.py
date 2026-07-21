@@ -146,6 +146,11 @@ def _compare_value(
         if key in set_like_keys:
             reason = _set_like_comparison(key, expected, actual, mode)
             return _difference(path, reason, expected, actual) if reason is not None else None
+        if mode is EntitlementComparisonMode.PROFILE_AUTHORIZATION:
+            actual_values = tuple(freeze_json(value) for value in actual)
+            if all(freeze_json(value) in actual_values for value in expected):
+                return None
+            return _difference(path, "unauthorized-value", expected, actual)
         if len(expected) != len(actual):
             return _difference(path, "ordered-length-mismatch", expected, actual)
         for index, (expected_value, actual_value) in enumerate(zip(expected, actual)):

@@ -46,6 +46,21 @@ def test_only_declared_set_like_arrays_ignore_order_and_reject_duplicates() -> N
     assert reasons({"ordered": [1, 2]}, {"ordered": [2, 1]}) == ["value-mismatch"]
 
 
+def test_profile_array_authorization_allows_a_declared_value_subset() -> None:
+    mode = EntitlementComparisonMode.PROFILE_AUTHORIZATION
+
+    assert compare_entitlements(
+        {"allowed-values": ["two"]},
+        {"allowed-values": ["one", "two"]},
+        mode=mode,
+    ).passed
+    assert reasons(
+        {"allowed-values": ["three"]},
+        {"allowed-values": ["one", "two"]},
+        mode=mode,
+    ) == ["unauthorized-value"]
+
+
 def test_app_groups_are_exact_even_for_profile_authorization() -> None:
     key = "com.apple.security.application-groups"
     mode = EntitlementComparisonMode.PROFILE_AUTHORIZATION

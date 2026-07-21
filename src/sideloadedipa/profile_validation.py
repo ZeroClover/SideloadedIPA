@@ -19,11 +19,10 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
 from sideloadedipa.subprocesses import SubprocessRunner
+from sideloadedipa.verification import EntitlementComparisonMode, compare_entitlements
 
 _APPLICATION_IDENTIFIER = "application-identifier"
 _TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
-_KEYCHAIN_GROUPS = "keychain-access-groups"
-_APP_GROUPS = "com.apple.security.application-groups"
 
 
 def _invalid_profile(
@@ -133,37 +132,6 @@ def _string_list(value: object, field: str, request: ProfileValidationRequest) -
     return tuple(value)
 
 
-def _wildcard_authorizes(allowed: str, expected: str) -> bool:
-    return allowed == expected or (allowed.endswith("*") and expected.startswith(allowed[:-1]))
-
-
-def _value_is_authorized(key: str, allowed: object, expected: object) -> bool:
-    if key == _KEYCHAIN_GROUPS:
-        if not isinstance(allowed, list) or not isinstance(expected, list):
-            return False
-        if any(not isinstance(value, str) for value in (*allowed, *expected)):
-            return False
-        return all(
-            any(_wildcard_authorizes(candidate, value) for candidate in allowed)
-            for value in expected
-        )
-    if key == _APP_GROUPS:
-        return (
-            isinstance(allowed, list)
-            and isinstance(expected, list)
-            and sorted(allowed, key=repr) == sorted(expected, key=repr)
-        )
-    if isinstance(expected, list):
-        return isinstance(allowed, list) and all(value in allowed for value in expected)
-    if isinstance(expected, dict):
-        return isinstance(allowed, dict) and all(
-            child_key in allowed
-            and _value_is_authorized(f"{key}.{child_key}", allowed[child_key], child_value)
-            for child_key, child_value in expected.items()
-        )
-    return allowed == expected
-
-
 def validate_entitlement_authorization(
     profile_entitlements: Mapping[str, object],
     expected_entitlements: Mapping[str, object],
@@ -186,19 +154,26 @@ def validate_expected_entitlements(
 ) -> None:
     """Apply provisioning-profile authorization semantics to planned entitlements."""
 
-    for key in sorted(expected_entitlements):
-        expected = expected_entitlements[key]
-        if key not in profile_entitlements or not _value_is_authorized(
-            key, profile_entitlements.get(key), expected
-        ):
-            normalized = normalize_entitlements({key: expected})
-            raise DomainError(
-                ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED,
-                "provisioning profile does not authorize a required entitlement value",
-                bundle_id=bundle_id,
-                remediation="enable the capability or replace the profile before signing",
-                safe_details=(("key", key), ("expected_value", normalized.values[0][1])),
-            )
+    comparison = compare_entitlements(
+        expected_entitlements,
+        profile_entitlements,
+        mode=EntitlementComparisonMode.PROFILE_AUTHORIZATION,
+    )
+    if comparison.passed:
+        return
+    difference = comparison.differences[0]
+    raise DomainError(
+        ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED,
+        "provisioning profile does not authorize a required entitlement value",
+        bundle_id=bundle_id,
+        remediation="enable the capability or replace the profile before signing",
+        safe_details=(
+            ("key", difference.path),
+            ("reason", difference.reason),
+            ("expected_sha256", difference.expected_sha256),
+            ("actual_sha256", difference.actual_sha256),
+        ),
+    )
 
 
 def validate_provisioning_profile(
