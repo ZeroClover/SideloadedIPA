@@ -11,12 +11,14 @@ Recorded on 2026-07-21 while starting task section 2.
 - The extracted macOS arm64 `zsign` executable SHA-256 is `7e95a575570708c961f363a620148247b963b2081692d1bd4941d6e3df83bd66`.
 - Running the executable reports `version: 1.1.1`; its help confirms repeated profile inputs are accepted while entitlements remain a single option.
 - The checksum-published Linux musl archive SHA-256 is `9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9`.
+- [Development-branch qualification run 29826420918](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29826420918) checksum-verified that archive on `ubuntu-latest`, reported zsign `1.1.1`, and recorded Linux executable SHA-256 `1f8c8c1576284a395450d8bf26b1e63d19822dac924fe020110d0ab803a44d24`.
+- The isolated job confirmed the documented CLI shape: repeated `-m` profile arguments are supported and `-e` remains one global entitlement argument. The production sign/upload job was skipped, no artifact was uploaded, and the private runner directory was removed on failure.
 
 ## Qualification blocker
 
-The repository and local provisioning-profile directory contain no development `.mobileprovision` fixtures, and the current process has no App Store Connect credentials or P12 input. Two local code-signing identities exist, but a signing identity alone cannot create the four distinct Apple-authorized profiles required by tasks 2.1–2.5.
+The repository and local provisioning-profile directory contain no development `.mobileprovision` fixtures. CI has valid App Store Connect and P12 credentials, but the read-only qualification run proved that only the root target App ID currently exists. The exact `LiveProcess`, `LaunchAppExtension`, and `ShareExtension` target App IDs are absent, so no corresponding development profiles can exist yet.
 
-The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating those profiles would require selecting a developer team and creating or changing four Apple App IDs/capabilities, which is external account mutation and cannot be inferred from the repository. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
+The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating the three missing profiles requires persistent additive Apple account mutation through the official API, plus App Group/capability setup where the public API permits it. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
 
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
 
