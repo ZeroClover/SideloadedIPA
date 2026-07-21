@@ -40,15 +40,48 @@ def test_loads_current_production_configuration() -> None:
         "Eros FE",
         "Asspp",
         "PiliPlus",
+        "LiveContainer",
         "StikDebug",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
     assert configuration.tasks[0].source.release_glob == "*.ipa"
     assert configuration.tasks[-1].icon_path == "ipa:"
-    assert all(task.signing_engine is SigningEngine.LEGACY for task in configuration.tasks)
+    assert all(
+        task.signing_engine is SigningEngine.LEGACY
+        for task in configuration.tasks
+        if task.task_name != "LiveContainer"
+    )
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
+
+
+def test_production_livecontainer_is_exactly_scoped_and_non_publishing() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
+
+    assert task.bundle_id == "io.zeroclover.app.livecontainer"
+    assert task.source.release_glob == "LiveContainer.ipa"
+    assert task.signing_engine is SigningEngine.PACKAGE
+    assert task.publication_enabled is False
+    assert task.signing is not None
+    assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
+    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
+        "com.kdt.livecontainer",
+        "com.kdt.livecontainer.LiveProcess",
+        "com.kdt.livecontainer.LaunchAppExtension",
+        "com.kdt.livecontainer.ShareExtension",
+    ]
+    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
+    assert task.signing.bundles[0].role == "root"
+    assert all(
+        str(rule.entitlement_policy.template_path)
+        == "configs/signing/livecontainer/root-process.plist"
+        for rule in task.signing.bundles[:2]
+    )
+    assert all(
+        rule.entitlement_policy.mode is EntitlementMode.PROFILE for rule in task.signing.bundles[2:]
+    )
 
 
 def test_preserves_legacy_defaults_and_r2_field_names() -> None:
@@ -173,9 +206,12 @@ def test_signing_schema_uses_documented_defaults() -> None:
 
 
 def test_parses_per_task_package_engine_opt_in() -> None:
-    task = parse_configuration({"tasks": [direct_task(signing_engine="package")]}).tasks[0]
+    task = parse_configuration(
+        {"tasks": [direct_task(signing_engine="package", publication_enabled=False)]}
+    ).tasks[0]
 
     assert task.signing_engine is SigningEngine.PACKAGE
+    assert task.publication_enabled is False
 
 
 @pytest.mark.parametrize(
@@ -196,6 +232,7 @@ def test_parses_per_task_package_engine_opt_in() -> None:
         (direct_task(use_prerelease="yes"), "use_prerelease"),
         (direct_task(release_glob="*.ipa"), "release_glob|use_prerelease"),
         (direct_task(signing_engine="future"), "signing_engine"),
+        (direct_task(publication_enabled="false"), "publication_enabled"),
     ],
 )
 def test_rejects_invalid_legacy_task_fields(task: dict[str, object], field: str) -> None:

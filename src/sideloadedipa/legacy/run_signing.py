@@ -631,7 +631,7 @@ def main() -> int:
 
     print(f"[info] Using config: {config_path}")
     cfg = read_toml(config_path)
-    tasks = cfg.get("tasks", [])
+    tasks = [task for task in cfg.get("tasks", []) if task.get("publication_enabled", True)]
     if not tasks:
         print("[warn] No tasks defined in TOML")
         return 0

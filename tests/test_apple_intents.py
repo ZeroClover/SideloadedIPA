@@ -42,6 +42,43 @@ def test_derives_livecontainer_identifiers_capabilities_and_account_names() -> N
     assert intents[2].entitlement_policy.mode is EntitlementMode.PRESERVE_SOURCE
 
 
+def test_production_livecontainer_derives_exact_four_resource_intents() -> None:
+    task = next(
+        task
+        for task in load_configuration(Path("configs/tasks.toml")).tasks
+        if task.task_name == "LiveContainer"
+    )
+
+    intents = derive_bundle_resource_intents(task)
+
+    assert [intent.target_bundle_id for intent in intents] == [
+        "io.zeroclover.app.livecontainer",
+        "io.zeroclover.app.livecontainer.LaunchAppExtension",
+        "io.zeroclover.app.livecontainer.LiveProcess",
+        "io.zeroclover.app.livecontainer.ShareExtension",
+    ]
+    assert [intent.profile_name for intent in intents] == [
+        "LiveContainer Dev",
+        "LiveContainer LaunchAppExtension Dev",
+        "LiveContainer LiveProcess Dev",
+        "LiveContainer ShareExtension Dev",
+    ]
+    assert all(
+        intent.app_groups == ("group.io.zeroclover.app.livecontainer",) for intent in intents
+    )
+    assert intents[1].required_capabilities == ("APP_GROUPS",)
+    assert intents[3].required_capabilities == ("APP_GROUPS",)
+    assert intents[0].required_capabilities == (
+        "APP_GROUPS",
+        "CLINICAL_HEALTH_RECORDS",
+        "HEALTHKIT",
+        "HEALTHKIT_BACKGROUND_DELIVERY",
+        "INCREASED_MEMORY_LIMIT",
+        "KEYCHAIN_SHARING",
+    )
+    assert intents[2].required_capabilities == intents[0].required_capabilities
+
+
 def test_legacy_task_retains_one_root_profile_name() -> None:
     task = load_configuration(FIXTURE).tasks[0]
 

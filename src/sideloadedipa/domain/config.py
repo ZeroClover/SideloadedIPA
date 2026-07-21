@@ -84,6 +84,7 @@ class Task:
     icon_path: str | None = None
     signing: SigningPolicy | None = None
     signing_engine: SigningEngine = SigningEngine.LEGACY
+    publication_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)

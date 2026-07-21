@@ -42,7 +42,7 @@ def load_tasks() -> list[dict[str, str]]:
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
 
-    tasks = config.get("tasks", [])
+    tasks = [task for task in config.get("tasks", []) if task.get("publication_enabled", True)]
     if not tasks:
         raise ValueError(f"No tasks defined in {config_path}")
 

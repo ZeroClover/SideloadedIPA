@@ -143,7 +143,7 @@ def load_tasks(toml_path: Path) -> List[Dict]:
     with toml_path.open("rb") as f:
         config = tomllib.load(f)
 
-    return config.get("tasks", [])
+    return [task for task in config.get("tasks", []) if task.get("publication_enabled", True)]
 
 
 def parse_repo_url(repo_url: str) -> tuple[str, str]:

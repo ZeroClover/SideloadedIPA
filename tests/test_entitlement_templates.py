@@ -63,6 +63,37 @@ def test_expands_only_typed_placeholders_and_preserves_value_types(
     }
 
 
+def test_production_livecontainer_template_has_reviewed_sensitive_entitlements() -> None:
+    document = load_entitlement_template(
+        Path.cwd(),
+        PurePosixPath("configs/signing/livecontainer/root-process.plist"),
+        EntitlementTemplateContext(
+            team_id="TEAMID1234",
+            app_identifier_prefix="TEAMID1234.",
+            target_bundle_id="io.zeroclover.app.livecontainer.LiveProcess",
+            app_groups=(("shared", "group.io.zeroclover.app.livecontainer"),),
+        ),
+    )
+
+    assert document["application-identifier"] == (
+        "TEAMID1234.io.zeroclover.app.livecontainer.LiveProcess"
+    )
+    assert document["com.apple.developer.team-identifier"] == "TEAMID1234"
+    assert document["com.apple.security.application-groups"] == [
+        "group.io.zeroclover.app.livecontainer"
+    ]
+    assert document["com.apple.developer.healthkit"] is True
+    assert document["com.apple.developer.healthkit.access"] == ["health-records"]
+    assert document["com.apple.developer.healthkit.background-delivery"] is True
+    assert document["com.apple.developer.kernel.increased-memory-limit"] is True
+    groups = document["keychain-access-groups"]
+    assert isinstance(groups, list)
+    assert len(groups) == 128
+    assert groups[0] == "TEAMID1234.com.kdt.livecontainer.shared"
+    assert groups[-1] == "TEAMID1234.com.kdt.livecontainer.shared.127"
+    assert len(set(groups)) == 128
+
+
 @pytest.mark.parametrize(
     ("value", "message"),
     [

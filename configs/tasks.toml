@@ -70,16 +70,47 @@ repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 slug = "PiliPlus"
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
-# LiveContainer: temporarily deferred. It ships 3-4 nested app extensions and
-# heavy entitlements (App Groups, HealthKit, increased-memory-limit, 128
-# keychain-access-groups) that this single-profile resign pipeline cannot
-# satisfy. Re-enabling requires multi-profile resign + dedicated nested App IDs.
-# [[tasks]]
-# task_name = "LiveContainer"
-# app_name = "LiveContainer"
-# bundle_id = "io.zeroclover.app.livecontainer"
-# repo_url = "https://github.com/LiveContainer/LiveContainer"
-# slug = "LiveContainer"
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.zeroclover.app.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
+slug = "LiveContainer"
+signing_engine = "package"
+publication_enabled = false
+
+[tasks.signing]
+id_strategy = "preserve-source-suffix"
+unknown_profile_bundles = "error"
+profile_type = "IOS_APP_DEVELOPMENT"
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.app.livecontainer"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.zeroclover.app.livecontainer"
+role = "root"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
 
 [[tasks]]
 task_name = "StikDebug"

@@ -123,7 +123,7 @@
 
 ## 11. LiveContainer Prerequisites and Canary
 
-- [ ] 11.1 Extend and uncomment the existing deferred LiveContainer entry in `configs/tasks.toml`, retain `bundle_id = "io.zeroclover.app.livecontainer"`, and add the reviewed exact `LiveContainer.ipa` selector, four bundle rules, target identifier strategy, version-controlled entitlement templates, and publication-disabled state.
+- [x] 11.1 Extend and uncomment the existing deferred LiveContainer entry in `configs/tasks.toml`, retain `bundle_id = "io.zeroclover.app.livecontainer"`, and add the reviewed exact `LiveContainer.ipa` selector, four bundle rules, target identifier strategy, version-controlled entitlement templates, and publication-disabled state.
 - [x] 11.2 **Manual:** choose and register a team-owned App Group identifier, associate it with root/Launch/LiveProcess/Share App IDs as required, and record non-secret evidence in the readiness checklist.
 - [ ] 11.3 **Manual:** enable HealthKit, Increased Memory Limit, and Keychain Sharing for root and `LiveProcess`; keep Clinical Health Records and HealthKit background delivery in the reviewed local entitlement templates rather than treating them as separate Portal capabilities.
 - [ ] 11.4 Run read-only plan mode and confirm it reports exactly four target App IDs/profiles, the intended App Group mapping, supported automatic changes, and no unresolved/ambiguous bundle.
