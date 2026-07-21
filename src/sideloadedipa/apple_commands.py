@@ -188,7 +188,6 @@ class AscAppleCommandBackend:
         reconciler = ProfileReconciler(
             self.profiles,
             MobileProvisionValidator(
-                now=datetime.now(timezone.utc),
                 refresh_threshold=_PROFILE_REFRESH_THRESHOLD,
             ),
         )

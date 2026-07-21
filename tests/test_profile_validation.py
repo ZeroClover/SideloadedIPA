@@ -164,6 +164,21 @@ def test_verifies_cms_and_validates_complete_profile(tmp_path: Path) -> None:
     assert all(udid not in repr(validated) for udid in DEVICE_UDIDS)
 
 
+def test_validator_uses_validation_time_when_no_clock_is_pinned(tmp_path: Path) -> None:
+    key, certificate, certificate_der = make_certificate()
+    current = datetime.now(timezone.utc)
+    document = profile_document(certificate_der)
+    document["CreationDate"] = current - timedelta(minutes=1)
+    document["ExpirationDate"] = current + timedelta(days=90)
+    path = sign_payload(tmp_path, plistlib.dumps(document), key, certificate)
+
+    validated = MobileProvisionValidator(
+        refresh_threshold=timedelta(days=30),
+    ).validate(path.read_bytes(), request(certificate_der))
+
+    assert validated.created_at == document["CreationDate"].replace(microsecond=0)
+
+
 def test_rejects_tampered_cms_and_non_plist_payload(tmp_path: Path) -> None:
     key, certificate, certificate_der = make_certificate()
     valid = sign_payload(
