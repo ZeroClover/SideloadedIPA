@@ -23,7 +23,7 @@
     ]
   },
   "capabilities": {
-    "BUNDLE_CHILD": {"data": []},
+    "BUNDLE_CHILD": {"data": null},
     "BUNDLE_ROOT": {
       "data": [
         {

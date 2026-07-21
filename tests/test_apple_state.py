@@ -153,6 +153,15 @@ def test_snapshot_digest_is_independent_of_api_list_order() -> None:
     assert first == second
 
 
+def test_normalizes_paginated_null_data_as_an_empty_list() -> None:
+    value = fixture()
+    value["profiles"] = {"data": None}
+
+    snapshot = AppleStateCollector(FixtureClient(value)).collect()
+
+    assert snapshot.profiles == ()
+
+
 @pytest.mark.parametrize(
     ("mutate", "field"),
     [

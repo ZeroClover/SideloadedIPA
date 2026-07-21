@@ -73,6 +73,8 @@ def _response_mapping(response: AscResponse, field: str) -> Mapping[str, object]
 def _data_list(response: AscResponse, field: str) -> tuple[Mapping[str, object], ...]:
     document = _response_mapping(response, field)
     data = document.get("data")
+    if data is None:
+        return ()
     if not isinstance(data, list):
         raise _invalid(f"{field}.data must be an array", f"{field}.data")
     return tuple(_mapping(item, f"{field}.data[{index}]") for index, item in enumerate(data))
