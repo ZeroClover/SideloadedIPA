@@ -121,6 +121,9 @@ publication_enabled = false
 id_strategy = "preserve-source-suffix"
 unknown_profile_bundles = "error"
 profile_type = "IOS_APP_DEVELOPMENT"
+# After an Account Holder/Admin registers and assigns the group to every relevant
+# App ID, record the reviewed alias here. Profile validation remains mandatory.
+# manual_app_group_associations = ["shared"]
 
 [tasks.signing.app_groups]
 shared = "group.io.example.livecontainer"

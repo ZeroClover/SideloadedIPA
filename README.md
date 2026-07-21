@@ -150,6 +150,7 @@ publication_enabled = false
 id_strategy = "preserve-source-suffix"
 unknown_profile_bundles = "error"
 profile_type = "IOS_APP_DEVELOPMENT"
+manual_app_group_associations = ["shared"]
 
 [tasks.signing.app_groups]
 shared = "group.io.zeroclover.app.livecontainer"
@@ -178,6 +179,12 @@ source_bundle_id = "com.kdt.livecontainer.ShareExtension"
 required_capabilities = ["APP_GROUPS"]
 entitlement_mode = "profile"
 ```
+
+`manual_app_group_associations` records a reviewed Account Holder/Admin
+confirmation only when the public App Store Connect API cannot expose the App
+Group relationship. It names aliases from `tasks.signing.app_groups` and applies
+to every configured bundle rule that requires `APP_GROUPS`. It does not bypass
+the exact App Group authorization check on every generated or reused profile.
 
 Nested target IDs preserve the suffix below the source root unless a reviewed
 `target_bundle_id` override is present. `unknown_profile_bundles = "error"`

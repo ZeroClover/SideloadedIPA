@@ -43,6 +43,12 @@ the public API cannot inspect the relationship. Clinical Health Records,
 HealthKit background delivery, and Keychain Sharing are reviewed local
 entitlement values, not additional Portal resources in this workflow.
 
+After App Group registration and every required App ID assignment have been
+reviewed, record the configured alias in
+`tasks.signing.manual_app_group_associations`. This closes only the relationship
+operation that the public API cannot observe; profile synchronization still
+validates the exact App Group entitlement for every affected bundle.
+
 Apply only after the inventory and plan have been reviewed:
 
 ```bash

@@ -35,6 +35,11 @@ App Group association remains reported as `manual-required` because the verified
 public API cannot inspect that relationship; the operator evidence above closes
 the human prerequisite without introducing a private API fallback.
 
+The production task records that reviewed confirmation with
+`manual_app_group_associations = ["shared"]`. This converts only the
+API-unobservable relationship operation to `no-op`; generated profiles must
+still authorize the exact group for all four target Bundle IDs.
+
 ## Profiles and automated canary
 
 [Qualification run 29833282121](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29833282121)

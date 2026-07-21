@@ -39,12 +39,18 @@ def snapshot(*capabilities: AppleCapabilityState) -> AppleStateSnapshot:
     return AppleStateSnapshot("digest", (), tuple(capabilities), (), (), ())
 
 
-def operation_for(state: AppleStateSnapshot, group_identifier: str = "group.io.example"):
+def operation_for(
+    state: AppleStateSnapshot,
+    group_identifier: str = "group.io.example",
+    *,
+    manually_confirmed: bool = False,
+):
     requirement = app_group_requirement(
         snapshot=state,
         bundle_resource_id="BUNDLE_ONE",
         bundle_id="io.example.app",
         group_identifier=group_identifier,
+        manually_confirmed=manually_confirmed,
     )
     return plan_apple_resources(
         task_name="Example", snapshot_sha256="digest", requirements=(requirement,)
@@ -84,6 +90,14 @@ def test_unverifiable_association_requires_portal_or_xcode_action() -> None:
         assert diagnostic.bundle_id == "io.example.app"
         assert "Account Holder or Admin" in (diagnostic.remediation or "")
         assert "Developer Portal or Xcode" in (diagnostic.remediation or "")
+
+
+def test_reviewed_manual_association_closes_unobservable_prerequisite() -> None:
+    operation = operation_for(snapshot(capability()), manually_confirmed=True)
+
+    assert operation.disposition is OperationDisposition.NO_OP
+    assert operation.existing_resource_id is None
+    assert operation.diagnostics == ()
 
 
 def test_duplicate_app_groups_capabilities_are_blocked() -> None:

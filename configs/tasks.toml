@@ -83,6 +83,10 @@ publication_enabled = false
 id_strategy = "preserve-source-suffix"
 unknown_profile_bundles = "error"
 profile_type = "IOS_APP_DEVELOPMENT"
+# The Account Holder confirmed this group is registered and assigned to every
+# configured App ID. The public API exposes APP_GROUPS but not this relationship;
+# generated profiles still have to authorize the exact group before signing.
+manual_app_group_associations = ["shared"]
 
 [tasks.signing.app_groups]
 shared = "group.io.zeroclover.app.livecontainer"

@@ -216,6 +216,20 @@ def _parse_signing(value: object, task_name: str) -> SigningPolicy:
             )
         app_groups.append((alias, identifier.strip()))
 
+    group_identifiers = dict(app_groups)
+    manual_association_aliases = _string_tuple(
+        raw.get("manual_app_group_associations"),
+        "manual_app_group_associations",
+        task_name,
+    )
+    unknown_aliases = tuple(sorted(set(manual_association_aliases).difference(group_identifiers)))
+    if unknown_aliases:
+        _fail(
+            f"manual App Group association aliases are not configured: {', '.join(unknown_aliases)}",
+            "manual_app_group_associations",
+            task_name,
+        )
+
     bundles_raw = raw.get("bundles", [])
     if not isinstance(bundles_raw, list):
         _fail("signing.bundles must be an array of tables", "signing.bundles", task_name)
@@ -240,6 +254,9 @@ def _parse_signing(value: object, task_name: str) -> SigningPolicy:
             task_name,
         ),
         app_groups=tuple(sorted(app_groups)),
+        manual_app_group_associations=tuple(
+            sorted({group_identifiers[alias] for alias in manual_association_aliases})
+        ),
         bundles=tuple(
             _parse_bundle_rule(bundle, index, task_name) for index, bundle in enumerate(bundles_raw)
         ),

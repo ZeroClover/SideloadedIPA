@@ -365,6 +365,9 @@ def _requirements_for_task(
             identity=_resolved_as_p12(certificate),
         )
     ]
+    manually_confirmed_groups = set(
+        task.signing.manual_app_group_associations if task.signing is not None else ()
+    )
     for intent in intents:
         requirements.append(
             bundle_id_requirement(
@@ -391,6 +394,7 @@ def _requirements_for_task(
                     bundle_resource_id=bundle_resource_id,
                     bundle_id=intent.target_bundle_id,
                     group_identifier=group,
+                    manually_confirmed=group in manually_confirmed_groups,
                 )
             )
         requirements.append(_profile_requirement(intent))

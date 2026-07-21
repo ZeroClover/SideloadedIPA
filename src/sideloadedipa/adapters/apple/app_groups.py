@@ -47,6 +47,7 @@ def app_group_requirement(
     bundle_resource_id: str,
     bundle_id: str,
     group_identifier: str,
+    manually_confirmed: bool = False,
 ) -> AppleResourceRequirement:
     capabilities = exact_capability_matches(snapshot.capabilities, bundle_resource_id, "APP_GROUPS")
     if len(capabilities) > 1:
@@ -63,6 +64,7 @@ def app_group_requirement(
         target=group_identifier,
         bundle_id=bundle_id,
         matching_resource_ids=matching_resource_ids,
+        satisfied_without_resource=manually_confirmed and not matching_resource_ids,
         missing_disposition=OperationDisposition.MANUAL_REQUIRED,
         remediation=(
             f"as an Account Holder or Admin, register {group_identifier} if needed and "

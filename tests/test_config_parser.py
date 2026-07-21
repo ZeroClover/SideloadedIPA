@@ -59,6 +59,7 @@ def test_production_livecontainer_is_exactly_scoped_and_non_publishing() -> None
     assert task.publication_enabled is False
     assert task.signing is not None
     assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
+    assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.livecontainer",)
     assert [rule.source_bundle_id for rule in task.signing.bundles] == [
         "com.kdt.livecontainer",
         "com.kdt.livecontainer.LiveProcess",
@@ -151,6 +152,7 @@ def test_parses_multi_bundle_signing_schema() -> None:
                 "shared": "group.io.zeroclover.livecontainer",
                 "secondary_group": "group.io.zeroclover.secondary",
             },
+            "manual_app_group_associations": ["shared"],
             "bundles": [
                 {
                     "source_bundle_id": "com.kdt.livecontainer",
@@ -180,6 +182,7 @@ def test_parses_multi_bundle_signing_schema() -> None:
         ("secondary_group", "group.io.zeroclover.secondary"),
         ("shared", "group.io.zeroclover.livecontainer"),
     )
+    assert signing.manual_app_group_associations == ("group.io.zeroclover.livecontainer",)
     root = signing.bundles[0]
     assert root.required_capabilities == ("APP_GROUPS", "HEALTHKIT")
     assert root.entitlement_policy.mode is EntitlementMode.TEMPLATE
@@ -195,6 +198,7 @@ def test_signing_schema_uses_documented_defaults() -> None:
     assert signing.unknown_profile_bundles is UnknownProfileBundlePolicy.ERROR
     assert signing.profile_type is ProfileType.IOS_APP_DEVELOPMENT
     assert signing.app_groups == ()
+    assert signing.manual_app_group_associations == ()
     assert signing.bundles == ()
 
 
@@ -260,6 +264,7 @@ def test_rejects_non_string_optional_field() -> None:
         ({"app_groups": []}, "signing.app_groups"),
         ({"app_groups": {"bad alias": "group.example"}}, "signing.app_groups"),
         ({"app_groups": {"shared": 42}}, "signing.app_groups.shared"),
+        ({"manual_app_group_associations": ["missing"]}, "manual_app_group_associations"),
         ({"bundles": {}}, "signing.bundles"),
         ({"bundles": ["invalid"]}, "signing.bundles[0]"),
         ({"bundles": [{}]}, "source_bundle_id"),

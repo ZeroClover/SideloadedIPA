@@ -150,6 +150,7 @@ slug = "LiveContainer"
 id_strategy = "preserve-source-suffix"
 unknown_profile_bundles = "error"
 profile_type = "IOS_APP_DEVELOPMENT"
+manual_app_group_associations = ["shared"]
 
 [tasks.signing.app_groups]
 shared = "group.io.zeroclover.livecontainer"
@@ -181,7 +182,7 @@ entitlement_mode = "template"
 entitlements_file = "configs/signing/livecontainer/app-group-extension.entitlements.plist"
 ```
 
-The names are domain-level requirements, not a promise that all capabilities are API-automatable. The resource planner classifies them using the verified API adapter.
+The names are domain-level requirements, not a promise that all capabilities are API-automatable. The resource planner classifies them using the verified API adapter. `manual_app_group_associations` records reviewed human evidence only for relationships the official API cannot expose; exact profile authorization remains mandatory.
 
 **Alternative considered:** infer all desired entitlements from the source signature. Placeholder/ad-hoc signatures can be incomplete or contain another team's identifiers. Source data is evidence, but an explicit policy is required for sensitive multi-bundle tasks.
 

@@ -68,8 +68,9 @@ The system SHALL treat App Group container registration and any relationship not
 #### Scenario: Required App Group is present and associated
 
 - **WHEN** the configured App Group exists for the team and every relevant App ID is associated with it
-- **THEN** the resource plan SHALL record the verified relationship
+- **THEN** the resource plan SHALL record either documented API evidence or an explicit reviewed operator confirmation when the relationship is not exposed by the public API
 - **AND** profile creation MAY proceed
+- **AND** each created or reused profile SHALL still authorize the exact configured App Group
 
 #### Scenario: App Group is missing
 

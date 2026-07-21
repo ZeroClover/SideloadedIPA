@@ -66,6 +66,7 @@ class SigningPolicy:
     unknown_profile_bundles: UnknownProfileBundlePolicy
     profile_type: ProfileType
     app_groups: tuple[tuple[str, str], ...] = ()
+    manual_app_group_associations: tuple[str, ...] = ()
     bundles: tuple[BundleRule, ...] = ()
 
 

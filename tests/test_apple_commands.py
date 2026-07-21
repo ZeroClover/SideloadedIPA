@@ -43,21 +43,24 @@ TEAM_ID = "TEAMID1234"
 CERTIFICATE_SHA256 = "c" * 64
 
 
-def task(*, manual_capability: bool = False) -> Task:
+def task(*, manual_capability: bool = False, manual_app_group: bool = False) -> Task:
     signing = None
-    if manual_capability:
+    if manual_capability or manual_app_group:
         from sideloadedipa.domain import BundleRule
 
+        required_capability = "APP_GROUPS" if manual_app_group else "INCREASED_MEMORY_LIMIT"
         signing = SigningPolicy(
             IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
             UnknownProfileBundlePolicy.ERROR,
             ProfileType.IOS_APP_DEVELOPMENT,
+            app_groups=(("shared", "group.io.example.shared"),) if manual_app_group else (),
+            manual_app_group_associations=("group.io.example.shared",) if manual_app_group else (),
             bundles=(
                 BundleRule(
                     source_bundle_id="com.upstream.example",
                     target_bundle_id="io.example.app",
                     role="root",
-                    required_capabilities=("INCREASED_MEMORY_LIMIT",),
+                    required_capabilities=(required_capability,),
                     entitlement_policy=EntitlementPolicy(EntitlementMode.PROFILE),
                 ),
             ),
@@ -227,6 +230,26 @@ def test_apply_stops_before_profiles_when_manual_prerequisite_remains(tmp_path: 
     assert "ensure_profile" not in backend.calls
     assert not (tmp_path / "profiles").exists()
     assert "remediation:" in (result.human_output or "")
+
+
+def test_reviewed_app_group_confirmation_is_recorded_as_no_op(tmp_path: Path) -> None:
+    backend = RecordingBackend()
+
+    result = plan_command(
+        request(CommandName.PLAN),
+        dependencies(tmp_path, backend, task(manual_app_group=True)),
+    )
+    document = payload(result)
+    tasks = document["tasks"]
+    assert isinstance(tasks, list)
+    operations = tasks[0]["operations"]
+    group_operation = next(
+        operation for operation in operations if operation["resource_kind"] == "app-group"
+    )
+
+    assert result.exit_code == 0
+    assert group_operation["disposition"] == "no-op"
+    assert group_operation["existing_resource_id"] is None
 
 
 @pytest.mark.parametrize("names", [("Example", "Example"), ("Unknown",)])
