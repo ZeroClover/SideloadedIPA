@@ -156,7 +156,7 @@ def test_detects_xml_der_disagreement_and_wrong_team_prefix() -> None:
 
     assert "xml-der-entitlements:ARM64" in failed_checks(findings)
     assert any(
-        diagnostic.code == "verification.entitlement.team-prefix-mismatch"
+        diagnostic.code == "verification.entitlement.set-mismatch"
         for finding in findings
         for diagnostic in finding.diagnostics
     )
@@ -175,6 +175,89 @@ def test_missing_xml_or_der_evidence_fails_the_exact_slice() -> None:
 
     assert "signed-entitlements:ARM64:der" in failed_checks(findings)
     assert "xml-der-entitlements:ARM64" in failed_checks(findings)
+
+
+def test_non_profile_code_accepts_missing_or_empty_entitlement_representations() -> None:
+    empty = normalize_entitlements({})
+    framework_path = ROOT / "Frameworks/Kit.framework"
+    framework = SigningNodePlan(
+        framework_path,
+        framework_path / "Kit",
+        BundleNodeKind.FRAMEWORK,
+        0,
+        None,
+        None,
+        None,
+        None,
+        empty.values,
+        empty.sha256,
+    )
+    signing_plan = replace(plan(), nodes=(framework, *plan().nodes))
+    framework_evidence = SignedNodeEntitlementEvidence(
+        framework_path,
+        framework.executable_path,
+        "2" * 64,
+        (SignedEntitlementSliceEvidence("ARM64", representation({}), None),),
+    )
+    signed_artifact = replace(
+        artifact(),
+        plan_sha256=signing_plan.plan_sha256,
+        nodes=(framework_evidence, *artifact().nodes),
+    )
+
+    findings = verify_three_way_entitlements(signing_plan, (profile(),), signed_artifact)
+
+    framework_findings = tuple(
+        finding for finding in findings if finding.node_path == framework_path
+    )
+    assert framework_findings
+    assert all(finding.passed for finding in framework_findings)
+    assert {finding.check for finding in framework_findings} == {
+        "signed-entitlements-absent:ARM64:xml",
+        "signed-entitlements-absent:ARM64:der",
+    }
+
+
+def test_non_profile_code_rejects_nonempty_application_entitlements() -> None:
+    empty = normalize_entitlements({})
+    framework_path = ROOT / "Frameworks/Kit.framework"
+    framework = SigningNodePlan(
+        framework_path,
+        framework_path / "Kit",
+        BundleNodeKind.FRAMEWORK,
+        0,
+        None,
+        None,
+        None,
+        None,
+        empty.values,
+        empty.sha256,
+    )
+    signing_plan = replace(plan(), nodes=(framework, *plan().nodes))
+    framework_evidence = SignedNodeEntitlementEvidence(
+        framework_path,
+        framework.executable_path,
+        "2" * 64,
+        (
+            SignedEntitlementSliceEvidence(
+                "ARM64",
+                representation({"get-task-allow": True}),
+                None,
+            ),
+        ),
+    )
+    signed_artifact = replace(
+        artifact(),
+        plan_sha256=signing_plan.plan_sha256,
+        nodes=(framework_evidence, *artifact().nodes),
+    )
+
+    findings = verify_three_way_entitlements(signing_plan, (profile(),), signed_artifact)
+
+    assert (
+        framework_path,
+        "signed-entitlements-absent:ARM64:xml",
+    ) in {(finding.node_path, finding.check) for finding in findings if not finding.passed}
 
 
 def test_allows_only_exact_explicit_profile_defaults_for_one_node() -> None:

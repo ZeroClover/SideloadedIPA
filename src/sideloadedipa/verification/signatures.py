@@ -427,7 +427,10 @@ def _failure(
                 task_name=plan.task_name,
                 bundle_id=node.target_bundle_id,
                 remediation="discard the artifact, correct the signing input, and retry",
-                details=(("node_path", node.source_path.as_posix()),),
+                details=(
+                    ("node_path", node.source_path.as_posix()),
+                    ("reason", message),
+                ),
             ),
         ),
     )

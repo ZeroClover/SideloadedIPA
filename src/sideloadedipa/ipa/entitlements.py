@@ -236,7 +236,10 @@ class LiefEntitlementInspector:
                     slices.append(
                         EntitlementSliceEvidence(
                             index=index,
-                            architecture=binary.header.cpu_type.name,
+                            architecture=(
+                                f"{binary.header.cpu_type.name}:"
+                                f"{binary.header.cpu_subtype}:{index}"
+                            ),
                             xml_raw=xml_raw,
                             der_raw=der_raw,
                             xml=xml,

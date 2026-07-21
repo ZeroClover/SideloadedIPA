@@ -105,13 +105,6 @@ def test_profile_wildcards_are_narrow_and_signed_values_remain_exact() -> None:
             },
             "team-mismatch",
         ),
-        (
-            {
-                "application-identifier": "TEAMID1234.io.example.app",
-                "keychain-access-groups": ["OTHER.shared"],
-            },
-            "team-prefix-mismatch",
-        ),
     ],
 )
 def test_exact_comparison_rejects_wrong_team_bound_values(
@@ -122,6 +115,15 @@ def test_exact_comparison_rejects_wrong_team_bound_values(
     comparison = compare_entitlements(expected, actual, identity=IDENTITY)
 
     assert reason in [value.reason for value in comparison.differences]
+
+
+def test_exact_identity_allows_explicit_non_default_keychain_group_prefixes() -> None:
+    actual = {
+        "application-identifier": "TEAMID1234.io.example.app",
+        "keychain-access-groups": ["LEGACY1234.shared", "group.io.example.shared"],
+    }
+
+    assert compare_entitlements(actual, actual, identity=IDENTITY).passed
 
 
 def test_nested_dictionaries_use_exact_or_authorization_key_semantics() -> None:

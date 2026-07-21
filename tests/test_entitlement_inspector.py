@@ -122,7 +122,7 @@ def test_inspects_xml_and_der_from_thin_macho(tmp_path: Path) -> None:
     evidence = LiefEntitlementInspector().inspect(executable)
 
     assert len(evidence.slices) == 1
-    assert evidence.slices[0].architecture == "ARM64"
+    assert evidence.slices[0].architecture == "ARM64:0:0"
     assert evidence.slices[0].xml == EXPECTED
     assert evidence.slices[0].der == EXPECTED
     assert evidence.slices[0].xml_raw is not None
@@ -141,7 +141,10 @@ def test_inspects_every_slice_in_fat_macho(tmp_path: Path) -> None:
 
     evidence = LiefEntitlementInspector().inspect(executable)
 
-    assert [item.architecture for item in evidence.slices] == ["ARM64", "X86_64"]
+    assert [item.architecture for item in evidence.slices] == [
+        "ARM64:0:0",
+        "X86_64:0:1",
+    ]
     assert all(item.xml == EXPECTED and item.der == EXPECTED for item in evidence.slices)
 
 

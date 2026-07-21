@@ -7,7 +7,6 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
 from sideloadedipa.domain import FrozenJsonValue, freeze_json, thaw_json
 
@@ -192,22 +191,6 @@ def _identity_differences(
     team = actual.get(_TEAM_IDENTIFIER, _MISSING)
     if team is not _MISSING and team != context.team_id:
         differences.append(_difference(_TEAM_IDENTIFIER, "team-mismatch", context.team_id, team))
-    groups = actual.get(_KEYCHAIN_GROUPS, _MISSING)
-    if groups is not _MISSING and (
-        not _is_array(groups)
-        or any(
-            not isinstance(value, str) or not value.startswith(context.app_identifier_prefix)
-            for value in cast(Sequence[object], groups)
-        )
-    ):
-        differences.append(
-            _difference(
-                _KEYCHAIN_GROUPS,
-                "team-prefix-mismatch",
-                "planned-prefix",
-                groups,
-            )
-        )
     return tuple(differences)
 
 

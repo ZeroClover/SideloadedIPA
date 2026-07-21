@@ -151,6 +151,23 @@ def verify_three_way_entitlements(
             )
             continue
 
+        if node.profile_resource_id is None:
+            for item in evidence.slices:
+                for representation_name, signed in (("xml", item.xml), ("der", item.der)):
+                    signed_document = {} if signed is None else _representation_document(signed)
+                    findings.append(
+                        _finding(
+                            node.source_path,
+                            "signed-entitlements-absent:"
+                            f"{item.architecture}:{representation_name}",
+                            compare_entitlements({}, signed_document),
+                            task_name=plan.task_name,
+                            bundle_id=None,
+                            actual_sha256=(None if signed is None else signed.semantic_sha256),
+                        )
+                    )
+            continue
+
         for item in evidence.slices:
             if item.xml is None or item.der is None:
                 missing_name = "xml" if item.xml is None else "der"

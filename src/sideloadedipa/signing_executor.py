@@ -155,7 +155,7 @@ def _validate_verification_result(
         mismatches.append(("failed_checks", ",".join(failed_checks[:20])))
     failed_diagnostics = tuple(
         f"{finding.node_path}:{finding.check}:{diagnostic.code}:"
-        f"{dict(diagnostic.details).get('path', '$')}"
+        f"{dict(diagnostic.details).get('path', dict(diagnostic.details).get('reason', '$'))}"
         for finding in result.findings
         if not finding.passed
         for diagnostic in finding.diagnostics
