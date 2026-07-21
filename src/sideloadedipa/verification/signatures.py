@@ -177,6 +177,7 @@ def _verify_code_directory(
     slice_bytes: bytes,
     blobs: Mapping[int, bytes],
     bundle: Path | None,
+    embedded_info_plist: bytes | None = None,
 ) -> None:
     if directory.flags & _ADHOC_FLAG:
         raise ValueError("CodeDirectory is ad-hoc signed")
@@ -191,7 +192,7 @@ def _verify_code_directory(
     if expected_pages != directory.code_hashes:
         raise ValueError("CodeDirectory page hashes do not match the executable")
 
-    external = {
+    external_paths = {
         _INFO_SLOT: bundle / "Info.plist" if bundle is not None else None,
         _RESOURCE_SLOT: bundle / "_CodeSignature" / "CodeResources" if bundle is not None else None,
     }
@@ -199,8 +200,10 @@ def _verify_code_directory(
         if not any(expected):
             continue
         payload = blobs.get(slot)
-        if payload is None and slot in external:
-            path = external[slot]
+        if payload is None and slot == _INFO_SLOT and bundle is None:
+            payload = embedded_info_plist
+        if payload is None and slot in external_paths:
+            path = external_paths[slot]
             if path is None or not path.is_file():
                 raise ValueError(f"CodeDirectory external slot {slot} is missing")
             payload = path.read_bytes()
@@ -344,8 +347,22 @@ def _verify_executable(
             if _ALTERNATE_CODE_DIRECTORY_FIRST <= slot < _ALTERNATE_CODE_DIRECTORY_LIMIT
         )
         directories = (primary, *alternates)
+        embedded_info_plist = next(
+            (
+                bytes(section.content)
+                for section in binary.sections
+                if section.segment_name == "__TEXT" and section.name == "__info_plist"
+            ),
+            None,
+        )
         for directory in directories:
-            _verify_code_directory(directory, raw[start:end], blobs, bundle)
+            _verify_code_directory(
+                directory,
+                raw[start:end],
+                blobs,
+                bundle,
+                embedded_info_plist,
+            )
             if expected_identifier is not None and directory.identifier != expected_identifier:
                 raise ValueError("CodeDirectory identifier does not match the signing plan")
         _verify_cdhash_attributes(cms_blob[8:], primary, alternates)

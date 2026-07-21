@@ -485,6 +485,17 @@ def test_rejects_invalid_code_pages_and_special_slots(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="external slot"):
         signature_module._verify_code_directory(sealed, code, {}, None)
 
+    embedded_info = signature_module._parse_code_directory(
+        code_directory(code, "fixture", info=info)
+    )
+    signature_module._verify_code_directory(
+        embedded_info,
+        code,
+        {},
+        None,
+        info,
+    )
+
     bundle = tmp_path / "Fixture.app"
     (bundle / "_CodeSignature").mkdir(parents=True)
     (bundle / "Info.plist").write_bytes(b"wrong")
