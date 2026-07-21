@@ -216,7 +216,7 @@ def test_failure_preserves_source_and_previous_artifact(tmp_path: Path, failure:
     )
 
     expected_error = RuntimeError if failure == "backend" else DomainError
-    with pytest.raises(expected_error):
+    with pytest.raises(expected_error) as caught:
         execute_signing_plan(
             plan=plan_for(source),
             source_ipa=source,
@@ -230,6 +230,10 @@ def test_failure_preserves_source_and_previous_artifact(tmp_path: Path, failure:
     assert destination.read_bytes() == previous
     assert verifier.called is (failure != "backend")
     assert not (tmp_path / ".sideloadedipa-signing").exists()
+    if failure == "verification":
+        assert isinstance(caught.value, DomainError)
+        failed_checks = dict(caught.value.safe_details)["failed_checks"]
+        assert "Payload/Example.app:bundle-identifier" in failed_checks
 
 
 def test_rejects_source_digest_mismatch_before_creating_workspace(tmp_path: Path) -> None:

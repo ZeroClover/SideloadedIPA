@@ -148,6 +148,11 @@ def _validate_verification_result(
         mismatches.append(("verification_artifact_sha256", result.artifact_sha256))
     if result.report_sha256 != verification_report_sha256(plan, result):
         mismatches.append(("verification_report_sha256", result.report_sha256))
+    failed_checks = tuple(
+        f"{finding.node_path}:{finding.check}" for finding in result.findings if not finding.passed
+    )
+    if failed_checks:
+        mismatches.append(("failed_checks", ",".join(failed_checks[:20])))
     if mismatches:
         raise _execution_error(
             plan,

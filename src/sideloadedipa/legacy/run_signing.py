@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import SigningEngine
+from sideloadedipa.errors import SideloadedIPAError
 from sideloadedipa.legacy import app_icon, apps_registry, r2_store
 from sideloadedipa.package_runner import run_package_signing
 from sideloadedipa.sources import select_release_asset
@@ -878,6 +879,15 @@ def main() -> int:
                     f"[task {i}] Package verification passed: "
                     f"{execution.execution.verification.report_sha256}"
                 )
+            except SideloadedIPAError as e:
+                details = ", ".join(f"{key}={value}" for key, value in e.safe_details)
+                suffix = f" ({details})" if details else ""
+                print(
+                    f"[task {i}] package signing failed [{e.code.value}]: " f"{e.message}{suffix}",
+                    file=sys.stderr,
+                )
+                any_fail = True
+                continue
             except Exception as e:
                 print(f"[task {i}] package signing failed: {e}", file=sys.stderr)
                 any_fail = True
