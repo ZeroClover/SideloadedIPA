@@ -26,7 +26,7 @@
 - [x] 3.3 Implement typed domain/config/adapter error classes carrying stable codes, task/bundle context, remediation, and safe structured details.
 - [x] 3.4 Define small Protocol interfaces for source retrieval, archive inspection, Apple resources, certificate input, the ADR-selected signing backend, verification, artifact storage, registry publication, clock, and filesystem boundaries.
 - [x] 3.5 Implement a shared subprocess runner using argv arrays, `shell=False`, timeouts, bounded captured output, environment allowlists, and secret/path redaction, with unit tests for metacharacters and failures.
-- [ ] 3.6 Add application and CLI skeletons for `inspect`, `plan`, `sync`, `sign`, `verify`, and `run`, with dependency injection and no business logic in argument parsing.
+- [x] 3.6 Add application and CLI skeletons for `inspect`, `plan`, `sync`, `sign`, `verify`, and `run`, with dependency injection and no business logic in argument parsing.
 - [ ] 3.7 Convert existing `scripts/*.py` entry points into compatibility delegators one at a time while retaining characterization-test behavior.
 - [ ] 3.8 Enforce strict mypy and package-level coverage on every new module before moving the next behavior out of legacy scripts.
 
