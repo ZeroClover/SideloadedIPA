@@ -95,6 +95,7 @@ def test_comparison_accepts_per_profile_extension_contract() -> None:
     }
     linux["contract_pass"] = True
     linux["executable_sha256"] = "d" * 64
+    linux["mismatched_entitlement_count_rejected"] = True
     linux["signing_order"] = ["launch", "process", "share", "root"]
     linux["violations"] = []
     linux["signed_entitlements"] = copy.deepcopy(macos["signed_entitlements"])

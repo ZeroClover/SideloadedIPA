@@ -119,6 +119,23 @@ def signing_order(output: str) -> list[str]:
     return order
 
 
+def rejects_mismatched_entitlement_count(command: Sequence[str]) -> bool:
+    mismatched = list(command)
+    entitlement_index = max(index for index, value in enumerate(mismatched) if value == "-e")
+    del mismatched[entitlement_index : entitlement_index + 2]
+    result = subprocess.run(
+        mismatched,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    output = result.stdout + result.stderr
+    return (
+        result.returncode != 0 and "Repeated entitlements must match the number and order" in output
+    )
+
+
 def inspect_entitlements(zsign: Path, executable: Path, debug_dir: Path) -> dict[str, Any]:
     debug_dir.mkdir(parents=True)
     run([str(zsign), "-d", str(executable)], cwd=debug_dir)
@@ -289,6 +306,11 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
     expected_entitlement_count = len(TARGETS) if args.per_profile_entitlements else 0
     if command.count("-m") != len(TARGETS) or command.count("-e") != expected_entitlement_count:
         raise BackendExerciseError("qualification command has an invalid profile/entitlement shape")
+    mismatch_rejected = False
+    if args.per_profile_entitlements:
+        mismatch_rejected = rejects_mismatched_entitlement_count(command)
+        if not mismatch_rejected:
+            raise BackendExerciseError("backend accepted mismatched profile/entitlement counts")
     sign_result = run(command)
     order = signing_order(sign_result.stdout + sign_result.stderr)
     if set(order) != set(TARGETS) or order[-1:] != ["root"]:
@@ -332,6 +354,7 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
         },
         "contract_pass": not violations,
         "executable_sha256": sha256_bytes(args.zsign.read_bytes()),
+        "mismatched_entitlement_count_rejected": mismatch_rejected,
         "profiles": profiles,
         "signed_entitlements": entitlement_evidence(entitlements),
         "signed_ipa_sha256": sha256_bytes(signed_ipa.read_bytes()),

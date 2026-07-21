@@ -55,6 +55,8 @@ def compare_summaries(linux: Mapping[str, Any], macos: Mapping[str, Any]) -> dic
         executable_sha256 = linux.get("executable_sha256")
         if not isinstance(executable_sha256, str) or len(executable_sha256) != 64:
             raise ComparisonError("Linux per-profile extension executable hash is invalid")
+        if linux.get("mismatched_entitlement_count_rejected") is not True:
+            raise ComparisonError("Linux per-profile extension did not reject a count mismatch")
     else:
         if linux_variant != "upstream-profile-only":
             raise ComparisonError("Linux summary has an unknown backend variant")
