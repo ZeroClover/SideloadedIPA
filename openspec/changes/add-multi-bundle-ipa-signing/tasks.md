@@ -143,6 +143,6 @@
 - [x] 12.5 Add an operator runbook for inspect/plan/apply/sign/verify/run, automation-versus-human responsibilities, Apple roles/approvals, retries, rollback, profile refresh, and safe optional resource cleanup.
 - [x] 12.6 Add security documentation for archive limits, secret handling, report retention, subprocess isolation, official API-only mutations, dependency pinning, and credential rotation.
 - [x] 12.7 Add troubleshooting examples for multiple release assets, new upstream extensions, missing App Groups, unsupported/managed capabilities, profile authorization mismatches, 128-keychain-group loss, XML/DER drift, and nested-signature failures.
-- [ ] 12.8 Run the full unit, fixture, adapter, integration, LiveContainer canary, strict mypy, coverage, formatting, workflow, security, performance, and publication-rollback acceptance matrix.
-- [ ] 12.9 Run `openspec validate add-multi-bundle-ipa-signing --strict` and `git diff --check`, confirm no unreviewed Apple or publication side effects occurred during tests, and attach final evidence to the change.
+- [x] 12.8 Run the full unit, fixture, adapter, integration, LiveContainer canary, strict mypy, coverage, formatting, workflow, security, performance, and publication-rollback acceptance matrix.
+- [x] 12.9 Run `openspec validate add-multi-bundle-ipa-signing --strict` and `git diff --check`, confirm no unreviewed Apple or publication side effects occurred during tests, and attach final evidence to the change.
 - [ ] 12.10 Archive the OpenSpec change only after implementation, production canary observation, documentation, and rollback acceptance are complete.
