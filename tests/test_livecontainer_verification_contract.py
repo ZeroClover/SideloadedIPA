@@ -33,6 +33,7 @@ from sideloadedipa.verification import (
 TEAM_ID = "TEAMID1234"
 APP_ID_PREFIX = "TEAMID1234."
 APP_GROUP = "group.io.zeroclover.app.livecontainer"
+SIDESTORE_APP_GROUP = "group.io.zeroclover.app.livecontainer.sidestore"
 ROOT = PurePosixPath("Payload/LiveContainer.app")
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 TARGETS = {
@@ -41,17 +42,26 @@ TARGETS = {
     "launch": "io.zeroclover.app.livecontainer.LaunchAppExtension",
     "share": "io.zeroclover.app.livecontainer.ShareExtension",
 }
+SIDESTORE_TARGETS = {
+    "root": "io.zeroclover.app.livecontainer.sidestore",
+    "process": "io.zeroclover.app.livecontainer.sidestore.LiveProcess",
+    "launch": "io.zeroclover.app.livecontainer.sidestore.LaunchAppExtension",
+    "share": "io.zeroclover.app.livecontainer.sidestore.ShareExtension",
+    "widget": "io.zeroclover.app.livecontainer.sidestore.LiveWidget",
+}
 PATHS = {
     "root": ROOT,
     "process": ROOT / "PlugIns/LiveProcess.appex",
     "launch": ROOT / "PlugIns/LaunchAppExtension.appex",
     "share": ROOT / "PlugIns/ShareExtension.appex",
+    "widget": ROOT / "PlugIns/LiveWidgetExtension.appex",
 }
 EXECUTABLES = {
     "root": ROOT / "LiveContainer",
     "process": PATHS["process"] / "LiveProcess",
     "launch": PATHS["launch"] / "LaunchAppExtension",
     "share": PATHS["share"] / "ShareExtension",
+    "widget": PATHS["widget"] / "LiveWidgetExtension",
 }
 SENSITIVE_KEYS = frozenset(
     {
@@ -69,11 +79,16 @@ def keychain_groups() -> list[str]:
     return [base, *(f"{base}.{index}" for index in range(1, 128))]
 
 
-def expected_entitlements(role: str) -> dict[str, object]:
+def expected_entitlements(
+    role: str,
+    *,
+    targets: Mapping[str, str] = TARGETS,
+    app_group: str = APP_GROUP,
+) -> dict[str, object]:
     values: dict[str, object] = {
-        "application-identifier": f"{APP_ID_PREFIX}{TARGETS[role]}",
+        "application-identifier": f"{APP_ID_PREFIX}{targets[role]}",
         "com.apple.developer.team-identifier": TEAM_ID,
-        "com.apple.security.application-groups": [APP_GROUP],
+        "com.apple.security.application-groups": [app_group],
         "get-task-allow": True,
     }
     if role in {"root", "process"}:
@@ -99,20 +114,30 @@ def _representation(values: Mapping[str, object]) -> EntitlementRepresentationEv
     )
 
 
-def livecontainer_plan() -> SigningPlan:
-    roles = ("process", "launch", "share", "root")
+def livecontainer_plan(*, sidestore: bool = False) -> SigningPlan:
+    roles = (
+        "process",
+        "launch",
+        "share",
+        *(("widget",) if sidestore else ()),
+        "root",
+    )
+    targets = SIDESTORE_TARGETS if sidestore else TARGETS
+    app_group = SIDESTORE_APP_GROUP if sidestore else APP_GROUP
     nodes = []
     for order, role in enumerate(roles):
-        expected = normalize_entitlements(expected_entitlements(role))
+        expected = normalize_entitlements(
+            expected_entitlements(role, targets=targets, app_group=app_group)
+        )
         nodes.append(
             SigningNodePlan(
                 PATHS[role],
                 EXECUTABLES[role],
                 BundleNodeKind.APP if role == "root" else BundleNodeKind.APP_EXTENSION,
                 order,
-                TARGETS[role],
+                targets[role],
                 f"PROFILE_{role.upper()}",
-                PurePosixPath(f"LiveContainer/{TARGETS[role]}.mobileprovision"),
+                PurePosixPath(f"LiveContainer/{targets[role]}.mobileprovision"),
                 hashlib.sha256(role.encode()).hexdigest(),
                 expected.values,
                 expected.sha256,
@@ -262,3 +287,51 @@ def test_wrong_profile_or_target_identity_fails_its_bundle() -> None:
     )
 
     assert (PATHS["process"], "profile-entitlement-authorization") in failed_checks(findings)
+
+
+def test_sidestore_variant_requires_an_independent_widget_profile_and_policy() -> None:
+    plan = livecontainer_plan(sidestore=True)
+    planned_profiles = profiles(plan)
+    widget = next(node for node in plan.nodes if node.source_path == PATHS["widget"])
+    widget_document = {key: thaw_json(value) for key, value in widget.expected_entitlements}
+
+    findings = verify_three_way_entitlements(plan, planned_profiles, artifact(plan))
+
+    assert len(plan.nodes) == 5
+    assert len({node.target_bundle_id for node in plan.nodes}) == 5
+    assert len({node.profile_resource_id for node in plan.nodes}) == 5
+    assert widget.target_bundle_id == SIDESTORE_TARGETS["widget"]
+    assert widget.profile_resource_id == "PROFILE_WIDGET"
+    assert widget_document["com.apple.security.application-groups"] == [SIDESTORE_APP_GROUP]
+    assert not (SENSITIVE_KEYS & widget_document.keys())
+    assert all(finding.passed for finding in findings)
+
+
+def test_sidestore_widget_cannot_reuse_root_policy() -> None:
+    plan = livecontainer_plan(sidestore=True)
+    copied_root_policy = expected_entitlements(
+        "root",
+        targets=SIDESTORE_TARGETS,
+        app_group=SIDESTORE_APP_GROUP,
+    )
+    copied_root_policy["application-identifier"] = f"{APP_ID_PREFIX}{SIDESTORE_TARGETS['widget']}"
+
+    findings = verify_three_way_entitlements(
+        plan,
+        profiles(plan),
+        artifact(plan, {PATHS["widget"]: copied_root_policy}),
+    )
+
+    assert (PATHS["widget"], "signed-entitlements:ARM64:xml") in failed_checks(findings)
+    assert (PATHS["widget"], "signed-entitlements:ARM64:der") in failed_checks(findings)
+
+
+def test_sidestore_widget_cannot_omit_its_fifth_profile() -> None:
+    plan = livecontainer_plan(sidestore=True)
+    without_widget = tuple(
+        profile for profile in profiles(plan) if profile.resource_id != "PROFILE_WIDGET"
+    )
+
+    findings = verify_three_way_entitlements(plan, without_widget, artifact(plan))
+
+    assert (PATHS["widget"], "profile-entitlement-authorization") in failed_checks(findings)
