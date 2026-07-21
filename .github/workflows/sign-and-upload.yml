@@ -54,10 +54,10 @@ jobs:
           (inputs.backend_qualification != true && inputs.apple_state_probe != true) }}
     runs-on: ubuntu-latest
     env:
-      # zsign release whose prebuilt Linux binary we download (https://github.com/zhlynn/zsign)
-      ZSIGN_VERSION: v1.0.4
-      # App Store Connect CLI release whose prebuilt Linux binary we download
-      ASC_VERSION: "2.4.0"
+      ZSIGN_VERSION: "v1.1.1"
+      ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
       # Apple Developer credentials
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
@@ -122,32 +122,36 @@ jobs:
             echo "No cached device list found (first run)"
           fi
 
-      - name: Install dependencies
+      - name: Install checksum-verified App Store Connect CLI
+        shell: bash
         run: |
           set -euo pipefail
-          # asc (App Store Connect CLI): official prebuilt Linux binary, checksum-verified.
           asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
           curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
           sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          asc --version
+          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
+            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
 
-      - name: Install zsign
+      - name: Install checksum-verified zsign
+        shell: bash
         run: |
           set -euo pipefail
-          # zsign's official prebuilt Linux binary is fully static (musl) with no
-          # runtime deps. Download it plus checksums and verify SHA256 before use.
           asset="zsign-linux-musl-static.tar.gz"
           base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
-          curl -fLsS -o "$RUNNER_TEMP/SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asset" SHA256SUMS.txt | sha256sum -c -)
+          curl -fLsS -o "$RUNNER_TEMP/zsign_SHA256SUMS.txt" "$base/SHA256SUMS.txt"
+          (cd "$RUNNER_TEMP" && grep -F "  $asset" zsign_SHA256SUMS.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ZSIGN_LINUX_MUSL_SHA256" "$RUNNER_TEMP/$asset" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
-          # The tarball contains a single static binary named "zsign-musl".
           echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-musl" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/zsign-musl" -v
+          test "$("$RUNNER_TEMP/zsign-musl" -v)" = "version: ${ZSIGN_VERSION#v}"
+          printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
+            "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
 
       - name: Verify App Store Connect credentials
         run: asc devices list --limit 1 --output json > /dev/null
@@ -240,6 +244,7 @@ jobs:
     timeout-minutes: 15
     env:
       ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
@@ -268,9 +273,12 @@ jobs:
           base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
           curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
           sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
           test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
+            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
 
       - name: Collect redacted read-only snapshot
         run: uv run python -m sideloadedipa.apple_state_probe
@@ -288,7 +296,9 @@ jobs:
     timeout-minutes: 60
     env:
       ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
       ZSIGN_VERSION: "v1.1.1"
+      ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
       ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
       ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
@@ -310,9 +320,12 @@ jobs:
           base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
           curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
+          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
           sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          asc --version
+          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
+            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
 
       - name: Install checksum-verified zsign
         shell: bash
@@ -323,14 +336,18 @@ jobs:
           base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
           curl -fLsS -o "$RUNNER_TEMP/zsign_SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asset" zsign_SHA256SUMS.txt | sha256sum -c -)
+          (cd "$RUNNER_TEMP" && grep -F "  $asset" zsign_SHA256SUMS.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ZSIGN_LINUX_MUSL_SHA256" "$RUNNER_TEMP/$asset" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/backend-qualification/bin"
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/backend-qualification/bin"
           install -m 0755 "$RUNNER_TEMP/backend-qualification/bin/zsign-musl" \
             "$RUNNER_TEMP/backend-qualification/zsign"
-          "$RUNNER_TEMP/backend-qualification/zsign" -v
+          test "$("$RUNNER_TEMP/backend-qualification/zsign" -v)" \
+            = "version: ${ZSIGN_VERSION#v}"
           printf 'zsign executable sha256: '
           sha256sum "$RUNNER_TEMP/backend-qualification/zsign" | cut -d ' ' -f 1
+          printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
+            "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
 
       - name: Build pinned per-profile-entitlement zsign extension
         shell: bash
@@ -477,6 +494,7 @@ jobs:
     timeout-minutes: 20
     env:
       ASC_VERSION: "3.1.1"
+      ASC_MACOS_ARM64_SHA256: "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef"
       APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -495,9 +513,13 @@ jobs:
           base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
           curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
           curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | shasum -a 256 -c -)
+          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | shasum -a 256 -c -)
+          printf '%s  %s\n' "$ASC_MACOS_ARM64_SHA256" "$RUNNER_TEMP/$asc_bin" \
+            | shasum -a 256 -c -
           sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          asc --version
+          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
+          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
+            "$ASC_VERSION" "$ASC_MACOS_ARM64_SHA256"
 
       - name: Import configured signing identity into an isolated keychain
         shell: bash

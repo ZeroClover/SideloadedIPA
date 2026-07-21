@@ -112,8 +112,8 @@
 
 ## 10. GitHub Actions and Toolchain Migration
 
-- [ ] 10.1 Update zsign installation to the qualified supported release from `zhlynn/zsign`, verify its published checksum/version, and update PR checks and provenance output.
-- [ ] 10.2 Update App Store Connect CLI installation to the verified release from canonical `rorkai/App-Store-Connect-CLI`, verify its checksum/version, and update adapter contract tests.
+- [x] 10.1 Update zsign installation to the qualified supported release from `zhlynn/zsign`, verify its published checksum/version, and update PR checks and provenance output.
+- [x] 10.2 Update App Store Connect CLI installation to the verified release from canonical `rorkai/App-Store-Connect-CLI`, verify its checksum/version, and update adapter contract tests.
 - [ ] 10.3 Split the workflow into visible preflight/inventory, Apple plan/apply, signing, verification, and publication steps with manifests passed through files rather than ad-hoc outputs.
 - [ ] 10.4 Introduce a versioned cache namespace/fingerprint and prevent `if: always()` cache saving from marking failed signing or verification state successful.
 - [ ] 10.5 Upload redacted plans/reports on success and failure with retention limits; exclude P12 material, raw profiles, private keys, and extracted IPA workspaces.
