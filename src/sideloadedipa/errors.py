@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from sideloadedipa.domain.common import Diagnostic, DiagnosticSeverity, FrozenJsonValue
+if TYPE_CHECKING:
+    from sideloadedipa.domain.common import Diagnostic, FrozenJsonValue
 
 
 class ErrorCode(StrEnum):
@@ -33,6 +35,7 @@ class ErrorCode(StrEnum):
     INVENTORY_METADATA_INVALID = "inventory.metadata_invalid"
     INVENTORY_EXECUTABLE_INVALID = "inventory.executable_invalid"
     INVENTORY_DUPLICATE_BUNDLE_ID = "inventory.duplicate_bundle_id"
+    INVENTORY_ENTITLEMENTS_INVALID = "inventory.entitlements_invalid"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"
@@ -63,6 +66,8 @@ class SideloadedIPAError(Exception):
         self.safe_details = safe_details
 
     def to_diagnostic(self) -> Diagnostic:
+        from sideloadedipa.domain.common import Diagnostic, DiagnosticSeverity
+
         return Diagnostic(
             code=self.code.value,
             severity=DiagnosticSeverity.ERROR,

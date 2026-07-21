@@ -48,7 +48,7 @@
 - [x] 5.2 Implement ZIP preflight and safe extraction checks for absolute/traversal/NUL/duplicate-normalized paths, links/special files, entry count, expanded size, and compression ratio.
 - [x] 5.3 Implement exactly-one-root `Payload/*.app` discovery with validated `Info.plist`, executable path, bundle identifier, and version metadata.
 - [x] 5.4 Implement recursive graph discovery for profile-bearing apps/extensions and profile-free frameworks, dylibs, and Mach-O executables, including nested frameworks inside extensions.
-- [ ] 5.5 Implement a Linux entitlement-inspector adapter that decodes XML and DER evidence for thin and fat Mach-O binaries and fails on missing/unreadable evidence instead of assuming empty values.
+- [x] 5.5 Implement a Linux entitlement-inspector adapter that decodes XML and DER evidence for thin and fat Mach-O binaries and fails on missing/unreadable evidence instead of assuming empty values.
 - [ ] 5.6 Implement canonical typed entitlement normalization, raw-evidence hashes, XML/DER disagreement diagnostics, embedded-profile presence, stable node ordering, and graph digests.
 - [ ] 5.7 Add malicious-archive fixtures for every extraction guard plus malformed plist, missing/duplicate root, duplicate bundle ID, unknown executable type, and invalid entitlement payload cases.
 - [ ] 5.8 Add synthetic graph fixtures for root app, multiple extensions, nested frameworks/dylibs, and a SideStore-style fifth extension.
