@@ -49,6 +49,9 @@ class ErrorCode(StrEnum):
     APPLE_RESOURCE_CONFLICT = "apple.resource_conflict"
     APPLE_RATE_LIMITED = "apple.rate_limited"
     APPLE_API_FAILED = "apple.api_failed"
+    APPLE_PROFILE_DECODE_FAILED = "apple.profile_decode_failed"
+    APPLE_PROFILE_INVALID = "apple.profile_invalid"
+    APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED = "apple.profile_entitlement_unauthorized"
 
 
 class SideloadedIPAError(Exception):

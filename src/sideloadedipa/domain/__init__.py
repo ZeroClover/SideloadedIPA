@@ -18,6 +18,7 @@ from sideloadedipa.domain.apple import (
     P12CertificateIdentity,
     ProfileManifestEntry,
     ProfileResourceManifest,
+    ProfileValidationRequest,
     ProvisioningProfile,
 )
 from sideloadedipa.domain.bundle import (
@@ -120,6 +121,7 @@ __all__ = [
     "P12CertificateIdentity",
     "ProfileManifestEntry",
     "ProfileResourceManifest",
+    "ProfileValidationRequest",
     "PipelineStage",
     "PolicyReconciliation",
     "ProfileType",

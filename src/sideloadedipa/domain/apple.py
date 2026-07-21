@@ -172,6 +172,19 @@ class ProvisioningProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileValidationRequest:
+    resource_id: str
+    target_bundle_id: str
+    application_identifier: str
+    team_id: str
+    profile_type: ProfileType
+    certificate_sha256: str
+    device_udid_sha256: tuple[str, ...]
+    path: PurePosixPath
+    expected_entitlements: tuple[tuple[str, FrozenJsonValue], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileManifestEntry:
     target_bundle_id: str
     bundle_resource_id: str
