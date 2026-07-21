@@ -52,6 +52,7 @@ class SigningPlanRequest:
 def _node_document(node: SigningNodePlan) -> dict[str, object]:
     return {
         "source_path": node.source_path.as_posix(),
+        "executable_path": node.executable_path.as_posix(),
         "kind": node.kind.value,
         "order": node.order,
         "target_bundle_id": node.target_bundle_id,
@@ -345,6 +346,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
             nodes.append(
                 SigningNodePlan(
                     source_path=node.path,
+                    executable_path=node.executable_path,
                     kind=node.kind,
                     order=order,
                     target_bundle_id=None,
@@ -365,6 +367,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
         nodes.append(
             SigningNodePlan(
                 source_path=node.path,
+                executable_path=node.executable_path,
                 kind=node.kind,
                 order=order,
                 target_bundle_id=intent.target_bundle_id,

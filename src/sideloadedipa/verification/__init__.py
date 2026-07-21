@@ -1,5 +1,12 @@
 """Fail-closed verification building blocks."""
 
+from sideloadedipa.verification.artifact import (
+    EntitlementRepresentationEvidence,
+    SignedArtifactEntitlementEvidence,
+    SignedEntitlementSliceEvidence,
+    SignedNodeEntitlementEvidence,
+    inspect_signed_entitlements,
+)
 from sideloadedipa.verification.entitlements import (
     EntitlementComparison,
     EntitlementComparisonMode,
@@ -9,9 +16,14 @@ from sideloadedipa.verification.entitlements import (
 )
 
 __all__ = [
+    "EntitlementRepresentationEvidence",
     "EntitlementComparison",
     "EntitlementComparisonMode",
     "EntitlementDifference",
     "EntitlementIdentityContext",
+    "SignedArtifactEntitlementEvidence",
+    "SignedEntitlementSliceEvidence",
+    "SignedNodeEntitlementEvidence",
     "compare_entitlements",
+    "inspect_signed_entitlements",
 ]

@@ -34,6 +34,7 @@ class ExpectedNodeEntitlements:
 @dataclass(frozen=True, slots=True)
 class SigningNodePlan:
     source_path: PurePosixPath
+    executable_path: PurePosixPath
     kind: BundleNodeKind
     order: int
     target_bundle_id: str | None
