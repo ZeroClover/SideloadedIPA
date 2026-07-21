@@ -190,6 +190,24 @@ def validate_resource_names(
         print(f"[qualification-evidence] {role} {resource_type} name: {actual_name}")
 
 
+def validate_profile_names(
+    profiles: Sequence[Mapping[str, Any]], selected_profiles: Mapping[str, str]
+) -> None:
+    by_id = {
+        profile_id: resource_name(profile)
+        for profile in profiles
+        if isinstance((profile_id := profile.get("id")), str)
+    }
+    for role, base_name in PROFILE_NAMES.items():
+        actual_name = by_id.get(selected_profiles[role])
+        suffix = actual_name.removeprefix(f"{base_name} ") if actual_name else ""
+        if actual_name != base_name and not (suffix.isdigit() and int(suffix) >= 2):
+            raise QualificationError(
+                f"{role} profile name is {actual_name!r}, expected {base_name!r} or a revision"
+            )
+        print(f"[qualification-evidence] {role} profile name: {actual_name}")
+
+
 def delete_legacy_profiles(
     profiles: Sequence[Mapping[str, Any]], bundle_resources: Mapping[str, str]
 ) -> None:
@@ -391,6 +409,16 @@ def profile_state(profile: Mapping[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def next_profile_name(profiles: Sequence[Mapping[str, Any]], base_name: str) -> str:
+    used_names = {name for profile in profiles if (name := resource_name(profile)) is not None}
+    if base_name not in used_names:
+        return base_name
+    revision = 2
+    while f"{base_name} {revision}" in used_names:
+        revision += 1
+    return f"{base_name} {revision}"
+
+
 def resolve_profile_bundle_resource_id(profile: Mapping[str, Any]) -> str | None:
     embedded = profile_bundle_resource_id(profile)
     if embedded:
@@ -502,13 +530,14 @@ def ensure_profiles(
 
     for role in missing_roles:
         bundle_resource_id = bundle_resources[role]
-        print(f"[qualification-apply] creating development profile for {role}")
+        profile_name = next_profile_name(profiles, PROFILE_NAMES[role])
+        print(f"[qualification-apply] creating development profile for {role}: " f"{profile_name}")
         run_json(
             [
                 "profiles",
                 "create",
                 "--name",
-                PROFILE_NAMES[role],
+                profile_name,
                 "--profile-type",
                 PROFILE_TYPE,
                 "--bundle",
@@ -519,6 +548,10 @@ def ensure_profiles(
                 ",".join(sorted(device_ids)),
             ]
         )
+        profiles = [
+            *profiles,
+            {"attributes": {"name": profile_name}},
+        ]
 
     refreshed = data_list(
         run_json(
@@ -774,8 +807,6 @@ def main() -> int:
                 "list",
                 "--profile-type",
                 PROFILE_TYPE,
-                "--profile-state",
-                "ACTIVE",
                 "--paginate",
             ]
         ),
@@ -802,12 +833,7 @@ def main() -> int:
         ),
         "profiles",
     )
-    validate_resource_names(
-        current_profiles,
-        selected_profiles,
-        PROFILE_NAMES,
-        "profile",
-    )
+    validate_profile_names(current_profiles, selected_profiles)
 
     evidence: list[ProfileEvidence] = []
     for role, profile_id in selected_profiles.items():

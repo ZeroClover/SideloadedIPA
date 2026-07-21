@@ -19,7 +19,9 @@ from qualify_backend_prerequisites import (
     ensure_common_contract,
     ensure_profiles,
     exact_bundle_resources,
+    next_profile_name,
     profile_bundle_resource_id,
+    validate_profile_names,
     validate_resource_names,
 )
 
@@ -195,6 +197,17 @@ def test_profile_bundle_resource_id_reads_embedded_relationship() -> None:
     assert profile_bundle_resource_id(profile) == "bundle-id"
 
 
+def test_next_profile_name_versions_around_retained_profiles() -> None:
+    profiles = [
+        {"attributes": {"name": "LiveContainer Dev"}},
+        {"attributes": {"name": "LiveContainer Dev 2"}},
+        {"attributes": {"name": "Other Dev"}},
+    ]
+
+    assert next_profile_name(profiles, "LiveContainer Dev") == "LiveContainer Dev 3"
+    assert next_profile_name(profiles, "New Dev") == "New Dev"
+
+
 def test_validate_resource_names_requires_exact_display_name() -> None:
     resources = [{"id": "extension-id", "attributes": {"name": "Extension"}}]
 
@@ -212,6 +225,34 @@ def test_validate_resource_names_requires_exact_display_name() -> None:
             {"extension": "Expected Extension"},
             "App ID",
         )
+
+
+def test_validate_profile_names_accepts_numbered_replacement() -> None:
+    profiles = [
+        {"id": "root-profile", "attributes": {"name": "LiveContainer Dev 2"}},
+        {
+            "id": "process-profile",
+            "attributes": {"name": "LiveContainer LiveProcess Dev 2"},
+        },
+        {
+            "id": "launch-profile",
+            "attributes": {"name": "LiveContainer LaunchAppExtension Dev 2"},
+        },
+        {
+            "id": "share-profile",
+            "attributes": {"name": "LiveContainer ShareExtension Dev 2"},
+        },
+    ]
+
+    validate_profile_names(
+        profiles,
+        {
+            "root": "root-profile",
+            "process": "process-profile",
+            "launch": "launch-profile",
+            "share": "share-profile",
+        },
+    )
 
 
 def test_certificate_content_decodes_base64_der() -> None:

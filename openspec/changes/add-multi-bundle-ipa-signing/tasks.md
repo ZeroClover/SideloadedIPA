@@ -125,7 +125,7 @@
 
 - [ ] 11.1 Extend and uncomment the existing deferred LiveContainer entry in `configs/tasks.toml`, retain `bundle_id = "io.zeroclover.app.livecontainer"`, and add the reviewed exact `LiveContainer.ipa` selector, four bundle rules, target identifier strategy, version-controlled entitlement templates, and publication-disabled state.
 - [ ] 11.2 **Manual:** choose and register a team-owned App Group identifier, associate it with root/Launch/LiveProcess/Share App IDs as required, and record non-secret evidence in the readiness checklist.
-- [ ] 11.3 **Manual:** have the Account Holder/Admin request or enable increased-memory-limit, Clinical Health Records, HealthKit/background delivery, and any other approval-gated entitlement required by root and `LiveProcess`.
+- [ ] 11.3 **Manual:** enable HealthKit, Increased Memory Limit, and Keychain Sharing for root and `LiveProcess`; keep Clinical Health Records and HealthKit background delivery in the reviewed local entitlement templates rather than treating them as separate Portal capabilities.
 - [ ] 11.4 Run read-only plan mode and confirm it reports exactly four target App IDs/profiles, the intended App Group mapping, supported automatic changes, and no unresolved/ambiguous bundle.
 - [ ] 11.5 Apply safe Apple changes, generate four profiles, and prove each profile authorizes its target policy, certificate, devices, and validity window.
 - [ ] 11.6 Produce a private non-publishing canary and pass all automated identifier, profile, entitlement, XML/DER, nested-signature, graph, and package checks.

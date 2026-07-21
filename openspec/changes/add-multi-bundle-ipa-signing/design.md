@@ -158,13 +158,13 @@ shared = "group.io.zeroclover.livecontainer"
 source_bundle_id = "com.kdt.livecontainer"
 role = "root"
 target_bundle_id = "io.zeroclover.app.livecontainer"
-required_capabilities = ["APP_GROUPS", "HEALTHKIT", "HEALTH_RECORDS", "INCREASED_MEMORY_LIMIT"]
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
 entitlement_mode = "template"
 entitlements_file = "configs/signing/livecontainer/root.entitlements.plist"
 
 [[tasks.signing.bundles]]
 source_bundle_id = "com.kdt.livecontainer.LiveProcess"
-required_capabilities = ["APP_GROUPS", "HEALTHKIT", "HEALTH_RECORDS", "INCREASED_MEMORY_LIMIT"]
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
 entitlement_mode = "template"
 entitlements_file = "configs/signing/livecontainer/live-process.entitlements.plist"
 
@@ -210,7 +210,7 @@ The verified App Store Connect API/CLI supports Bundle ID creation, capability l
 | Register a team-owned App Group container | human Account Holder/Admin in Developer Portal/Xcode | CI checks the configured identifier/association and blocks until present |
 | Associate App IDs with an App Group | CI only if a documented API operation and contract test exist | otherwise manual; no private API fallback |
 | Request/approve managed capabilities such as increased memory limit | human Account Holder, plus Apple approval where required | CI reports prerequisite and checks profile evidence |
-| Confirm Clinical Health Records/other sensitive entitlement eligibility | human | CI never assumes approval; it validates the generated profile |
+| Define Clinical Health Records and HealthKit background-delivery values | human code review | treat them as local entitlement-template values under the HealthKit capability, not separate Portal capabilities; CI validates profile authorization and signed output |
 | Create/download/refresh per-bundle profiles | CI | automatic after all prerequisites exist |
 | Approve entitlement templates and any intentional entitlement removals | human code review | CI performs exact validation every run |
 | Sign, verify, repackage, cache, and publish | CI | automatic only after all gates pass |
