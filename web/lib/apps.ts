@@ -19,6 +19,14 @@ export interface AppEntry {
   bundleId: string;
   version: string;
   ipaUrl: string;
+  /**
+   * Content-addressed icon URL (apps/<slug>/icon-<sha12>.png), served immutable:
+   * a changed icon arrives as a NEW URL rather than waiting out the zone's
+   * browser-cache TTL. Never rebuild it from the slug — the hash is the only way
+   * to know the current key. May be "" when an app has no icon yet (the pipeline
+   * leaves it empty rather than pointing at a key that does not exist); AppCard
+   * renders a lettered tile in that case.
+   */
   iconUrl: string;
 }
 

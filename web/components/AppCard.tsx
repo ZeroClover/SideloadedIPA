@@ -39,7 +39,9 @@ export default function AppCard({ name, slug, version, icon, manifest }: AppCard
       {/* Neutral tile + hairline keeps solid-white/black icons visible on the glass card. */}
       <div className="icon-tile">
         {icon && !iconFailed ? (
-          // Plain <img> on purpose: icons are tiny files served straight from R2.
+          // Plain <img> on purpose: icons are tiny files served straight from R2
+          // under a content-addressed, immutable key — nothing for next/image to
+          // optimise or invalidate, since a new icon simply arrives as a new URL.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             className="icon"
