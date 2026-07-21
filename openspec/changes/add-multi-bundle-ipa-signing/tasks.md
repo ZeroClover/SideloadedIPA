@@ -94,7 +94,7 @@
 - [x] 8.8 Implement schema-versioned human/JSON verification reports and a single boolean publication gate derived only from required checks.
 - [x] 8.9 Add LiveContainer contract tests for four distinct profiles/IDs, root and `LiveProcess` sensitive entitlements plus exactly 128 keychain groups, and App Group-only Launch/Share policies.
 - [x] 8.10 Add SideStore-variant tests requiring a fifth `LiveWidget` profile and its own reviewed policy rather than root-policy inheritance.
-- [ ] 8.11 Run an independent macOS oracle job for qualification/canary artifacts and investigate every Linux/macOS verification disagreement.
+- [x] 8.11 Run an independent macOS oracle job for qualification/canary artifacts and investigate every Linux/macOS verification disagreement.
 
 ## 9. Orchestration, Cache, and Publication
 

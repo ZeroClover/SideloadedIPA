@@ -88,3 +88,18 @@ Redacted final summary SHA-256 values:
 - final comparison summary: `a3a3cae9d59e7979f1584b0285d09c7f9db53957d0eb43c4bac48bd5a1bf85a1`.
 
 [ADR 0001](../decisions/0001-signing-backend.md) accepts this upstreamable zsign extension on Linux and preserves the qualification assertions as the mandatory `SigningBackend` contract. This completes task 2.6 and opens section 3.
+
+## Verification-stage oracle rerun
+
+[Development-branch run 29861713503](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29861713503) reran the private non-publishing qualification/canary artifact at commit `07271a032eac9d3d4118db1104a28c413de6d414` after the fail-closed verification reports and LiveContainer contract suite were implemented. The Linux qualification, independent `macos-15` codesign oracle, and mandatory comparison jobs all completed successfully. Production signing and publication were skipped.
+
+The rerun found no unexplained Linux/macOS disagreement. The selected per-profile-entitlement Linux backend passed with four exact profiles and policies, the macOS oracle passed strict nested-signature plus XML/DER checks, and the comparison again recorded `linux_contract_pass`, `codesign_contract_pass`, `profile_mapping_matches`, `root_last`, and `xml_der_evidence_complete` as true. The deliberately unmodified upstream profile-only probe remained the documented negative control: it reported only the root and LiveProcess 128-Keychain-Group violations and could not satisfy the gate.
+
+Redacted rerun summary SHA-256 values:
+
+- upstream profile-only Linux summary: `cf288c018f8ce838008606eca39c9f50380ee5eae43e8af2d5160f4c4a3c1306`;
+- extended Linux summary: `7af6d3fdabfef6a186a01b629ae27e624a69f7cca9417faad229d37425a02924`;
+- macOS codesign summary: `9223a282c261bd873da480bf7673091dbd1b9f7b5653d2b32ad257f709c2f102`;
+- comparison summary: `a3a3cae9d59e7979f1584b0285d09c7f9db53957d0eb43c4bac48bd5a1bf85a1`.
+
+Only the redacted summaries were retained. The signed IPA, development profiles, P12, private key, and temporary macOS keychain were deleted on their respective runners.
