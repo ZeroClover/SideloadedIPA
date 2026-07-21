@@ -100,7 +100,7 @@
 
 - [x] 9.1 Implement typed stage manifests and ordered source, inventory, policy, resource-plan/apply, signing-plan, sign, verify, and publish state transitions.
 - [x] 9.2 Complete `inspect`, `plan`, `sync`, `sign`, `verify`, and `run` use cases so each consumes predecessor manifests rather than parsing stdout/environment state.
-- [ ] 9.3 Implement complete cache fingerprints from source/policy/graph/entitlement/ID/resource/profile/certificate/device/backend/tool/schema inputs.
+- [x] 9.3 Implement complete cache fingerprints from source/policy/graph/entitlement/ID/resource/profile/certificate/device/backend/tool/schema inputs.
 - [ ] 9.4 Migrate selective rebuild logic to per-task fingerprints and invalidate only affected tasks while forcing full rebuild on fingerprint-schema changes.
 - [ ] 9.5 Require current time-sensitive prerequisite/profile checks and full output reopening/verification even when a signed artifact cache key matches.
 - [ ] 9.6 Move existing R2 upload, apps registry update, Vercel revalidation, and stale-object cleanup behind an atomic verified-publication service.
