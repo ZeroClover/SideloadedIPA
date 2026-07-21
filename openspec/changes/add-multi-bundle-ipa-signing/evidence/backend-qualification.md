@@ -48,7 +48,7 @@ The hard gate now has four private real development profiles whose App IDs and e
 
 The upstream profile-only mode failed the exact functional contract: all four signed bundles contained two profile-default keychain groups, while root and LiveProcess require the reviewed 128 exact target-team groups. Both violations were reported independently, the signed IPA remained private, cleanup ran, and publication was skipped. This proves that repeated-profile selection works but profile-derived entitlements cannot replace per-bundle local entitlement documents.
 
-The private fixture inputs and independent comparison are now complete. No section 3 implementation may start until the task 2.6 backend ADR is accepted and its mandatory contract suite passes for the selected backend.
+At the task 2.5 boundary, the private fixture inputs and independent comparison were complete, while section 3 remained blocked on acceptance of the task 2.6 backend ADR and a passing mandatory contract suite. The accepted result is recorded below.
 
 ## Private input controls
 
@@ -73,3 +73,18 @@ Only redacted summaries were uploaded. Their SHA-256 digests were:
 - comparison summary: `27448d36705db69c9839c2b911869ba000c54cc0041dff948ddf0121a1d38921`.
 
 This completes task 2.5 and preserves the observed backend boundary for the task 2.6 decision: upstream zsign v1.1.1 maps repeated profiles correctly but cannot express the required per-bundle local entitlement documents, while the independent macOS oracle satisfies the full qualification contract.
+
+## Accepted backend qualification
+
+[Final contract run 29839575241](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29839575241) built zsign source commit `d6e929c97b5b564c2cc1f82afe226a44da7149a0` after verifying archive SHA-256 `d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670`, applied the repository's minimal repeated `-e` patch, and produced version `1.1.1+sideloadedipa.1` with executable SHA-256 `811ba4b2304ba3262de4256ef2f920065ab6f12f4c8ea04be9d27e4ed0acef0a`.
+
+The compiled Linux backend rejected a four-profile/three-entitlement count mismatch, then passed four adjacent profile/entitlement pairs. It embedded each intended profile, emitted the exact root/process 128-Keychain-Group policy without leaking root-only values to Launch/Share, and reported complete root-last signing order. The independent macOS oracle again passed XML/DER, profile, and strict nested-signature checks, and the comparison reported `backend_decision_required: false` with exact per-role evidence equality.
+
+Redacted final summary SHA-256 values:
+
+- upstream profile-only Linux summary: `f0b83b4d97bd53ec7cf89140e1de89fa146e03bba10e5a6646d482cd80ce5f0a`;
+- extended Linux summary: `b0ae8dc4dc6d03e1a02b0e87cb12c1592c63b4af53e3aea323941649551724e3`;
+- macOS codesign summary: `9223a282c261bd873da480bf7673091dbd1b9f7b5653d2b32ad257f709c2f102`;
+- final comparison summary: `a3a3cae9d59e7979f1584b0285d09c7f9db53957d0eb43c4bac48bd5a1bf85a1`.
+
+[ADR 0001](../decisions/0001-signing-backend.md) accepts this upstreamable zsign extension on Linux and preserves the qualification assertions as the mandatory `SigningBackend` contract. This completes task 2.6 and opens section 3.

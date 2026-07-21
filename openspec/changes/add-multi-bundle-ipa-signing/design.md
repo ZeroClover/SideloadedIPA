@@ -235,20 +235,20 @@ This comparison occurs before signing (expected versus profile), after signing (
 
 **Alternative considered:** trust the provisioning profile wholesale. Upstream zsign initializes each signing asset's entitlement document from its profile when no `-e` is supplied. A development profile can authorize a broader set than the exact functional values that LiveContainer needs, so this can silently remove its 128 keychain groups or other requested values.
 
-### 6. Keep a replaceable signing backend and require an entitlement spike before implementation proceeds
+### 6. Keep a replaceable signing backend and use the qualified Linux zsign extension
 
-`SigningBackend` accepts a complete immutable plan and returns a signed artifact plus per-node evidence. The first adapter targets checksum-pinned zsign v1.1.1 and passes every profile with repeated `-m`. It must verify backend version/features at startup and must not parse success from log text alone.
+`SigningBackend` accepts a complete immutable plan and returns a signed artifact plus per-node evidence. [ADR 0001](decisions/0001-signing-backend.md) selects zsign v1.1.1 plus the repository's minimal upstreamable per-profile-entitlement patch on Linux. The adapter passes every profile and entitlement document as an adjacent repeated `-m PROFILE -e ENTITLEMENTS` pair, verifies source/version/features/checksums at startup, and does not parse success from log text alone.
 
-There is a known unresolved backend constraint: zsign v1.1.1 accepts multiple profiles, but its `-e` option is global. With no `-e`, each matched bundle receives entitlements taken from its own profile. A global entitlement file cannot safely express different policies for the root, `LiveProcess`, Launch, and Share extensions.
+The qualification resolved the original constraint. Unmodified zsign v1.1.1 accepts multiple profiles but only one global `-e`; profile-only signing mapped profiles correctly but failed the exact root/LiveProcess 128-Keychain-Group contract. The selected patch changes only CLI construction so repeated `-e` values populate the already per-profile `ZSignAsset` objects and rejects profile/entitlement count mismatches before signing.
 
-The first implementation gate, immediately after baseline characterization and before package or workflow architecture commits to zsign/Linux assumptions, therefore uses sanitized real-profile fixtures to answer whether upstream zsign can produce the exact per-bundle LiveContainer contract using profiles alone. Work that is backend-neutral may be prepared in parallel, but no production signing-backend implementation or runner-cost decision proceeds until the gate has an accepted ADR. Its exit criteria are:
+The completed implementation gate used private real-profile fixtures and an independent macOS oracle before package or workflow architecture committed to the selected Linux backend. Its continuing contract criteria are:
 
 - all four standard bundles receive the intended profile and target identifier;
 - root and `LiveProcess` contain HealthKit, Health Records, background delivery, increased memory, App Group, `get-task-allow`, and exactly 128 target-team keychain groups;
 - Launch and Share contain the intended App Group policy without root-only entitlements;
 - XML/DER entitlements, nested signatures, and embedded profiles pass independent verification.
 
-If those criteria fail, implementation must not weaken the verifier. It must either add an upstreamable zsign capability for per-bundle entitlement mappings or implement another backend that signs each node with its own entitlement document and preserves deepest-first order. A macOS `codesign` adapter is an available correctness fallback, but moving production to a macOS runner requires cost/runtime evidence and an explicit decision.
+Every criterion passed in development-branch qualification run 29839575241. Future source, patch, toolchain, or backend upgrades must pass the same suite without weakening the verifier. A macOS `codesign` adapter remains a correctness fallback, but moving production to a macOS runner requires a new ADR with fresh cost/runtime evidence.
 
 **Alternative considered:** invoke zsign once per extension and then invoke it again for the root. A recursive root pass can overwrite nested signatures/entitlements, so this is not accepted without a verified non-recursive mode and end-to-end evidence.
 
@@ -301,7 +301,7 @@ Coverage is enforced by package rather than the legacy `scripts` path. `pytest`,
 ## Risks / Trade-offs
 
 - **Apple does not authorize one or more LiveContainer entitlements for this team or profile type** → stop at the profile authorization gate, report the exact key/value and official/manual prerequisite, and do not publish a reduced-function build without an explicit reviewed policy change.
-- **Upstream zsign cannot express different exact entitlement documents per bundle** → complete the mandatory spike first; extend the backend or use a correctness-preserving alternative rather than weakening expectations.
+- **A future zsign release or runner toolchain breaks the per-profile patch** → fail source/patch/version checks, keep the last qualified backend pin, and re-run the mandatory Linux/macOS contract before upgrading; never weaken entitlement expectations.
 - **The source IPA's placeholder signature omits or lies about entitlements** → combine source evidence with version-controlled policy templates and pinned upstream-source review; require explicit policy for sensitive bundles.
 - **Apple capability APIs or CLI commands change** → isolate them in one adapter, pin/checksum the CLI, contract-test JSON parsing, verify versions at startup, and fail with a manual action rather than guessing.
 - **Automatic Bundle ID/capability creation leaves additive resources after a failed run** → plan before apply, make operations idempotent, record created resource IDs, and never auto-delete; unused additive resources are documented for optional human cleanup.
@@ -317,7 +317,7 @@ Coverage is enforced by package rather than the legacy `scripts` path. `pytest`,
 ## Migration Plan
 
 1. **Characterize the reviewed baseline:** record the implementation commit, lock down current first-match/warning behavior and all single-bundle, cache, icon, R2, registry, and rollback behavior, and keep legacy entry points unchanged.
-2. **Qualify the signing backend:** execute the per-bundle-profile/entitlement spike, compare Linux output with the macOS oracle, and accept an ADR selecting upstream zsign, an upstreamable extension, another Linux backend, or a macOS fallback. This is a hard gate before backend- or runner-dependent architecture work.
+2. **Qualify the signing backend:** completed by Linux/macOS qualification run 29839575241 and accepted ADR 0001, selecting the upstreamable per-profile-entitlement zsign extension on Linux.
 3. **Audit source selection and scaffold:** query the latest stable release for all five production tasks, record every `*.ipa` candidate, add explicit selectors where needed, implement the breaking exactly-one-match rule with regression coverage, and introduce the typed package/interfaces against the accepted backend decision.
 4. **Read-only inventory, planning, and verification:** add secure IPA inspection, compatibility parsing, identifier/entitlement policies, profile decoding, signing plans, and post-sign reports. Shadow-run all current tasks and resolve every difference without changing Apple resources, signed output, cache success, or publication.
 5. **Apple adapter migration:** move existing profile synchronization behind the two-phase reconciler, prove single-bundle parity, then enable additive multi-App-ID/profile planning. Keep apply actions behind an explicit workflow stage.
@@ -329,8 +329,8 @@ Rollback disables the new per-task engine/publication flag and returns existing 
 
 ## Open Questions
 
-1. Do real development profiles for the target team carry or authorize the exact HealthKit, Health Records, increased-memory, App Group, and 128-keychain-group values needed by root and `LiveProcess`? This is resolved by the profile/backend spike, not by assumption.
+1. **Resolved:** the real development profiles authorize the intended HealthKit, Health Records, increased-memory, App Group, and wildcard Keychain Group policy; the signed root and LiveProcess carry the exact 128 local values.
 2. Can the current official App Store Connect API associate an already registered App Group with an App ID using stable documented settings in v3.1.1? If not, association remains a portal step.
-3. Does upstream zsign need a per-bundle entitlement-map feature, or can exact validated profiles supply every value without `-e`? Task section 2 resolves this through an accepted ADR before section 3 begins.
-4. Which team-owned App Group identifier will be registered, and have the Account Holder/Admin and managed-capability approvals been completed? The example identifier is illustrative, not an authorization to create it.
+3. **Resolved:** profile-only zsign is insufficient; ADR 0001 selects the qualified repeated `-m/-e` extension.
+4. **Resolved for the standard four bundles:** the operator registered `group.io.zeroclover.app.livecontainer` and associated the required capabilities. Clinical Health Records and HealthKit background delivery remain local HealthKit entitlement values, not separate portal capabilities.
 5. Should the SideStore-integrated asset become a later separate task? Supporting it requires a fifth profile, a widget-specific entitlement policy, a separate acceptance pass, and an exact `LiveContainer+SideStore.ipa` selector.

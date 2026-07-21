@@ -29,6 +29,8 @@ The system SHALL use a version-verified backend that can apply the plan's distin
 
 - **WHEN** the pinned zsign version has passed the multi-bundle backend contract fixture
 - **THEN** the adapter SHALL pass all planned profiles using repeated `-m` arguments
+- **AND** SHALL pass each profile-bearing bundle's planned entitlement document using the paired repeated `-e` extension selected by ADR 0001
+- **AND** SHALL reject profile/entitlement count mismatches before signing
 - **AND** SHALL prove the profile selected for each bundle from post-sign evidence
 
 #### Scenario: Backend only supports one global entitlement document
