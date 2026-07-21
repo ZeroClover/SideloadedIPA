@@ -1,5 +1,9 @@
 """Apple resource adapters."""
 
+from sideloadedipa.adapters.apple.app_groups import (
+    app_group_association_verified,
+    app_group_requirement,
+)
 from sideloadedipa.adapters.apple.asc import AscClient, AscResponse, AscToolIdentity
 from sideloadedipa.adapters.apple.bundle_ids import (
     AscBundleIdGateway,
@@ -36,6 +40,8 @@ __all__ = [
     "CapabilityAutomation",
     "CapabilityReconciler",
     "CapabilityRule",
+    "app_group_association_verified",
+    "app_group_requirement",
     "bundle_id_requirement",
     "capability_requirement",
     "capability_rule",
