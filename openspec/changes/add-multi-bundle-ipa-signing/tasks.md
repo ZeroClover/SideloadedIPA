@@ -78,7 +78,7 @@
 - [x] 7.4 Implement exact root and nested `CFBundleIdentifier`/application-identifier transformation from the plan, including explicit nested overrides.
 - [x] 7.5 Implement the qualified backend adapter with all per-bundle profiles, per-bundle entitlements, version/checksum enforcement, redacted argv evidence, and typed timeout/nonzero failures.
 - [x] 7.6 Implement profile-free framework/dylib signing with the intended identity and empty application entitlements.
-- [ ] 7.7 Implement copy-on-write signing workspaces, temporary output, atomic result promotion, failure cleanup, and preservation of the downloaded source and prior verified artifact.
+- [x] 7.7 Implement copy-on-write signing workspaces, temporary output, atomic result promotion, failure cleanup, and preservation of the downloaded source and prior verified artifact.
 - [ ] 7.8 Emit canonical plan/result digests and per-node backend evidence without credentials, P12 passwords, private keys, or raw profile payloads.
 - [ ] 7.9 Run current root-only tasks through the new planner/executor behind a per-task engine flag and satisfy all single-bundle characterization tests.
 
