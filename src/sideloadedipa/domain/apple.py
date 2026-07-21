@@ -107,6 +107,7 @@ class AppleOperation:
     action: str
     target: str
     existing_resource_id: str | None = None
+    bundle_id: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
@@ -115,6 +116,17 @@ class AppleResourcePlan:
     snapshot_sha256: str
     operations: tuple[AppleOperation, ...]
     resources: tuple[AppleResource, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AppleResourceRequirement:
+    resource_kind: AppleResourceKind
+    action: str
+    target: str
+    bundle_id: str | None
+    matching_resource_ids: tuple[str, ...]
+    missing_disposition: OperationDisposition
+    remediation: str
 
 
 @dataclass(frozen=True, slots=True)
