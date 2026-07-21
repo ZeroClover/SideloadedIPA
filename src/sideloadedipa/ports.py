@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +13,7 @@ from sideloadedipa.domain import (
     AppleResourcePlan,
     BundleGraph,
     CertificateMaterial,
+    PublicationCandidate,
     PublicationResult,
     SigningPlan,
     SigningResult,
@@ -72,6 +73,25 @@ class RegistryPublisher(Protocol):
         self,
         artifacts: Sequence[StoredArtifact],
     ) -> tuple[PublicationResult, ...]: ...
+
+
+@runtime_checkable
+class VerifiedPublicationGateway(Protocol):
+    def read_registry(self) -> Mapping[str, object] | None: ...
+
+    def upload_artifact(self, candidate: PublicationCandidate) -> StoredArtifact: ...
+
+    def publish_registry(self, document: Mapping[str, object]) -> tuple[str, str]: ...
+
+    def revalidate(self) -> None: ...
+
+    def object_key_from_url(self, url: str) -> str | None: ...
+
+    def cleanup_stale(
+        self,
+        slugs: Sequence[str],
+        referenced_keys: frozenset[str],
+    ) -> tuple[str, ...]: ...
 
 
 @runtime_checkable

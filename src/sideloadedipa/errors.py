@@ -58,6 +58,7 @@ class ErrorCode(StrEnum):
     VERIFICATION_EVIDENCE_INVALID = "verification.evidence_invalid"
     PIPELINE_TRANSITION_INVALID = "pipeline.transition_invalid"
     CACHE_REUSE_INVALID = "cache.reuse_invalid"
+    PUBLICATION_FAILED = "publication.failed"
 
 
 class SideloadedIPAError(Exception):

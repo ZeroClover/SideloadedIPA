@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 
 from sideloadedipa.domain.common import Diagnostic
+from sideloadedipa.domain.signing import SigningPlan
 
 
 class PipelineStage(StrEnum):
@@ -102,3 +103,18 @@ class StoredArtifact:
     url: str
     sha256: str
     size: int
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationCandidate:
+    task_name: str
+    slug: str
+    app_name: str
+    bundle_id: str
+    version: str
+    filename: str
+    artifact_path: str
+    artifact_sha256: str
+    icon_url: str | None
+    plan: SigningPlan
+    verification: VerificationResult

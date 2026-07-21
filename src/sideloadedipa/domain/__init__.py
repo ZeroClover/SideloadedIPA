@@ -65,6 +65,7 @@ from sideloadedipa.domain.identifiers import (
 )
 from sideloadedipa.domain.pipeline import (
     PipelineStage,
+    PublicationCandidate,
     PublicationResult,
     SourceAsset,
     StageManifest,
@@ -131,6 +132,7 @@ __all__ = [
     "PolicyReconciliation",
     "ProfileType",
     "ProvisioningProfile",
+    "PublicationCandidate",
     "PublicationResult",
     "R2Config",
     "ReconciledBundleRule",
