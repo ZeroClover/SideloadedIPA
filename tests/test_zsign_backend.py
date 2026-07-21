@@ -88,6 +88,7 @@ def profile_node(
     expected = normalize_entitlements({"application-identifier": f"PREFIX.{target}"})
     return SigningNodePlan(
         source_path=PurePosixPath(f"Payload/App.app/{resource_id}.appex"),
+        executable_path=PurePosixPath(f"Payload/App.app/{resource_id}.appex/Executable"),
         kind=BundleNodeKind.APP_EXTENSION,
         order=order,
         target_bundle_id=target,
@@ -103,6 +104,7 @@ def profile_free_node() -> SigningNodePlan:
     empty = normalize_entitlements({})
     return SigningNodePlan(
         source_path=PurePosixPath("Payload/App.app/Frameworks/Kit.framework"),
+        executable_path=PurePosixPath("Payload/App.app/Frameworks/Kit.framework/Kit"),
         kind=BundleNodeKind.FRAMEWORK,
         order=0,
         target_bundle_id=None,

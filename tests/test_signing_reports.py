@@ -46,6 +46,7 @@ def fixture_plan() -> SigningPlan:
     nodes = tuple(
         SigningNodePlan(
             source_path=path,
+            executable_path=path / "Executable",
             kind=kind,
             order=order,
             target_bundle_id=target,

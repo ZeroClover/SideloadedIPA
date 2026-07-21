@@ -58,6 +58,7 @@ def plan_for(source: Path) -> SigningPlan:
         nodes=(
             SigningNodePlan(
                 source_path=PurePosixPath("Payload/Example.app"),
+                executable_path=PurePosixPath("Payload/Example.app/Example"),
                 kind=BundleNodeKind.APP,
                 order=0,
                 target_bundle_id="io.example.target",

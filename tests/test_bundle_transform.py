@@ -36,6 +36,7 @@ def node(
     )
     return SigningNodePlan(
         source_path=path,
+        executable_path=path / "Executable",
         kind=kind,
         order=order,
         target_bundle_id=target_bundle_id,
