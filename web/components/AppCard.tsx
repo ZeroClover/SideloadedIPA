@@ -36,25 +36,28 @@ export default function AppCard({ name, slug, version, icon, manifest }: AppCard
 
   return (
     <div className="card">
-      {icon && !iconFailed ? (
-        // Plain <img> on purpose: icons are tiny files served straight from R2.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          className="icon"
-          src={icon}
-          alt={`${name} 图标`}
-          width={76}
-          height={76}
-          loading="lazy"
-          decoding="async"
-          style={{ background }}
-          onError={() => setIconFailed(true)}
-        />
-      ) : (
-        <div className="icon-fallback" style={{ background }}>
-          {(name || "?").charAt(0).toUpperCase()}
-        </div>
-      )}
+      {/* Neutral tile + hairline keeps solid-white/black icons visible on the glass card. */}
+      <div className="icon-tile">
+        {icon && !iconFailed ? (
+          // Plain <img> on purpose: icons are tiny files served straight from R2.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            className="icon"
+            src={icon}
+            alt={`${name} 图标`}
+            width={84}
+            height={84}
+            loading="lazy"
+            decoding="async"
+            style={{ background }}
+            onError={() => setIconFailed(true)}
+          />
+        ) : (
+          <div className="icon-fallback" style={{ background }}>
+            {(name || "?").charAt(0).toUpperCase()}
+          </div>
+        )}
+      </div>
       <div className="meta">
         <span className="name">{name}</span>
         <span className="slug">{slug}</span>
