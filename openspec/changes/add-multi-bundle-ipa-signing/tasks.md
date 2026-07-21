@@ -58,7 +58,7 @@
 ## 6. Apple Resource Planning and Reconciliation
 
 - [x] 6.1 Move App Store Connect command execution and JSON decoding behind a typed adapter with version checks, pagination, bounded retries, error mapping, and recorded/redacted contract fixtures.
-- [ ] 6.2 Implement read-only Apple state collection for Bundle IDs, exposed capabilities/settings, certificates, enabled iOS devices, and profiles using one normalized snapshot per run.
+- [x] 6.2 Implement read-only Apple state collection for Bundle IDs, exposed capabilities/settings, certificates, enabled iOS devices, and profiles using one normalized snapshot per run.
 - [ ] 6.3 Implement the pure Apple resource planner and classify every operation as `no-op`, `safe-automatic`, `manual-required`, or `blocked` with bundle-specific remediation.
 - [ ] 6.4 Implement exact explicit Bundle ID lookup and idempotent additive creation, including lookup-after-timeout and no deletion/rename behavior.
 - [ ] 6.5 Implement an allowlisted capability registry and additive enablement for documented API-supported settings; classify unsupported, managed, sensitive, destructive, and ambiguous capability work as manual/blocking.
