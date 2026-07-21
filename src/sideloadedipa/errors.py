@@ -36,6 +36,7 @@ class ErrorCode(StrEnum):
     INVENTORY_EXECUTABLE_INVALID = "inventory.executable_invalid"
     INVENTORY_DUPLICATE_BUNDLE_ID = "inventory.duplicate_bundle_id"
     INVENTORY_ENTITLEMENTS_INVALID = "inventory.entitlements_invalid"
+    INVENTORY_ENTITLEMENTS_DISAGREE = "inventory.entitlements_disagree"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"

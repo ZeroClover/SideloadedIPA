@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeAlias
 
+
+@dataclass(frozen=True, slots=True)
+class FrozenJsonObject:
+    items: tuple[tuple[str, "FrozenJsonValue"], ...]
+
+
 FrozenJsonValue: TypeAlias = (
-    str
-    | int
-    | float
-    | bool
-    | None
-    | tuple["FrozenJsonValue", ...]
-    | tuple[tuple[str, "FrozenJsonValue"], ...]
+    str | int | float | bool | None | tuple["FrozenJsonValue", ...] | FrozenJsonObject
 )
 
 

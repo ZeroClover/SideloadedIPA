@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import plistlib
 import struct
 from collections.abc import Mapping
@@ -136,6 +137,8 @@ def decode_der_entitlements(payload: bytes) -> dict[str, object]:
 
 
 def _validate_plist_value(value: object) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("entitlement plist contains a non-finite number")
     if value is None or isinstance(value, (str, int, float, bool)):
         return
     if isinstance(value, list):

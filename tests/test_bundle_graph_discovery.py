@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import plistlib
 from pathlib import Path, PurePosixPath
 
@@ -9,12 +11,54 @@ import pytest
 
 from sideloadedipa.domain import BundleNodeKind
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.ipa import LiefMachOProbe, discover_bundle_graph
+from sideloadedipa.ipa import (
+    EntitlementSliceEvidence,
+    LiefMachOProbe,
+    MachOEntitlementEvidence,
+    canonical_graph_json,
+    discover_bundle_graph,
+)
 
 
 class MarkerMachOProbe:
     def is_macho(self, path: Path) -> bool:
         return path.read_bytes().startswith(b"MACHO")
+
+
+class MarkerEntitlementInspector:
+    def inspect(self, path: Path) -> MachOEntitlementEvidence:
+        document = {"application-identifier": f"TEAM.{path.name}"}
+        xml = plistlib.dumps(document, fmt=plistlib.FMT_XML, sort_keys=True)
+        der = f"DER:{path.name}".encode()
+        return MachOEntitlementEvidence(
+            (
+                EntitlementSliceEvidence(
+                    index=0,
+                    architecture="ARM64",
+                    xml_raw=xml,
+                    der_raw=der,
+                    xml=document,
+                    der=document,
+                ),
+            )
+        )
+
+
+class FixedEntitlementInspector:
+    def __init__(self, evidence: MachOEntitlementEvidence) -> None:
+        self.evidence = evidence
+
+    def inspect(self, path: Path) -> MachOEntitlementEvidence:
+        return self.evidence
+
+
+def discover(root: Path, source_sha256: str = "a" * 64):
+    return discover_bundle_graph(
+        root,
+        source_sha256,
+        macho_probe=MarkerMachOProbe(),
+        entitlement_inspector=MarkerEntitlementInspector(),
+    )
 
 
 def make_bundle(
@@ -51,6 +95,7 @@ def make_graph_tree(root: Path) -> None:
         executable="App",
         package_type="APPL",
     )
+    (app / "embedded.mobileprovision").write_bytes(b"root profile")
     extension = make_bundle(
         root,
         "Payload/App.app/PlugIns/Share.appex",
@@ -87,7 +132,7 @@ def make_graph_tree(root: Path) -> None:
 def test_discovers_nested_bundle_and_signable_graph(tmp_path: Path) -> None:
     make_graph_tree(tmp_path)
 
-    graph = discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+    graph = discover(tmp_path)
     nodes = {str(node.path): node for node in graph.nodes}
 
     assert nodes["Payload/App.app"].kind is BundleNodeKind.APP
@@ -103,16 +148,101 @@ def test_discovers_nested_bundle_and_signable_graph(tmp_path: Path) -> None:
     assert dylib.parent_path == framework.path
     assert nodes["Payload/App.app/Helpers/Runner"].kind is BundleNodeKind.EXECUTABLE
     assert nodes["Payload/App.app/Watch/Nested.app"].profile_bearing is True
+    root = nodes["Payload/App.app"]
+    assert root.embedded_profile_sha256 == hashlib.sha256(b"root profile").hexdigest()
+    assert root.entitlements == (("application-identifier", "TEAM.App"),)
+    assert root.entitlement_slices[0].architecture == "ARM64"
+    expected_xml = plistlib.dumps(
+        {"application-identifier": "TEAM.App"}, fmt=plistlib.FMT_XML, sort_keys=True
+    )
+    assert root.xml_entitlements_sha256 == hashlib.sha256(expected_xml).hexdigest()
+    assert root.der_entitlements_sha256 == hashlib.sha256(b"DER:App").hexdigest()
+    assert nodes["Payload/App.app/PlugIns/Share.appex"].embedded_profile_sha256 is None
     assert len(graph.graph_sha256) == 64
 
 
 def test_graph_is_stable_for_same_tree(tmp_path: Path) -> None:
     make_graph_tree(tmp_path)
 
-    first = discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
-    second = discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+    first = discover(tmp_path)
+    second = discover(tmp_path)
 
     assert first == second
+    manifest = json.loads(canonical_graph_json(first))
+    assert manifest["schema_version"] == 1
+    assert manifest["graph_sha256"] == first.graph_sha256
+    assert [item["path"] for item in manifest["nodes"]] == sorted(
+        item["path"] for item in manifest["nodes"]
+    )
+
+
+def test_graph_digest_changes_with_profile_evidence(tmp_path: Path) -> None:
+    make_graph_tree(tmp_path)
+    first = discover(tmp_path)
+
+    (tmp_path / "Payload/App.app/embedded.mobileprovision").write_bytes(b"changed")
+    second = discover(tmp_path)
+
+    assert first.graph_sha256 != second.graph_sha256
+
+
+def test_rejects_xml_der_entitlement_disagreement(tmp_path: Path) -> None:
+    make_bundle(
+        tmp_path,
+        "Payload/App.app",
+        identifier="com.example.app",
+        executable="App",
+        package_type="APPL",
+    )
+    evidence = MachOEntitlementEvidence(
+        (
+            EntitlementSliceEvidence(
+                index=0,
+                architecture="ARM64",
+                xml_raw=b"xml",
+                der_raw=b"der",
+                xml={"value": []},
+                der={"value": {}},
+            ),
+        )
+    )
+
+    with pytest.raises(DomainError) as caught:
+        discover_bundle_graph(
+            tmp_path,
+            "a" * 64,
+            macho_probe=MarkerMachOProbe(),
+            entitlement_inspector=FixedEntitlementInspector(evidence),
+        )
+
+    assert caught.value.code is ErrorCode.INVENTORY_ENTITLEMENTS_DISAGREE
+    assert dict(caught.value.safe_details)["architecture"] == "ARM64"
+
+
+def test_rejects_entitlement_disagreement_between_fat_slices(tmp_path: Path) -> None:
+    make_bundle(
+        tmp_path,
+        "Payload/App.app",
+        identifier="com.example.app",
+        executable="App",
+        package_type="APPL",
+    )
+    evidence = MachOEntitlementEvidence(
+        (
+            EntitlementSliceEvidence(0, "ARM64", b"one", None, {"value": 1}, None),
+            EntitlementSliceEvidence(1, "X86_64", b"two", None, {"value": 2}, None),
+        )
+    )
+
+    with pytest.raises(DomainError, match="different entitlements") as caught:
+        discover_bundle_graph(
+            tmp_path,
+            "a" * 64,
+            macho_probe=MarkerMachOProbe(),
+            entitlement_inspector=FixedEntitlementInspector(evidence),
+        )
+
+    assert caught.value.code is ErrorCode.INVENTORY_ENTITLEMENTS_DISAGREE
 
 
 def test_rejects_non_macho_bundle_dylib_and_unknown_executable(tmp_path: Path) -> None:
@@ -125,20 +255,20 @@ def test_rejects_non_macho_bundle_dylib_and_unknown_executable(tmp_path: Path) -
     )
     (app / "App").write_bytes(b"not macho")
     with pytest.raises(DomainError) as root_error:
-        discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+        discover(tmp_path)
     assert root_error.value.code is ErrorCode.INVENTORY_EXECUTABLE_INVALID
 
     (app / "App").write_bytes(b"MACHO:root")
     (app / "Invalid.dylib").write_bytes(b"not macho")
     with pytest.raises(DomainError, match="dylib"):
-        discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+        discover(tmp_path)
 
     (app / "Invalid.dylib").unlink()
     unknown = app / "unknown-tool"
     unknown.write_bytes(b"script")
     unknown.chmod(0o755)
     with pytest.raises(DomainError, match="not a supported Mach-O"):
-        discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+        discover(tmp_path)
 
 
 def test_rejects_duplicate_profile_bundle_identifiers(tmp_path: Path) -> None:
@@ -158,7 +288,7 @@ def test_rejects_duplicate_profile_bundle_identifiers(tmp_path: Path) -> None:
     )
 
     with pytest.raises(DomainError) as caught:
-        discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+        discover(tmp_path)
 
     assert caught.value.code is ErrorCode.INVENTORY_DUPLICATE_BUNDLE_ID
 
@@ -180,7 +310,7 @@ def test_rejects_unknown_executable_bundle_type(tmp_path: Path) -> None:
     )
 
     with pytest.raises(DomainError, match="unsupported executable bundle type .xpc"):
-        discover_bundle_graph(tmp_path, "a" * 64, macho_probe=MarkerMachOProbe())
+        discover(tmp_path)
 
 
 def test_lief_probe_rejects_non_macho_and_parses_minimal_thin_header(

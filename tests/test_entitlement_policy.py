@@ -10,7 +10,9 @@ from sideloadedipa.domain import (
     EntitlementContext,
     EntitlementMode,
     EntitlementPolicy,
+    FrozenJsonObject,
     materialize_entitlements,
+    normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 
@@ -102,6 +104,15 @@ def test_template_mode_hash_is_independent_of_dictionary_order(
 
     assert first == second
     assert len(first.sha256) == 64
+
+
+def test_normalization_preserves_empty_array_and_object_types() -> None:
+    normalized = normalize_entitlements({"array": [], "object": {}})
+
+    assert dict(normalized.values) == {
+        "array": (),
+        "object": FrozenJsonObject(()),
+    }
 
 
 def test_rejects_undeclared_entitlement_drop(context: EntitlementContext) -> None:

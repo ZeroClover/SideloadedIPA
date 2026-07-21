@@ -7,14 +7,24 @@ import json
 import plistlib
 import stat
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 import lief
 
-from sideloadedipa.domain import BundleGraph, BundleNode, BundleNodeKind
+from sideloadedipa.domain import (
+    BundleGraph,
+    BundleNode,
+    BundleNodeKind,
+    EntitlementSliceDigest,
+    FrozenJsonObject,
+    FrozenJsonValue,
+    normalize_entitlements,
+)
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.discovery import _discover_profile_bundle, discover_root_app
+from sideloadedipa.ipa.entitlements import LiefEntitlementInspector, MachOEntitlementEvidence
 
 _MACHO_MAGICS = {
     b"\xce\xfa\xed\xfe",
@@ -30,6 +40,10 @@ _MACHO_MAGICS = {
 
 class MachOProbe(Protocol):
     def is_macho(self, path: Path) -> bool: ...
+
+
+class EntitlementInspector(Protocol):
+    def inspect(self, path: Path) -> MachOEntitlementEvidence: ...
 
 
 class LiefMachOProbe:
@@ -182,23 +196,170 @@ def _reject_unsupported_executable_bundles(
             )
 
 
-def _graph_digest(nodes: list[BundleNode], source_sha256: str) -> str:
-    document = {
+def _json_value(value: FrozenJsonValue) -> object:
+    if isinstance(value, FrozenJsonObject):
+        return {key: _json_value(child) for key, child in value.items}
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    return value
+
+
+def _graph_document(
+    root_path: PurePosixPath,
+    nodes: list[BundleNode] | tuple[BundleNode, ...],
+    source_sha256: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
         "source_sha256": source_sha256,
+        "root_path": str(root_path),
         "nodes": [
             {
                 "path": str(node.path),
                 "kind": node.kind.value,
                 "parent": str(node.parent_path) if node.parent_path else None,
                 "depth": node.depth,
+                "executable_path": str(node.executable_path),
                 "executable_sha256": node.executable_sha256,
-                "bundle_id": node.source_bundle_id,
+                "source_bundle_id": node.source_bundle_id,
+                "info_plist_sha256": node.info_plist_sha256,
+                "version": node.version,
+                "short_version": node.short_version,
+                "embedded_profile_sha256": node.embedded_profile_sha256,
+                "xml_entitlements_sha256": node.xml_entitlements_sha256,
+                "der_entitlements_sha256": node.der_entitlements_sha256,
+                "entitlement_slices": [
+                    {
+                        "architecture": item.architecture,
+                        "xml_sha256": item.xml_sha256,
+                        "der_sha256": item.der_sha256,
+                    }
+                    for item in node.entitlement_slices
+                ],
+                "entitlements": {key: _json_value(value) for key, value in node.entitlements},
             }
             for node in sorted(nodes, key=lambda value: str(value.path))
         ],
     }
+
+
+def _canonical_json(document: Mapping[str, object]) -> bytes:
     serialized = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(serialized).hexdigest()
+    return serialized
+
+
+def canonical_graph_json(graph: BundleGraph) -> bytes:
+    """Serialize one graph as schema-versioned canonical JSON."""
+
+    document = _graph_document(graph.root_path, graph.nodes, graph.source_sha256)
+    document["graph_sha256"] = graph.graph_sha256
+    return _canonical_json(document)
+
+
+def _graph_digest(root_path: PurePosixPath, nodes: list[BundleNode], source_sha256: str) -> str:
+    return hashlib.sha256(
+        _canonical_json(_graph_document(root_path, nodes, source_sha256))
+    ).hexdigest()
+
+
+def _raw_digest(values: list[tuple[str, bytes]]) -> str | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return hashlib.sha256(values[0][1]).hexdigest()
+    digest = hashlib.sha256()
+    for architecture, raw in values:
+        encoded_architecture = architecture.encode("utf-8")
+        digest.update(len(encoded_architecture).to_bytes(4, "big"))
+        digest.update(encoded_architecture)
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
+    return digest.hexdigest()
+
+
+def _profile_evidence(
+    extracted_root: Path,
+    node: BundleNode,
+    inspector: EntitlementInspector,
+) -> BundleNode:
+    executable = extracted_root / Path(*node.executable_path.parts)
+    evidence = inspector.inspect(executable)
+    normalized = []
+    slice_digests: list[EntitlementSliceDigest] = []
+    xml_raw: list[tuple[str, bytes]] = []
+    der_raw: list[tuple[str, bytes]] = []
+    for item in evidence.slices:
+        xml = normalize_entitlements(item.xml) if item.xml is not None else None
+        der = normalize_entitlements(item.der) if item.der is not None else None
+        if xml is not None and der is not None and xml.sha256 != der.sha256:
+            raise DomainError(
+                ErrorCode.INVENTORY_ENTITLEMENTS_DISAGREE,
+                "XML and DER entitlements disagree",
+                bundle_id=node.source_bundle_id,
+                remediation="replace or re-sign the source executable with matching evidence",
+                safe_details=(
+                    ("path", str(node.executable_path)),
+                    ("architecture", item.architecture),
+                    ("xml_sha256", xml.sha256),
+                    ("der_sha256", der.sha256),
+                ),
+            )
+        selected = xml or der
+        if selected is None:
+            raise DomainError(
+                ErrorCode.INVENTORY_ENTITLEMENTS_INVALID,
+                "entitlement inspector returned no decoded evidence",
+                bundle_id=node.source_bundle_id,
+                safe_details=(("path", str(node.executable_path)),),
+            )
+        normalized.append((item.architecture, selected))
+        xml_hash = hashlib.sha256(item.xml_raw).hexdigest() if item.xml_raw is not None else None
+        der_hash = hashlib.sha256(item.der_raw).hexdigest() if item.der_raw is not None else None
+        slice_digests.append(EntitlementSliceDigest(item.architecture, xml_hash, der_hash))
+        if item.xml_raw is not None:
+            xml_raw.append((item.architecture, item.xml_raw))
+        if item.der_raw is not None:
+            der_raw.append((item.architecture, item.der_raw))
+
+    if not normalized:
+        raise DomainError(
+            ErrorCode.INVENTORY_ENTITLEMENTS_INVALID,
+            "entitlement inspector returned no Mach-O slices",
+            bundle_id=node.source_bundle_id,
+            safe_details=(("path", str(node.executable_path)),),
+        )
+    baseline = normalized[0][1]
+    for architecture, current in normalized[1:]:
+        if current.sha256 != baseline.sha256:
+            raise DomainError(
+                ErrorCode.INVENTORY_ENTITLEMENTS_DISAGREE,
+                "Mach-O slices contain different entitlements",
+                bundle_id=node.source_bundle_id,
+                remediation="replace or re-sign the source executable consistently",
+                safe_details=(
+                    ("path", str(node.executable_path)),
+                    ("first_architecture", normalized[0][0]),
+                    ("second_architecture", architecture),
+                ),
+            )
+
+    bundle = extracted_root / Path(*node.path.parts)
+    profile = bundle / "embedded.mobileprovision"
+    if profile.exists() and not profile.is_file():
+        raise DomainError(
+            ErrorCode.INVENTORY_METADATA_INVALID,
+            "embedded provisioning profile is not a regular file",
+            bundle_id=node.source_bundle_id,
+            safe_details=(("path", str(node.path / "embedded.mobileprovision")),),
+        )
+    return replace(
+        node,
+        embedded_profile_sha256=_sha256(profile) if profile.is_file() else None,
+        xml_entitlements_sha256=_raw_digest(xml_raw),
+        der_entitlements_sha256=_raw_digest(der_raw),
+        entitlement_slices=tuple(slice_digests),
+        entitlements=baseline.values,
+    )
 
 
 def discover_bundle_graph(
@@ -206,10 +367,12 @@ def discover_bundle_graph(
     source_sha256: str,
     *,
     macho_probe: MachOProbe | None = None,
+    entitlement_inspector: EntitlementInspector | None = None,
 ) -> BundleGraph:
     """Recursively inventory supported code and preserve explicit parent edges."""
 
     probe = macho_probe or LiefMachOProbe()
+    inspector = entitlement_inspector or LiefEntitlementInspector()
     root = discover_root_app(extracted_root)
     root_executable = extracted_root / Path(*root.executable_path.parts)
     if not probe.is_macho(root_executable):
@@ -291,10 +454,14 @@ def discover_bundle_graph(
             )
         profile_ids[key] = node.path
 
+    nodes = [
+        _profile_evidence(extracted_root, node, inspector) if node.profile_bearing else node
+        for node in nodes
+    ]
     stable_nodes = sorted(nodes, key=lambda node: str(node.path))
     return BundleGraph(
         root_path=root.path,
         nodes=tuple(stable_nodes),
         source_sha256=source_sha256,
-        graph_sha256=_graph_digest(stable_nodes, source_sha256),
+        graph_sha256=_graph_digest(root.path, stable_nodes, source_sha256),
     )

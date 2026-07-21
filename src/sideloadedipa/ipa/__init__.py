@@ -13,16 +13,24 @@ from sideloadedipa.ipa.entitlements import (
     MachOEntitlementEvidence,
     decode_der_entitlements,
 )
-from sideloadedipa.ipa.graph import LiefMachOProbe, MachOProbe, discover_bundle_graph
+from sideloadedipa.ipa.graph import (
+    EntitlementInspector,
+    LiefMachOProbe,
+    MachOProbe,
+    canonical_graph_json,
+    discover_bundle_graph,
+)
 
 __all__ = [
     "ArchiveEntry",
     "ArchiveLimits",
     "EntitlementSliceEvidence",
+    "EntitlementInspector",
     "LiefEntitlementInspector",
     "LiefMachOProbe",
     "MachOEntitlementEvidence",
     "MachOProbe",
+    "canonical_graph_json",
     "decode_der_entitlements",
     "discover_bundle_graph",
     "extract_ipa_safely",

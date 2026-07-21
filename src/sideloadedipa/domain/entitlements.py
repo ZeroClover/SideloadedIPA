@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from sideloadedipa.domain.common import FrozenJsonValue
+from sideloadedipa.domain.common import FrozenJsonObject, FrozenJsonValue
 from sideloadedipa.domain.config import EntitlementMode, EntitlementPolicy
 from sideloadedipa.errors import DomainError, ErrorCode
 
@@ -75,7 +75,7 @@ def _freeze(value: object, field: str) -> FrozenJsonValue:
         pairs: list[tuple[str, FrozenJsonValue]] = []
         for key in sorted(value):
             pairs.append((key, _freeze(value[key], f"{field}.{key}")))
-        return tuple(pairs)
+        return FrozenJsonObject(tuple(pairs))
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return tuple(_freeze(child, field) for child in value)
     raise _policy_error("entitlement value has an unsupported type", field)
@@ -163,6 +163,28 @@ def _document_for_policy(
     return template, ()
 
 
+def normalize_entitlements(document: Mapping[str, object]) -> MaterializedEntitlements:
+    """Validate and freeze one entitlement dictionary with a canonical digest."""
+
+    canonical = cast(dict[str, object], _canonical_value(document, "entitlements"))
+    try:
+        serialized = json.dumps(
+            canonical,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8")
+    except ValueError as error:
+        raise _policy_error(
+            "entitlement values must use finite JSON numbers", "entitlements"
+        ) from error
+    return MaterializedEntitlements(
+        values=tuple((key, _freeze(canonical[key], key)) for key in sorted(canonical)),
+        sha256=hashlib.sha256(serialized).hexdigest(),
+    )
+
+
 def materialize_entitlements(
     policy: EntitlementPolicy,
     source_entitlements: Mapping[str, object],
@@ -182,9 +204,9 @@ def materialize_entitlements(
         profile_entitlements,
         template_entitlements,
     )
-    canonical = cast(dict[str, object], _canonical_value(document, "entitlements"))
+    normalized = normalize_entitlements(document)
 
-    dropped = tuple(sorted(set(source_entitlements) - set(canonical)))
+    dropped = tuple(sorted(set(source_entitlements) - {key for key, _ in normalized.values}))
     undeclared = tuple(key for key in dropped if key not in policy.allowed_drops)
     if undeclared:
         raise DomainError(
@@ -194,22 +216,9 @@ def materialize_entitlements(
             safe_details=(("keys", undeclared),),
         )
 
-    try:
-        serialized = json.dumps(
-            canonical,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        ).encode("utf-8")
-    except ValueError as error:
-        raise _policy_error(
-            "entitlement values must use finite JSON numbers", "entitlements"
-        ) from error
-    values = tuple((key, _freeze(canonical[key], key)) for key in sorted(canonical))
     return MaterializedEntitlements(
-        values=values,
-        sha256=hashlib.sha256(serialized).hexdigest(),
+        values=normalized.values,
+        sha256=normalized.sha256,
         transformations=transformations,
         dropped_keys=dropped,
     )

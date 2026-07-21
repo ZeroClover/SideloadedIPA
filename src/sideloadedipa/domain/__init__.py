@@ -10,8 +10,18 @@ from sideloadedipa.domain.apple import (
     OperationDisposition,
     ProvisioningProfile,
 )
-from sideloadedipa.domain.bundle import BundleGraph, BundleNode, BundleNodeKind
-from sideloadedipa.domain.common import Diagnostic, DiagnosticSeverity, FrozenJsonValue
+from sideloadedipa.domain.bundle import (
+    BundleGraph,
+    BundleNode,
+    BundleNodeKind,
+    EntitlementSliceDigest,
+)
+from sideloadedipa.domain.common import (
+    Diagnostic,
+    DiagnosticSeverity,
+    FrozenJsonObject,
+    FrozenJsonValue,
+)
 from sideloadedipa.domain.config import (
     BundleRule,
     EntitlementMode,
@@ -31,6 +41,7 @@ from sideloadedipa.domain.entitlements import (
     EntitlementTransformation,
     MaterializedEntitlements,
     materialize_entitlements,
+    normalize_entitlements,
 )
 from sideloadedipa.domain.identifiers import (
     BundleIdentifierMapping,
@@ -77,9 +88,11 @@ __all__ = [
     "DiagnosticSeverity",
     "EntitlementMode",
     "EntitlementPolicy",
+    "EntitlementSliceDigest",
     "EntitlementContext",
     "EntitlementTransformation",
     "FrozenJsonValue",
+    "FrozenJsonObject",
     "IdentifierStrategy",
     "MaterializedEntitlements",
     "OperationDisposition",
@@ -111,5 +124,6 @@ __all__ = [
     "derive_target_bundle_id",
     "reconcile_bundle_rules",
     "materialize_entitlements",
+    "normalize_entitlements",
     "validate_bundle_identifier",
 ]

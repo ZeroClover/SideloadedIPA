@@ -18,6 +18,13 @@ class BundleNodeKind(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class EntitlementSliceDigest:
+    architecture: str
+    xml_sha256: str | None
+    der_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class BundleNode:
     path: PurePosixPath
     kind: BundleNodeKind
@@ -32,6 +39,7 @@ class BundleNode:
     embedded_profile_sha256: str | None = None
     xml_entitlements_sha256: str | None = None
     der_entitlements_sha256: str | None = None
+    entitlement_slices: tuple[EntitlementSliceDigest, ...] = ()
     entitlements: tuple[tuple[str, FrozenJsonValue], ...] = ()
 
     @property
