@@ -15,6 +15,7 @@ from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.profile_storage import (
     build_profile_manifest,
     canonical_profile_manifest_json,
+    load_profile_manifest,
     profile_manifest_relative_path,
     profile_relative_path,
     store_profile,
@@ -109,6 +110,34 @@ def test_stores_profiles_and_manifest_atomically_with_private_permissions(tmp_pa
         == manifest.manifest_sha256
     )
     assert not list(tmp_path.rglob(".tmp-*"))
+
+
+def test_loads_only_an_authenticated_task_manifest(tmp_path: Path) -> None:
+    task_name = "Live Container"
+    manifest = build_profile_manifest(
+        task_name=task_name,
+        snapshot_sha256="snapshot",
+        entries=(entry(task_name, "io.example.app", "PROFILE_ONE"),),
+    )
+    manifest_path = store_profile_manifest(tmp_path, manifest)
+
+    assert load_profile_manifest(tmp_path, task_name) == manifest
+
+    path = tmp_path.joinpath(*manifest_path.parts)
+    document = json.loads(path.read_bytes())
+    document["profiles"]["io.example.app"]["profile_resource_id"] = "PROFILE_TAMPERED"
+    path.write_text(json.dumps(document))
+    with pytest.raises(DomainError) as caught:
+        load_profile_manifest(tmp_path, task_name)
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_missing_profile_manifest_requires_sync(tmp_path: Path) -> None:
+    with pytest.raises(DomainError) as caught:
+        load_profile_manifest(tmp_path, "Missing")
+
+    assert caught.value.code is ErrorCode.CONFIG_MISSING
+    assert "sync" in (caught.value.remediation or "")
 
 
 def test_rejects_duplicate_or_non_deterministic_manifest_entries() -> None:

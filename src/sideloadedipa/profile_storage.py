@@ -9,7 +9,9 @@ import re
 import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from sideloadedipa.domain import ProfileManifestEntry, ProfileResourceManifest
 from sideloadedipa.errors import DomainError, ErrorCode
@@ -100,6 +102,107 @@ def canonical_profile_manifest_json(manifest: ProfileResourceManifest) -> bytes:
     document = _manifest_document(manifest.task_name, manifest.snapshot_sha256, manifest.entries)
     document["manifest_sha256"] = manifest.manifest_sha256
     return _canonical_json(document)
+
+
+def load_profile_manifest(root: Path, task_name: str) -> ProfileResourceManifest:
+    """Load and authenticate the deterministic manifest written by profile sync."""
+
+    relative_path = profile_manifest_relative_path(task_name)
+    path = _destination(root, relative_path)
+    try:
+        raw = json.loads(path.read_bytes())
+    except (OSError, json.JSONDecodeError) as error:
+        raise DomainError(
+            ErrorCode.CONFIG_MISSING,
+            "profile resource manifest is missing or unreadable",
+            task_name=task_name,
+            remediation="run the package profile sync stage before signing",
+            safe_details=(("path_name", path.name),),
+        ) from error
+    if not isinstance(raw, dict):
+        raise DomainError(
+            ErrorCode.CONFIG_INVALID,
+            "profile resource manifest root must be an object",
+            task_name=task_name,
+        )
+    document = cast(dict[str, object], raw)
+    schema_version = document.get("schema_version")
+    manifest_task = document.get("task_name")
+    snapshot_sha256 = document.get("snapshot_sha256")
+    manifest_sha256 = document.get("manifest_sha256")
+    profiles = document.get("profiles")
+    if (
+        schema_version != 1
+        or manifest_task != task_name
+        or not isinstance(snapshot_sha256, str)
+        or not isinstance(manifest_sha256, str)
+        or not isinstance(profiles, dict)
+    ):
+        raise DomainError(
+            ErrorCode.CONFIG_INVALID,
+            "profile resource manifest metadata is invalid",
+            task_name=task_name,
+            remediation="discard the manifest and rerun package profile sync",
+        )
+
+    entries: list[ProfileManifestEntry] = []
+    for target_bundle_id, value in profiles.items():
+        if not isinstance(target_bundle_id, str) or not isinstance(value, dict):
+            raise DomainError(
+                ErrorCode.CONFIG_INVALID,
+                "profile resource manifest contains an invalid profile entry",
+                task_name=task_name,
+            )
+        required = (
+            "bundle_resource_id",
+            "profile_resource_id",
+            "certificate_resource_id",
+            "profile_path",
+            "profile_sha256",
+            "device_set_sha256",
+            "expires_at",
+        )
+        if any(not isinstance(value.get(field), str) for field in required):
+            raise DomainError(
+                ErrorCode.CONFIG_INVALID,
+                "profile resource manifest entry metadata is invalid",
+                task_name=task_name,
+                bundle_id=target_bundle_id,
+            )
+        try:
+            expires_at = datetime.fromisoformat(cast(str, value["expires_at"]))
+        except ValueError as error:
+            raise DomainError(
+                ErrorCode.CONFIG_INVALID,
+                "profile resource manifest expiry is invalid",
+                task_name=task_name,
+                bundle_id=target_bundle_id,
+            ) from error
+        entries.append(
+            ProfileManifestEntry(
+                target_bundle_id,
+                cast(str, value["bundle_resource_id"]),
+                cast(str, value["profile_resource_id"]),
+                cast(str, value["certificate_resource_id"]),
+                PurePosixPath(cast(str, value["profile_path"])),
+                cast(str, value["profile_sha256"]),
+                cast(str, value["device_set_sha256"]),
+                expires_at,
+            )
+        )
+    manifest = build_profile_manifest(
+        task_name=task_name,
+        snapshot_sha256=snapshot_sha256,
+        entries=tuple(entries),
+    )
+    if manifest.manifest_sha256 != manifest_sha256:
+        raise DomainError(
+            ErrorCode.CONFIG_INVALID,
+            "profile resource manifest digest does not match its contents",
+            task_name=task_name,
+            remediation="discard the manifest and rerun package profile sync",
+        )
+    return manifest
 
 
 def _destination(root: Path, relative_path: PurePosixPath) -> Path:
