@@ -43,6 +43,12 @@ class ErrorCode(StrEnum):
     ADAPTER_TIMEOUT = "adapter.timeout"
     ADAPTER_COMMAND_FAILED = "adapter.command_failed"
     ADAPTER_RESPONSE_INVALID = "adapter.response_invalid"
+    ADAPTER_VERSION_MISMATCH = "adapter.version_mismatch"
+    APPLE_AUTHORIZATION_FAILED = "apple.authorization_failed"
+    APPLE_RESOURCE_NOT_FOUND = "apple.resource_not_found"
+    APPLE_RESOURCE_CONFLICT = "apple.resource_conflict"
+    APPLE_RATE_LIMITED = "apple.rate_limited"
+    APPLE_API_FAILED = "apple.api_failed"
 
 
 class SideloadedIPAError(Exception):
