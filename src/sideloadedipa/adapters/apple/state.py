@@ -91,6 +91,43 @@ def _resource(
     return resource_id, attributes
 
 
+def decode_bundle_identifier(
+    resource: Mapping[str, object], field: str
+) -> AppleBundleIdentifierState:
+    """Decode one bundleIds JSON:API resource from the pinned ASC contract."""
+
+    resource_id, attributes = _resource(resource, field, "bundleIds")
+    return AppleBundleIdentifierState(
+        resource_id=resource_id,
+        identifier=_string(attributes.get("identifier"), f"{field}.attributes.identifier"),
+        name=_string(attributes.get("name"), f"{field}.attributes.name"),
+        platform=_string(attributes.get("platform"), f"{field}.attributes.platform"),
+        seed_id=_optional_string(attributes.get("seedId"), f"{field}.attributes.seedId"),
+    )
+
+
+def decode_bundle_identifier_response(
+    response: AscResponse, field: str = "bundle_id"
+) -> AppleBundleIdentifierState:
+    document = _response_mapping(response, field)
+    resource = _mapping(document.get("data"), f"{field}.data")
+    return decode_bundle_identifier(resource, f"{field}.data")
+
+
+def collect_bundle_identifiers(
+    client: AscStateReader,
+) -> tuple[AppleBundleIdentifierState, ...]:
+    resources = _data_list(
+        client.run_json(("bundle-ids", "list"), paginate=True),
+        "bundle_ids",
+    )
+    values = tuple(
+        decode_bundle_identifier(resource, f"bundle_ids.data[{index}]")
+        for index, resource in enumerate(resources)
+    )
+    return tuple(sorted(values, key=lambda value: (value.identifier.casefold(), value.resource_id)))
+
+
 def _content_sha256(value: object, field: str) -> str | None:
     encoded = _optional_string(value, field)
     if encoded is None:
@@ -173,34 +210,7 @@ class AppleStateCollector:
         self.client = client
 
     def _bundle_ids(self) -> tuple[AppleBundleIdentifierState, ...]:
-        resources = _data_list(
-            self.client.run_json(("bundle-ids", "list"), paginate=True),
-            "bundle_ids",
-        )
-        values = []
-        for index, resource in enumerate(resources):
-            resource_id, attributes = _resource(resource, f"bundle_ids.data[{index}]", "bundleIds")
-            values.append(
-                AppleBundleIdentifierState(
-                    resource_id=resource_id,
-                    identifier=_string(
-                        attributes.get("identifier"),
-                        f"bundle_ids.data[{index}].attributes.identifier",
-                    ),
-                    name=_string(
-                        attributes.get("name"), f"bundle_ids.data[{index}].attributes.name"
-                    ),
-                    platform=_string(
-                        attributes.get("platform"),
-                        f"bundle_ids.data[{index}].attributes.platform",
-                    ),
-                    seed_id=_optional_string(
-                        attributes.get("seedId"),
-                        f"bundle_ids.data[{index}].attributes.seedId",
-                    ),
-                )
-            )
-        return tuple(sorted(values, key=lambda value: (value.identifier, value.resource_id)))
+        return collect_bundle_identifiers(self.client)
 
     def _capabilities(
         self, bundle_ids: tuple[AppleBundleIdentifierState, ...]
