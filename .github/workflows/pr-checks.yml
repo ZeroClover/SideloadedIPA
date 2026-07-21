@@ -70,6 +70,8 @@ jobs:
         run: |
           uv run black --check scripts/
           uv run isort --check-only scripts/
+          uv run black --check src/sideloadedipa/ --exclude 'src/sideloadedipa/legacy/'
+          uv run isort --check-only src/sideloadedipa/ --skip-glob '*/legacy/*'
 
       - name: Type check new package
         run: uv run mypy src/sideloadedipa
