@@ -39,7 +39,6 @@ app_name = "JHenTai"
 bundle_id = "io.zeroclover.app.jhentai"
 repo_url = "https://github.com/jiangtian616/JHenTai"
 slug = "JHenTai"
-signing_engine = "package"
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 [[tasks]]
@@ -48,7 +47,6 @@ app_name = "Eros FE"
 bundle_id = "io.zeroclover.apps.eros-fe"
 repo_url = "https://github.com/erosTeam/eros_fe"
 slug = "fehviewer" # legacy download-page directory name
-signing_engine = "package"
 # Contents.json names Icon.png as the 1024 master. The Icon-App-1024x1024@1x.png
 # sitting beside it is an orphaned Flutter placeholder no longer referenced by
 # the asset catalog — using it would ship the stock Flutter logo.
@@ -60,7 +58,6 @@ app_name = "Asspp"
 bundle_id = "io.zeroclover.app.asspp"
 repo_url = "https://github.com/Lakr233/Asspp"
 slug = "Asspp"
-signing_engine = "package"
 # asspp_appstore.png is the macOS icon (pre-rounded + inset); asspp.png is the
 # iOS "universal" 1024x1024 entry, i.e. the square master this page wants.
 icon_path = "Asspp/App/Assets.xcassets/AppIcon.appiconset/asspp.png"
@@ -71,7 +68,6 @@ app_name = "PiliPlus"
 bundle_id = "io.zeroclover.app.piliplus"
 repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 slug = "PiliPlus"
-signing_engine = "package"
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 [[tasks]]
@@ -81,7 +77,6 @@ bundle_id = "io.zeroclover.app.livecontainer"
 repo_url = "https://github.com/LiveContainer/LiveContainer"
 release_glob = "LiveContainer.ipa"
 slug = "LiveContainer"
-signing_engine = "package"
 publication_enabled = false
 
 [tasks.signing]
@@ -122,7 +117,6 @@ app_name = "StikDebug"
 bundle_id = "io.zeroclover.app.stikdebug"
 repo_url = "https://github.com/StephenDev0/StikDebug"
 slug = "StikDebug"
-signing_engine = "package"
 # Every raster StikDebug commits is a pre-rounded Icon Composer export, and its
 # only square master is a .icon bundle of SVG layers. Take the (square, 152x152)
 # icon out of the signed IPA instead.

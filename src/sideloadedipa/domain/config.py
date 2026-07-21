@@ -12,11 +12,6 @@ class SourceKind(StrEnum):
     GITHUB_RELEASE = "github-release"
 
 
-class SigningEngine(StrEnum):
-    LEGACY = "legacy"
-    PACKAGE = "package"
-
-
 class BatchPublicationPolicy(StrEnum):
     ATOMIC = "atomic"
     INDEPENDENT = "independent"
@@ -83,7 +78,6 @@ class Task:
     slug: str
     icon_path: str | None = None
     signing: SigningPolicy | None = None
-    signing_engine: SigningEngine = SigningEngine.LEGACY
     publication_enabled: bool = True
 
 

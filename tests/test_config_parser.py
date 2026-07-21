@@ -14,7 +14,6 @@ from sideloadedipa.domain import (
     ProfileType,
     PublicationConfig,
     R2Config,
-    SigningEngine,
     SourceKind,
     UnknownProfileBundlePolicy,
 )
@@ -47,7 +46,6 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
     assert configuration.tasks[0].source.release_glob == "*.ipa"
     assert configuration.tasks[-1].icon_path == "ipa:"
-    assert all(task.signing_engine is SigningEngine.PACKAGE for task in configuration.tasks)
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
 
@@ -58,7 +56,6 @@ def test_production_livecontainer_is_exactly_scoped_and_non_publishing() -> None
 
     assert task.bundle_id == "io.zeroclover.app.livecontainer"
     assert task.source.release_glob == "LiveContainer.ipa"
-    assert task.signing_engine is SigningEngine.PACKAGE
     assert task.publication_enabled is False
     assert task.signing is not None
     assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
@@ -201,12 +198,9 @@ def test_signing_schema_uses_documented_defaults() -> None:
     assert signing.bundles == ()
 
 
-def test_parses_per_task_package_engine_opt_in() -> None:
-    task = parse_configuration(
-        {"tasks": [direct_task(signing_engine="package", publication_enabled=False)]}
-    ).tasks[0]
+def test_parses_per_task_publication_gate() -> None:
+    task = parse_configuration({"tasks": [direct_task(publication_enabled=False)]}).tasks[0]
 
-    assert task.signing_engine is SigningEngine.PACKAGE
     assert task.publication_enabled is False
 
 
@@ -227,7 +221,6 @@ def test_parses_per_task_package_engine_opt_in() -> None:
         (direct_task(icon_path="assets/Icon.png"), "icon_path"),
         (direct_task(use_prerelease="yes"), "use_prerelease"),
         (direct_task(release_glob="*.ipa"), "release_glob|use_prerelease"),
-        (direct_task(signing_engine="future"), "signing_engine"),
         (direct_task(publication_enabled="false"), "publication_enabled"),
     ],
 )

@@ -9,7 +9,6 @@ from pathlib import Path
 
 LEGACY_MODULES = (
     "app_icon",
-    "apps_registry",
     "build_backend_qualification_fixture",
     "check_changes",
     "compare_backend_qualification",
@@ -18,7 +17,6 @@ LEGACY_MODULES = (
     "qualify_backend_prerequisites",
     "r2_store",
     "reconcile_icons",
-    "run_signing",
     "sync_profiles_asc",
 )
 

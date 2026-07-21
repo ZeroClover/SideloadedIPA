@@ -1,8 +1,9 @@
 # Final automated acceptance matrix
 
-Recorded 2026-07-21 for implementation commit `fba98ac`. The change remains
-unarchived because production-engine migration and the time/device-dependent
-LiveContainer gates listed below are still open.
+Initially recorded 2026-07-21 for implementation commit `fba98ac` and extended
+after production package-engine acceptance. The change remains unarchived
+because the time/device-dependent LiveContainer gates listed below are still
+open.
 
 ## Local matrix
 
@@ -45,11 +46,20 @@ planning/profile download. It performed no R2 upload, registry mutation,
 revalidation, stale-object cleanup, cache-success promotion, or signed-IPA
 artifact retention. Retained reports are redacted JSON with limited retention.
 
+## Production migration
+
+[Sign & Upload run 29876354164](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29876354164)
+passed all five existing production tasks through the package engine and its
+atomic verified-publication service at commit `b6fff17`. Source selection,
+signed metadata, icon behavior, content-addressed R2 keys, registry publication,
+revalidation, and cleanup evidence are recorded in `production-parity.md`.
+After acceptance, the duplicate signing/publication scripts and per-task legacy
+engine switch were removed; rollback retains the prior verified registry and
+objects rather than invoking a second signing implementation.
+
 ## Required before archive
 
 - 11.7: registered-device acceptance.
 - 11.8: a separate reviewed change enabling LiveContainer publication.
 - 11.9: one scheduled refresh and one real upstream-release transition.
-- 12.1-12.3: production parity migration of every existing task, removal of
-  duplicated legacy business logic, and removal of the rollback switch/wrappers.
 - 12.10: archive only after all preceding evidence is complete.

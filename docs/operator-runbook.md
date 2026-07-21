@@ -8,12 +8,11 @@ Install exactly the locked project environment before local operations:
 uv sync --frozen
 ```
 
-The package CLI currently composes `inspect`, `plan`, and `sync`. The `sign`,
-`verify`, and `run` command names are reserved in the CLI, but production signing
-still enters through `scripts/run_signing.py` for legacy publishing tasks and the
-private multi-bundle canary for LiveContainer. Do not treat a
-`config.missing` result from those three package commands as a successful no-op;
-their production composition is the remaining migration gate.
+The package CLI composes `inspect`, `plan`, `sync`, `sign`, and `run`. Both
+`sign` and `run` independently verify the signed package before returning
+success; `run --publish` additionally performs verified atomic publication.
+The standalone `verify` command remains reserved because the production command
+does not persist private verification inputs between invocations.
 
 ## Read-only inspection
 
@@ -59,12 +58,13 @@ revision.
 
 ## Signing, verification, and publication
 
-Until package production composition is accepted, use workflow dispatch:
+Run a private, non-publishing LiveContainer canary through workflow dispatch:
 
 ```bash
 gh workflow run sign-and-upload.yml \
   --ref <reviewed-branch> \
-  -f multi_bundle_canary=true
+  -f multi_bundle_canary=true \
+  -f debug=false
 ```
 
 The canary uses the production LiveContainer policy and template, four real
@@ -72,11 +72,11 @@ profiles, the checksum-qualified backend, and an independent macOS oracle. It ha
 no R2 credentials and retains only redacted JSON. For interactive device
 handoff, add `-f debug=true`; the workflow's SSH step keeps that runner alive.
 
-Production publication remains the scheduled/manual `Sign & Upload IPAs` job for
-tasks with `publication_enabled = true`. LiveContainer remains excluded while
-its flag is false. A future package `run --apply --publish` cutover must preserve
-the same gate: verified output first, immutable upload second, atomic registry
-update third, revalidation fourth, stale cleanup last.
+Production publication uses `sideloadedipa run --publish` in the scheduled/manual
+`Sign & Upload IPAs` job for tasks with `publication_enabled = true`.
+LiveContainer remains excluded while its flag is false. The enforced order is:
+verified output first, immutable upload second, atomic registry update third,
+revalidation fourth, stale cleanup last.
 
 ## Retry and rollback
 
@@ -88,7 +88,7 @@ update third, revalidation fourth, stale cleanup last.
 - A failed sign, verify, upload, or registry update must leave the prior R2 object
   and registry entry active. Never delete the old object before registry success
   and revalidation.
-- Roll back a task by restoring its last reviewed configuration and engine flag.
+- Roll back a task by restoring its last reviewed configuration and published registry entry.
   Keep `publication_enabled = false` for a new multi-bundle task until a fresh
   automated canary and physical-device checklist pass.
 

@@ -19,7 +19,6 @@ from sideloadedipa.domain import (
     ProfileType,
     PublicationConfig,
     R2Config,
-    SigningEngine,
     SigningPolicy,
     SourceConfig,
     SourceKind,
@@ -288,12 +287,6 @@ def _parse_task(value: object, index: int) -> Task:
         slug=slug,
         icon_path=icon_path,
         signing=(_parse_signing(raw["signing"], task_name) if "signing" in raw else None),
-        signing_engine=_enum_value(
-            SigningEngine,
-            raw.get("signing_engine", SigningEngine.LEGACY.value),
-            "signing_engine",
-            task_name,
-        ),
         publication_enabled=publication_enabled,
     )
 

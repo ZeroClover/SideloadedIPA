@@ -29,7 +29,6 @@ from sideloadedipa.domain import (
     ProvisioningProfile,
     SigningBackendFeature,
     SigningBackendIdentity,
-    SigningEngine,
     SigningPlan,
     SigningPolicy,
     SigningResult,
@@ -176,7 +175,7 @@ def request_for(task: Task, tmp_path: Path) -> PackageSigningRequest:
     )
     material = CertificateMaterial(identity, tmp_path / "certificate.pem", tmp_path / "key.pem")
     return PackageSigningRequest(
-        replace(task, signing_engine=SigningEngine.PACKAGE),
+        task,
         graph,
         manifest,
         (profile,),
@@ -289,18 +288,44 @@ def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> N
     )
 
 
-def test_legacy_engine_cannot_enter_package_route(tmp_path: Path) -> None:
-    task = replace(
-        load_configuration(Path("configs/tasks.toml")).tasks[0],
-        signing_engine=SigningEngine.LEGACY,
+def test_rejects_template_policy_without_template_path(tmp_path: Path) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    fixture = request_for(task, tmp_path)
+    source_bundle_id = fixture.graph.nodes[0].source_bundle_id
+    assert source_bundle_id is not None
+    configured = replace(
+        fixture.task,
+        signing=SigningPolicy(
+            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
+            UnknownProfileBundlePolicy.ERROR,
+            ProfileType.IOS_APP_DEVELOPMENT,
+            bundles=(
+                BundleRule(
+                    source_bundle_id,
+                    EntitlementPolicy(EntitlementMode.TEMPLATE),
+                    fixture.task.bundle_id,
+                    "root",
+                ),
+            ),
+        ),
     )
-    request = replace(request_for(task, tmp_path), task=task)
 
     with pytest.raises(ConfigurationError) as caught:
-        execute_package_signing(request)
+        build_package_signing_request(
+            task=configured,
+            graph=fixture.graph,
+            profile_manifest=fixture.profile_manifest,
+            profiles=fixture.profiles,
+            certificate=fixture.certificate,
+            backend_identity=fixture.backend_identity,
+            backend=fixture.backend,
+            verifier=fixture.verifier,
+            source_ipa=fixture.source_ipa,
+            destination_ipa=fixture.destination_ipa,
+            repository_root=tmp_path,
+        )
 
-    assert caught.value.code is ErrorCode.CONFIG_INVALID
-    assert not request.destination_ipa.exists()
+    assert caught.value.code is ErrorCode.ENTITLEMENTS_TEMPLATE_MISSING
 
 
 def test_profile_authorization_failure_precedes_backend_and_workspace(tmp_path: Path) -> None:

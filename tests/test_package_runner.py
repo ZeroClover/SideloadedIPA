@@ -20,7 +20,6 @@ from sideloadedipa.domain import (
     EntitlementPolicy,
     ProfileManifestEntry,
     SigningBackendIdentity,
-    SigningEngine,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
@@ -100,10 +99,7 @@ def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, mon
 
 
 def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, monkeypatch) -> None:
-    task = replace(
-        load_configuration(Path("configs/tasks.toml")).tasks[0],
-        signing_engine=SigningEngine.PACKAGE,
-    )
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     stored_manifest = manifest("CERT_ONE")
     certificate = material(tmp_path)
     graph = BundleGraph(PurePosixPath("Payload/App.app"), (), "a" * 64, "b" * 64)

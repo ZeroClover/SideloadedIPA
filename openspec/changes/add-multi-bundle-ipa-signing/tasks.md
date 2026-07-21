@@ -136,9 +136,9 @@
 
 ## 12. Migration, Cleanup, Documentation, and Final Acceptance
 
-- [ ] 12.1 Migrate each existing production task to the package engine one at a time and compare source selection, signed metadata, icon, cache, R2 key, registry, and failure behavior against characterization fixtures.
-- [ ] 12.2 Remove duplicated global/environment parsing, API, signing, cache, and publication business logic from legacy scripts after its package replacement and parity tests are accepted.
-- [ ] 12.3 Remove the per-task legacy-engine switch and obsolete wrappers only after every configured task passes new-engine production parity and rollback no longer depends on them.
+- [x] 12.1 Migrate each existing production task to the package engine one at a time and compare source selection, signed metadata, icon, cache, R2 key, registry, and failure behavior against characterization fixtures.
+- [x] 12.2 Remove duplicated global/environment parsing, API, signing, cache, and publication business logic from legacy scripts after its package replacement and parity tests are accepted.
+- [x] 12.3 Remove the per-task legacy-engine switch and obsolete wrappers only after every configured task passes new-engine production parity and rollback no longer depends on them.
 - [x] 12.4 Update `README.md` and `configs/tasks.toml.example` with the multi-bundle schema, exact-asset rule, identifier derivation, entitlement modes, App Group aliases, and standard/SideStore LiveContainer distinctions.
 - [x] 12.5 Add an operator runbook for inspect/plan/apply/sign/verify/run, automation-versus-human responsibilities, Apple roles/approvals, retries, rollback, profile refresh, and safe optional resource cleanup.
 - [x] 12.6 Add security documentation for archive limits, secret handling, report retention, subprocess isolation, official API-only mutations, dependency pinning, and credential rotation.

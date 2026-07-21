@@ -15,9 +15,8 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
 - `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
-- `scripts/run_signing.py` — processes `configs/tasks.toml`, re-signs, uploads to R2, publishes the registry
+- `src/sideloadedipa/package_commands.py` — signs, independently verifies, uploads to R2, and atomically publishes the registry
 - `scripts/r2_store.py` — Cloudflare R2 storage wrapper (boto3): uploads, apps.json IO, stale-key cleanup
-- `scripts/apps_registry.py` — merges signing results into the `site/apps.json` registry on R2
 - `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
 - `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
@@ -134,8 +133,8 @@ See `configs/tasks.toml.example` for more details.
 
 ### Multi-bundle tasks
 
-Multi-bundle tasks opt into the package engine and declare one exact rule for
-every profile-bearing source Bundle ID:
+Multi-bundle tasks declare one exact rule for every profile-bearing source
+Bundle ID:
 
 ```toml
 [[tasks]]
@@ -145,7 +144,6 @@ bundle_id = "io.zeroclover.app.livecontainer"
 repo_url = "https://github.com/LiveContainer/LiveContainer"
 release_glob = "LiveContainer.ipa"
 slug = "LiveContainer"
-signing_engine = "package"
 publication_enabled = false
 
 [tasks.signing]
@@ -229,16 +227,17 @@ Example `repository_dispatch` payload:
 4. **Check App Version**: Python script (`check_changes.py`):
    - Uses device-change status + `force_rebuild` to decide whether to rebuild all
    - Checks GitHub release versions vs cache to decide which tasks need rebuilding
-5. **Sync Entitlements Profile**: Python script (`sync_profiles_asc.py`) via App Store Connect CLI:
-   - If device list changed → regenerates all provisioning profiles and downloads them
-   - If device list unchanged → downloads existing profiles and creates missing ones if needed
-6. **Sign IPAs**: Python script (`run_signing.py`):
+5. **Sync package profiles**: `sideloadedipa sync --apply` via the typed App Store Connect adapters:
+   - Reconciles selected task profiles against current devices, certificate, and capabilities
+   - Downloads and validates every profile before signing
+6. **Sign and verify IPAs**: `sideloadedipa run --publish`:
    - For `ipa_url` tasks: Always downloads and rebuilds
    - For `repo_url` tasks:
      - Fetches latest release via authenticated GitHub API
      - Compares version with cache
      - Only rebuilds if version or publish timestamp changed
-   - Re-signs with `zsign` using the P12 certificate and synced profile
+   - Re-signs with `zsign` using the P12 certificate and all task profiles
+   - Independently verifies identifiers, profiles, entitlements, nested signatures, graph integrity, and package integrity
    - Reads the signed IPA's actual bundle id + version, uploads the IPA to R2 under a versioned, immutable key (`apps/<slug>/<version>/<App>.ipa`)
    - Uploads the card icon under a content-addressed, immutable key (`apps/<slug>/icon-<sha12>.png`), so a changed icon lands on a fresh URL rather than waiting out the zone's 4-hour browser cache. The `no-transform` directive opts icons out of Cloudflare Polish, which otherwise re-encodes them lossily at the edge
    - Updates release cache with new versions
@@ -322,8 +321,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
    # Run check_changes.py
    uv run python scripts/check_changes.py
 
-   # Run run_signing.py
-   uv run python scripts/run_signing.py
+   # Run selected package tasks without publication
+   uv run sideloadedipa run --task JHenTai --json
    ```
 
 4. **Run tests** (when available):
