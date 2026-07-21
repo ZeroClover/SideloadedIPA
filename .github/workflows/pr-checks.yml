@@ -3,6 +3,13 @@ name: PR Checks
 on:
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: Keep the Python test runner available over SSH
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   validate-setup:
@@ -82,6 +89,12 @@ jobs:
         # mypy-clean; fix the legacy debt before making this blocking.
         continue-on-error: true
         run: uv run mypy scripts/
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   web:
     runs-on: ubuntu-latest
