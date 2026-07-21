@@ -26,7 +26,12 @@ from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 def make_p12(path: Path, password: str) -> tuple[bytes, datetime]:
     now = datetime.now(timezone.utc)
     key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Fixture Development")])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "Fixture Development"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "TEAMID1234"),
+        ]
+    )
     certificate = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -75,6 +80,7 @@ def test_extracts_only_stable_public_identity(tmp_path: Path) -> None:
     identity = load_p12_certificate_identity(path, "private-password")
 
     assert identity.serial_number == "1234ABCD"
+    assert identity.team_id == "TEAMID1234"
     assert len(identity.public_key_sha256) == 64
     assert len(identity.certificate_sha256) == 64
     assert identity.expires_at == expires_at
@@ -113,6 +119,7 @@ def test_resolves_exact_single_certificate_without_using_display_name(tmp_path: 
     assert requirement.matching_resource_ids == ("CERT_ONE",)
     assert redacted_certificate_summary(resolved) == {
         "resource_id": "CERT_ONE",
+        "team_id": "TEAMID1234",
         "serial_number": identity.serial_number,
         "public_key_sha256": identity.public_key_sha256,
         "certificate_sha256": identity.certificate_sha256,

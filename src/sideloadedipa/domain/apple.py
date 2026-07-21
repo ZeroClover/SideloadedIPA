@@ -133,6 +133,7 @@ class AppleResourceRequirement:
 @dataclass(frozen=True, slots=True)
 class CertificateIdentity:
     resource_id: str
+    team_id: str
     serial_number: str
     public_key_sha256: str
     certificate_sha256: str
@@ -141,6 +142,7 @@ class CertificateIdentity:
 
 @dataclass(frozen=True, slots=True)
 class P12CertificateIdentity:
+    team_id: str
     serial_number: str
     public_key_sha256: str
     certificate_sha256: str

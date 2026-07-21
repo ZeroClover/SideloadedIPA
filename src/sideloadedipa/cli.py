@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from sideloadedipa import __version__
+from sideloadedipa.apple_commands import plan_command, sync_command
 from sideloadedipa.application import (
     Application,
     CommandName,
@@ -33,8 +34,8 @@ def _unconfigured(request: CommandRequest) -> CommandResult:
 def default_application() -> Application:
     return Application(
         inspect=inspect_command,
-        plan=_unconfigured,
-        sync=_unconfigured,
+        plan=plan_command,
+        sync=sync_command,
         sign=_unconfigured,
         verify=_unconfigured,
         run=_unconfigured,

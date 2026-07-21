@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, pkcs12
+from cryptography.x509.oid import NameOID
 
 from sideloadedipa.domain import (
     AppleResourceKind,
@@ -57,7 +58,24 @@ def load_p12_certificate_identity(path: Path, password: str) -> P12CertificateId
     public_key_der = certificate.public_key().public_bytes(
         Encoding.DER, PublicFormat.SubjectPublicKeyInfo
     )
+    team_ids = certificate.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+    if len(team_ids) != 1 or not team_ids[0].value:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 certificate does not contain exactly one Apple Team ID",
+            remediation="use an Apple-issued code-signing certificate whose subject contains Team ID OU",
+            safe_details=(("path_name", path.name),),
+        )
+    team_id = team_ids[0].value
+    if not isinstance(team_id, str):
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 certificate contains a non-text Apple Team ID",
+            remediation="use an Apple-issued code-signing certificate with a textual Team ID OU",
+            safe_details=(("path_name", path.name),),
+        )
     return P12CertificateIdentity(
+        team_id=team_id,
         serial_number=format(certificate.serial_number, "X"),
         public_key_sha256=hashlib.sha256(public_key_der).hexdigest(),
         certificate_sha256=hashlib.sha256(certificate_der).hexdigest(),
@@ -142,6 +160,7 @@ def resolve_certificate_identity(
         )
     return CertificateIdentity(
         resource_id=match.resource_id,
+        team_id=identity.team_id,
         serial_number=identity.serial_number,
         public_key_sha256=identity.public_key_sha256,
         certificate_sha256=identity.certificate_sha256,

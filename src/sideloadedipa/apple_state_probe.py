@@ -36,6 +36,7 @@ def redacted_summary(snapshot: AppleStateSnapshot) -> dict[str, object]:
 def redacted_certificate_summary(identity: CertificateIdentity) -> dict[str, str]:
     return {
         "resource_id": identity.resource_id,
+        "team_id": identity.team_id,
         "serial_number": identity.serial_number,
         "public_key_sha256": identity.public_key_sha256,
         "certificate_sha256": identity.certificate_sha256,
@@ -43,7 +44,9 @@ def redacted_certificate_summary(identity: CertificateIdentity) -> dict[str, str
     }
 
 
-def _certificate_identity(snapshot: AppleStateSnapshot) -> CertificateIdentity | None:
+def certificate_identity_from_environment(
+    snapshot: AppleStateSnapshot,
+) -> CertificateIdentity | None:
     encoded = os.environ.get("APPLE_DEV_CERT_P12_ENCODED")
     password = os.environ.get("APPLE_DEV_CERT_PASSWORD")
     if not encoded and password is None:
@@ -63,6 +66,7 @@ def _certificate_identity(snapshot: AppleStateSnapshot) -> CertificateIdentity |
     with tempfile.TemporaryDirectory(prefix="sideloadedipa-cert-") as directory:
         path = Path(directory) / "certificate.p12"
         path.write_bytes(p12_bytes)
+        path.chmod(0o600)
         public_identity = load_p12_certificate_identity(path, password)
     return resolve_certificate_identity(
         snapshot=snapshot,
@@ -74,7 +78,7 @@ def _certificate_identity(snapshot: AppleStateSnapshot) -> CertificateIdentity |
 def main() -> int:
     snapshot = AppleStateCollector(AscClient()).collect()
     summary = redacted_summary(snapshot)
-    identity = _certificate_identity(snapshot)
+    identity = certificate_identity_from_environment(snapshot)
     if identity is not None:
         summary["certificate_identity"] = redacted_certificate_summary(identity)
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))

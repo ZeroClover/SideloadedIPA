@@ -68,7 +68,7 @@
 - [x] 6.9 Implement profile decoding and validation for team, exact application identifier, type, certificate, enabled-device set, dates/refresh threshold, and entitlement authorization.
 - [x] 6.10 Implement idempotent profile reuse/replacement so certificate, devices, capabilities, group relationships, expiry, or entitlement changes generate and validate a replacement without deleting the old profile.
 - [x] 6.11 Add adapter and planner tests for insufficient roles, missing agreements, API pagination/rate limits, uncertain create responses, partial previous applies, manual prerequisites, stale profiles, and secret redaction.
-- [ ] 6.12 Complete `plan` and `sync` CLI reports and prove that plan mode performs no Apple, cache-success, signing, R2, or registry mutation.
+- [x] 6.12 Complete `plan` and `sync` CLI reports and prove that plan mode performs no Apple, cache-success, signing, R2, or registry mutation.
 
 ## 7. Signing Planner and Executor
 
