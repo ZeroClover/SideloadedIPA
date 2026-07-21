@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
+from typing import cast
+
+import pytest
 
 from sideloadedipa.domain import (
     BundleGraph,
@@ -21,6 +25,7 @@ from sideloadedipa.domain import (
     ProfileResourceManifest,
     ProfileType,
     ProvisioningProfile,
+    SigningBackendFeature,
     SigningBackendIdentity,
     SigningPolicy,
     SourceConfig,
@@ -30,6 +35,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
     reconcile_bundle_rules,
 )
+from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
 from sideloadedipa.signing_planner import (
     SigningPlanRequest,
@@ -138,7 +144,7 @@ def manifest(profiles: tuple[ProvisioningProfile, ...]) -> ProfileResourceManife
     )
 
 
-def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() -> None:
+def valid_request() -> SigningPlanRequest:
     configured_task = task()
     graph = BundleGraph(
         root_path=ROOT.path,
@@ -154,7 +160,16 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
         profile("io.example.app", "PROFILE_ROOT", dict(root_entitlements.values)),
         profile("io.example.app.Share", "PROFILE_SHARE", dict(extension_entitlements.values)),
     )
-    backend = SigningBackendIdentity("zsign", "1.1.1+sideloadedipa.1", "e" * 64, "1")
+    backend = SigningBackendIdentity(
+        "zsign",
+        "1.1.1+sideloadedipa.1",
+        "e" * 64,
+        "1",
+        (
+            SigningBackendFeature.PER_PROFILE_ENTITLEMENTS,
+            SigningBackendFeature.RECURSIVE_SIGNING,
+        ),
+    )
     certificate = CertificateIdentity(
         "CERT_ONE",
         "TEAMID1234",
@@ -164,7 +179,7 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
         NOW + timedelta(days=90),
     )
 
-    request = SigningPlanRequest(
+    return SigningPlanRequest(
         task=configured_task,
         graph=graph,
         policy=reconcile_bundle_rules(configured_task, graph),
@@ -179,6 +194,13 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
         ),
         backend=backend,
     )
+
+
+def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() -> None:
+    request = valid_request()
+    graph = request.graph
+    certificate = request.certificate
+    backend = request.backend
 
     plan = build_signing_plan(request)
     repeated = build_signing_plan(request)
@@ -210,3 +232,114 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
             json.dumps(without_digest, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
     )
+
+
+@pytest.mark.parametrize("mode", ["missing", "duplicate", "unused"])
+def test_rejects_missing_duplicate_and_unused_profiles(mode: str) -> None:
+    request = valid_request()
+    if mode == "missing":
+        profiles = request.profiles[:-1]
+    elif mode == "duplicate":
+        profiles = (
+            *request.profiles,
+            replace(request.profiles[0], resource_id="PROFILE_DUPLICATE"),
+        )
+    else:
+        profiles = (
+            *request.profiles,
+            profile("io.example.unused", "PROFILE_UNUSED", {}),
+        )
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(replace(request, profiles=profiles))
+
+    assert caught.value.code is ErrorCode.SIGNING_PLAN_INVALID
+    details = dict(caught.value.safe_details)
+    if mode == "unused":
+        assert details["unused_profile_ids"] == ("PROFILE_UNUSED",)
+    else:
+        assert details["conflicting_bundle_ids"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("team_id", "OTHERTEAM"), ("certificate_sha256", "9" * 64)],
+)
+def test_rejects_profile_team_or_certificate_mismatch(field: str, value: str) -> None:
+    request = valid_request()
+    changed = replace(request.profiles[0], **{field: value})
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(replace(request, profiles=(changed, request.profiles[1])))
+
+    assert caught.value.code is ErrorCode.SIGNING_PLAN_INVALID
+    assert "team or certificate" in caught.value.message
+
+
+def test_rejects_unauthorized_expected_entitlements() -> None:
+    request = valid_request()
+    unauthorized = normalize_entitlements(
+        {
+            "application-identifier": "PREFIX.io.example.app",
+            "com.apple.security.application-groups": ["group.io.example.missing"],
+        }
+    )
+    root_expected = ExpectedNodeEntitlements(ROOT.path, unauthorized.values, unauthorized.sha256)
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(
+            replace(
+                request,
+                expected_entitlements=(request.expected_entitlements[0], root_expected),
+            )
+        )
+
+    assert caught.value.code is ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED
+    assert dict(caught.value.safe_details)["key"] == "com.apple.security.application-groups"
+
+
+def test_rejects_unsupported_backend_features() -> None:
+    request = valid_request()
+    backend = replace(request.backend, features=())
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(replace(request, backend=backend))
+
+    assert caught.value.code is ErrorCode.SIGNING_BACKEND_UNSUPPORTED
+    assert dict(caught.value.safe_details)["missing_features"] == (
+        "per-profile-entitlements",
+        "recursive-signing",
+    )
+
+
+def test_rejects_unknown_signable_node_kind() -> None:
+    request = valid_request()
+    unknown = replace(FRAMEWORK, kind=cast(BundleNodeKind, "unknown-code"))
+    graph = replace(request.graph, nodes=(ROOT, EXTENSION, unknown))
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(replace(request, graph=graph))
+
+    assert caught.value.code is ErrorCode.SIGNING_PLAN_INVALID
+    assert dict(caught.value.safe_details)["unsupported_paths"] == (unknown.path.as_posix(),)
+
+
+def test_rejects_target_identifier_collision() -> None:
+    request = valid_request()
+    assert request.task.signing is not None
+    share = replace(
+        request.task.signing.bundles[1],
+        target_bundle_id=request.task.bundle_id,
+    )
+    configured_task = replace(
+        request.task,
+        signing=replace(
+            request.task.signing,
+            bundles=(request.task.signing.bundles[0], share),
+        ),
+    )
+
+    with pytest.raises(DomainError) as caught:
+        build_signing_plan(replace(request, task=configured_task))
+
+    assert caught.value.code is ErrorCode.IDENTIFIER_COLLISION

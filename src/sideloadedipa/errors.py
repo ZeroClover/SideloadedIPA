@@ -52,6 +52,8 @@ class ErrorCode(StrEnum):
     APPLE_PROFILE_DECODE_FAILED = "apple.profile_decode_failed"
     APPLE_PROFILE_INVALID = "apple.profile_invalid"
     APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED = "apple.profile_entitlement_unauthorized"
+    SIGNING_PLAN_INVALID = "signing.plan_invalid"
+    SIGNING_BACKEND_UNSUPPORTED = "signing.backend_unsupported"
 
 
 class SideloadedIPAError(Exception):

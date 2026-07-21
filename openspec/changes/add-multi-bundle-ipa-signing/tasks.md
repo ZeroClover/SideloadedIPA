@@ -73,7 +73,7 @@
 ## 7. Signing Planner and Executor
 
 - [x] 7.1 Implement a pure join from inventory, bundle policy, Apple resource manifest, profiles, certificate identity, expected entitlements, and qualified backend to a canonical signing plan.
-- [ ] 7.2 Reject missing/duplicate/unused profiles, target-ID collisions, mixed teams/certificates, unauthorized expected entitlements, unknown signable nodes, and unsupported backend features before archive mutation.
+- [x] 7.2 Reject missing/duplicate/unused profiles, target-ID collisions, mixed teams/certificates, unauthorized expected entitlements, unknown signable nodes, and unsupported backend features before archive mutation.
 - [ ] 7.3 Implement deterministic deepest-first topological ordering for nested frameworks/dylibs, extension subtrees, nested apps, and root-last signing.
 - [ ] 7.4 Implement exact root and nested `CFBundleIdentifier`/application-identifier transformation from the plan, including explicit nested overrides.
 - [ ] 7.5 Implement the qualified backend adapter with all per-bundle profiles, per-bundle entitlements, version/checksum enforcement, redacted argv evidence, and typed timeout/nonzero failures.

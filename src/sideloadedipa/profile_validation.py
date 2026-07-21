@@ -171,6 +171,21 @@ def validate_entitlement_authorization(
 ) -> None:
     """Require every claimed entitlement value to be allowed by the profile."""
 
+    validate_expected_entitlements(
+        profile_entitlements,
+        expected_entitlements,
+        bundle_id=request.target_bundle_id,
+    )
+
+
+def validate_expected_entitlements(
+    profile_entitlements: Mapping[str, object],
+    expected_entitlements: Mapping[str, object],
+    *,
+    bundle_id: str,
+) -> None:
+    """Apply provisioning-profile authorization semantics to planned entitlements."""
+
     for key in sorted(expected_entitlements):
         expected = expected_entitlements[key]
         if key not in profile_entitlements or not _value_is_authorized(
@@ -180,7 +195,7 @@ def validate_entitlement_authorization(
             raise DomainError(
                 ErrorCode.APPLE_PROFILE_ENTITLEMENT_UNAUTHORIZED,
                 "provisioning profile does not authorize a required entitlement value",
-                bundle_id=request.target_bundle_id,
+                bundle_id=bundle_id,
                 remediation="enable the capability or replace the profile before signing",
                 safe_details=(("key", key), ("expected_value", normalized.values[0][1])),
             )

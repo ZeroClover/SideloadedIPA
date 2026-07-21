@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import PurePosixPath
 
 from sideloadedipa.domain.bundle import BundleNodeKind
 from sideloadedipa.domain.common import Diagnostic, FrozenJsonValue
+
+
+class SigningBackendFeature(StrEnum):
+    PER_PROFILE_ENTITLEMENTS = "per-profile-entitlements"
+    RECURSIVE_SIGNING = "recursive-signing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +21,7 @@ class SigningBackendIdentity:
     version: str
     executable_sha256: str
     contract_version: str
+    features: tuple[SigningBackendFeature, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

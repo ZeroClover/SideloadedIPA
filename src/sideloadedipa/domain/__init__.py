@@ -79,6 +79,7 @@ from sideloadedipa.domain.reconciliation import (
 )
 from sideloadedipa.domain.signing import (
     ExpectedNodeEntitlements,
+    SigningBackendFeature,
     SigningBackendIdentity,
     SigningNodePlan,
     SigningNodeResult,
@@ -132,6 +133,7 @@ __all__ = [
     "R2Config",
     "ReconciledBundleRule",
     "SigningBackendIdentity",
+    "SigningBackendFeature",
     "SigningNodePlan",
     "SigningNodeResult",
     "SigningPlan",
