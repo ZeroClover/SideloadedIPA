@@ -11,9 +11,12 @@ from sideloadedipa.domain.common import Diagnostic
 
 
 class PipelineStage(StrEnum):
-    INSPECT = "inspect"
-    PLAN = "plan"
-    SYNC = "sync"
+    SOURCE = "source"
+    INVENTORY = "inventory"
+    POLICY = "policy"
+    RESOURCE_PLAN = "resource-plan"
+    RESOURCE_APPLY = "resource-apply"
+    SIGNING_PLAN = "signing-plan"
     SIGN = "sign"
     VERIFY = "verify"
     PUBLISH = "publish"
@@ -35,6 +38,21 @@ class StageState:
     completed_at: datetime | None = None
     result_sha256: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class StageManifest:
+    schema_version: int
+    task_name: str
+    stage: PipelineStage
+    status: StageStatus
+    input_sha256: str | None
+    predecessor_sha256: str | None
+    result_sha256: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    diagnostics: tuple[Diagnostic, ...]
+    manifest_sha256: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -56,6 +56,7 @@ class ErrorCode(StrEnum):
     SIGNING_BACKEND_UNSUPPORTED = "signing.backend_unsupported"
     SIGNING_VERIFICATION_FAILED = "signing.verification_failed"
     VERIFICATION_EVIDENCE_INVALID = "verification.evidence_invalid"
+    PIPELINE_TRANSITION_INVALID = "pipeline.transition_invalid"
 
 
 class SideloadedIPAError(Exception):
