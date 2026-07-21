@@ -82,7 +82,7 @@ jobs:
       FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -233,7 +233,7 @@ jobs:
       ASC_BYPASS_KEYCHAIN: "1"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install checksum-verified App Store Connect CLI
         shell: bash
@@ -320,6 +320,7 @@ jobs:
           python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
 
       - name: Exercise repeated-profile zsign backend contract
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -330,7 +331,17 @@ jobs:
             --private-key "$private_dir/private-key.pem" \
             --certificate "$private_dir/certificate.pem" \
             --profiles-dir "$private_dir/profiles" \
-            --output-dir "$private_dir/backend-exercise"
+            --output-dir "$private_dir/backend-exercise" \
+            --summary "$RUNNER_TEMP/backend-qualification/zsign-summary.json"
+
+      - name: Upload redacted Linux qualification summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-linux
+          path: ${{ runner.temp }}/backend-qualification/zsign-summary.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: "Debug: Start SSH session"
         if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
@@ -346,3 +357,173 @@ jobs:
           private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
           test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
           rm -rf -- "$private_dir"
+
+  backend-qualification-macos:
+    name: Qualify with independent macOS codesign oracle
+    needs: backend-qualification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      ASC_VERSION: "3.1.1"
+      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install checksum-verified App Store Connect CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asc_bin="asc_${ASC_VERSION}_macOS_arm64"
+          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
+          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
+          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | shasum -a 256 -c -)
+          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
+          asc --version
+
+      - name: Import configured signing identity into an isolated keychain
+        shell: bash
+        env:
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          keychain="$RUNNER_TEMP/backend-qualification.keychain-db"
+          openssl_bin="$(brew --prefix openssl@3)/bin/openssl"
+          mkdir -p "$private_dir"
+          printf '%s' "$APPLE_DEV_CERT_P12_ENCODED" \
+            | "$openssl_bin" base64 -d -A -out "$private_dir/certificate.p12"
+          "$openssl_bin" pkcs12 -legacy -in "$private_dir/certificate.p12" -clcerts -nokeys \
+            -passin env:P12_PASSWORD -out "$private_dir/certificate.pem"
+          "$openssl_bin" x509 -in "$private_dir/certificate.pem" -outform DER \
+            -out "$private_dir/certificate.der"
+
+          keychain_password="$("$openssl_bin" rand -hex 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 1200 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$private_dir/certificate.p12" -k "$keychain" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+
+          identities="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -nE 's/^[[:space:]]*[0-9]+\) ([[:xdigit:]]{40}) .*/\1/p')"
+          identity_count="$(printf '%s\n' "$identities" \
+            | awk 'NF { count++ } END { print count + 0 }')"
+          if [[ "$identity_count" != "1" ]]; then
+            echo "Expected exactly one codesigning identity, found $identity_count." >&2
+            exit 1
+          fi
+          identity="$(printf '%s\n' "$identities" | head -n 1)"
+          echo "QUALIFICATION_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          printf 'configured certificate sha256: '
+          shasum -a 256 "$private_dir/certificate.der" | cut -d ' ' -f 1
+
+      - name: Build pinned synthetic four-bundle fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_dir="$RUNNER_TEMP/backend-qualification/fixture"
+          mkdir -p "$fixture_dir"
+          curl --fail --location --silent --show-error \
+            --output "$fixture_dir/LiveContainer.ipa" \
+            "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa"
+          python3 scripts/build_backend_qualification_fixture.py \
+            --source-ipa "$fixture_dir/LiveContainer.ipa" \
+            --output-ipa "$fixture_dir/qualification.ipa" \
+            --expected-source-sha256 \
+            "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6"
+
+      - name: Probe private Apple qualification prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          python3 scripts/qualify_backend_prerequisites.py \
+            --certificate-der "$private_dir/certificate.der" \
+            --private-dir "$private_dir/profiles" \
+            --summary "$RUNNER_TEMP/backend-qualification/profile-summary.json"
+
+      - name: Exercise independent codesign oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          python3 scripts/exercise_codesign_oracle.py \
+            --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
+            --identity "$CODESIGN_IDENTITY" \
+            --keychain "$QUALIFICATION_KEYCHAIN" \
+            --profiles-dir "$private_dir/profiles" \
+            --output-dir "$private_dir/codesign-oracle" \
+            --summary "$RUNNER_TEMP/backend-qualification/codesign-summary.json"
+
+      - name: Upload redacted macOS qualification summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-macos
+          path: ${{ runner.temp }}/backend-qualification/codesign-summary.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove private macOS qualification material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
+          test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
+          rm -rf -- "$private_dir"
+          if [[ -n "${QUALIFICATION_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$QUALIFICATION_KEYCHAIN"
+          fi
+
+  backend-qualification-comparison:
+    name: Compare Linux and macOS backend evidence
+    needs: [backend-qualification, backend-qualification-macos]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.backend_qualification == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Download Linux qualification summary
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: backend-qualification-linux
+          path: ${{ runner.temp }}/backend-comparison/linux
+
+      - name: Download macOS qualification summary
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: backend-qualification-macos
+          path: ${{ runner.temp }}/backend-comparison/macos
+
+      - name: Compare backend qualification evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/compare_backend_qualification.py \
+            --linux-summary "$RUNNER_TEMP/backend-comparison/linux/zsign-summary.json" \
+            --macos-summary "$RUNNER_TEMP/backend-comparison/macos/codesign-summary.json" \
+            --summary "$RUNNER_TEMP/backend-comparison/comparison-summary.json"
+
+      - name: Upload redacted comparison summary
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-comparison
+          path: ${{ runner.temp }}/backend-comparison/comparison-summary.json
+          if-no-files-found: error
+          retention-days: 7

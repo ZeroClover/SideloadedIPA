@@ -160,6 +160,29 @@ def evaluate_contract(entitlements: Mapping[str, Mapping[str, Any]]) -> list[str
     return violations
 
 
+def entitlement_evidence(entitlements: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        role: {
+            "app_groups": values.get("com.apple.security.application-groups", []),
+            "entitlement_keys": sorted(values),
+            "healthkit_access": values.get("com.apple.developer.healthkit.access", []),
+            "healthkit_background_delivery": values.get(
+                "com.apple.developer.healthkit.background-delivery", False
+            ),
+            "increased_memory_limit": values.get(
+                "com.apple.developer.kernel.increased-memory-limit", False
+            ),
+            "keychain_group_count": len(values.get("keychain-access-groups", [])),
+            "keychain_groups_sha256": sha256_bytes(
+                json.dumps(
+                    sorted(values.get("keychain-access-groups", [])), separators=(",", ":")
+                ).encode()
+            ),
+        }
+        for role, values in entitlements.items()
+    }
+
+
 def exercise(args: argparse.Namespace) -> dict[str, Any]:
     args.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     signed_ipa = args.output_dir / "signed.ipa"
@@ -204,26 +227,7 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
         "command_shape": {"global_entitlements": False, "profile_count": command.count("-m")},
         "contract_pass": not violations,
         "profiles": profiles,
-        "signed_entitlements": {
-            role: {
-                "app_groups": values.get("com.apple.security.application-groups", []),
-                "entitlement_keys": sorted(values),
-                "healthkit_access": values.get("com.apple.developer.healthkit.access", []),
-                "healthkit_background_delivery": values.get(
-                    "com.apple.developer.healthkit.background-delivery", False
-                ),
-                "increased_memory_limit": values.get(
-                    "com.apple.developer.kernel.increased-memory-limit", False
-                ),
-                "keychain_group_count": len(values.get("keychain-access-groups", [])),
-                "keychain_groups_sha256": sha256_bytes(
-                    json.dumps(
-                        sorted(values.get("keychain-access-groups", [])), separators=(",", ":")
-                    ).encode()
-                ),
-            }
-            for role, values in entitlements.items()
-        },
+        "signed_entitlements": entitlement_evidence(entitlements),
         "signed_ipa_sha256": sha256_bytes(signed_ipa.read_bytes()),
         "violations": violations,
     }
@@ -237,12 +241,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--certificate", type=Path, required=True)
     parser.add_argument("--profiles-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--summary", type=Path, required=True)
     return parser.parse_args()
 
 
 def main() -> int:
     try:
-        summary = exercise(parse_args())
+        args = parse_args()
+        summary = exercise(args)
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
         print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
         if not summary["contract_pass"]:
             print(
