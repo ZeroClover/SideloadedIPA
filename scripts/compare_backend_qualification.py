@@ -33,10 +33,35 @@ def compare_summaries(linux: Mapping[str, Any], macos: Mapping[str, Any]) -> dic
         raise ComparisonError("Linux summary is not from zsign")
     if macos.get("backend") != "codesign":
         raise ComparisonError("macOS summary is not from codesign")
-    if linux.get("contract_pass") is not False:
-        raise ComparisonError("Linux profile-only result did not record the expected failure")
-    if set(linux.get("violations", [])) != EXPECTED_LINUX_VIOLATIONS:
-        raise ComparisonError("Linux violations differ from the reviewed qualification result")
+    linux_variant = linux.get("backend_variant", "upstream-profile-only")
+    extension_selected = linux_variant == "per-profile-entitlements-extension"
+    if extension_selected:
+        if linux.get("contract_pass") is not True or linux.get("violations") != []:
+            raise ComparisonError("Linux per-profile extension did not satisfy the contract")
+        command_shape = linux.get("command_shape")
+        if command_shape != {
+            "entitlement_count": len(TARGETS),
+            "global_entitlements": False,
+            "profile_count": len(TARGETS),
+        }:
+            raise ComparisonError("Linux per-profile extension command shape is invalid")
+        linux_order = linux.get("signing_order")
+        if (
+            not isinstance(linux_order, list)
+            or set(linux_order) != set(TARGETS)
+            or linux_order[-1] != "root"
+        ):
+            raise ComparisonError("Linux per-profile extension signing order is invalid")
+        executable_sha256 = linux.get("executable_sha256")
+        if not isinstance(executable_sha256, str) or len(executable_sha256) != 64:
+            raise ComparisonError("Linux per-profile extension executable hash is invalid")
+    else:
+        if linux_variant != "upstream-profile-only":
+            raise ComparisonError("Linux summary has an unknown backend variant")
+        if linux.get("contract_pass") is not False:
+            raise ComparisonError("Linux profile-only result did not record the expected failure")
+        if set(linux.get("violations", [])) != EXPECTED_LINUX_VIOLATIONS:
+            raise ComparisonError("Linux violations differ from the reviewed qualification result")
     if macos.get("contract_pass") is not True or macos.get("violations") != []:
         raise ComparisonError("macOS oracle did not satisfy the exact entitlement contract")
     if macos.get("nested_signature_verified") is not True:
@@ -83,24 +108,32 @@ def compare_summaries(linux: Mapping[str, Any], macos: Mapping[str, Any]) -> dic
             if not isinstance(value, str) or len(value) != 64:
                 raise ComparisonError(f"{role} has invalid {field} evidence")
 
-    for role in ("root", "process"):
-        if linux_entitlements[role].get("keychain_group_count") != 2:
-            raise ComparisonError(f"{role} Linux keychain count changed from the reviewed result")
-        if macos_entitlements[role].get("keychain_group_count") != 128:
-            raise ComparisonError(f"{role} macOS oracle lacks 128 keychain groups")
-        if linux_entitlements[role].get("keychain_groups_sha256") == macos_entitlements[role].get(
-            "keychain_groups_sha256"
-        ):
-            raise ComparisonError(f"{role} Linux/macOS keychain evidence unexpectedly matches")
+    if extension_selected:
+        for role in TARGETS:
+            if linux_entitlements[role] != macos_entitlements[role]:
+                raise ComparisonError(f"{role} Linux/macOS entitlement evidence differs")
+    else:
+        for role in ("root", "process"):
+            if linux_entitlements[role].get("keychain_group_count") != 2:
+                raise ComparisonError(
+                    f"{role} Linux keychain count changed from the reviewed result"
+                )
+            if macos_entitlements[role].get("keychain_group_count") != 128:
+                raise ComparisonError(f"{role} macOS oracle lacks 128 keychain groups")
+            if linux_entitlements[role].get("keychain_groups_sha256") == macos_entitlements[
+                role
+            ].get("keychain_groups_sha256"):
+                raise ComparisonError(f"{role} Linux/macOS keychain evidence unexpectedly matches")
 
-    for role in ("launch", "share"):
-        if linux_entitlements[role] != macos_entitlements[role]:
-            raise ComparisonError(f"{role} Linux/macOS entitlement evidence differs")
+        for role in ("launch", "share"):
+            if linux_entitlements[role] != macos_entitlements[role]:
+                raise ComparisonError(f"{role} Linux/macOS entitlement evidence differs")
 
     return {
-        "backend_decision_required": True,
+        "backend_decision_required": not extension_selected,
         "codesign_contract_pass": True,
-        "linux_profile_only_contract_pass": False,
+        "linux_backend_variant": linux_variant,
+        "linux_contract_pass": extension_selected,
         "profile_mapping_matches": True,
         "roles": sorted(TARGETS),
         "root_last": True,

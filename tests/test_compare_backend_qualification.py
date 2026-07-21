@@ -76,12 +76,34 @@ def test_comparison_accepts_reviewed_backend_difference() -> None:
     assert result == {
         "backend_decision_required": True,
         "codesign_contract_pass": True,
-        "linux_profile_only_contract_pass": False,
+        "linux_backend_variant": "upstream-profile-only",
+        "linux_contract_pass": False,
         "profile_mapping_matches": True,
         "roles": ["launch", "process", "root", "share"],
         "root_last": True,
         "xml_der_evidence_complete": True,
     }
+
+
+def test_comparison_accepts_per_profile_extension_contract() -> None:
+    linux, macos = qualification_summaries()
+    linux["backend_variant"] = "per-profile-entitlements-extension"
+    linux["command_shape"] = {
+        "entitlement_count": 4,
+        "global_entitlements": False,
+        "profile_count": 4,
+    }
+    linux["contract_pass"] = True
+    linux["executable_sha256"] = "d" * 64
+    linux["signing_order"] = ["launch", "process", "share", "root"]
+    linux["violations"] = []
+    linux["signed_entitlements"] = copy.deepcopy(macos["signed_entitlements"])
+
+    result = compare_summaries(linux, macos)
+
+    assert result["backend_decision_required"] is False
+    assert result["linux_backend_variant"] == "per-profile-entitlements-extension"
+    assert result["linux_contract_pass"] is True
 
 
 def test_comparison_rejects_codesign_without_exact_keychain_contract() -> None:

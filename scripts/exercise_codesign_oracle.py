@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import hashlib
 import json
 import plistlib
@@ -18,8 +17,10 @@ from typing import Any, Mapping, Sequence
 
 from exercise_zsign_backend import (
     TARGETS,
+    BackendExerciseError,
     entitlement_evidence,
     evaluate_contract,
+    materialize_entitlements,
     sha256_bytes,
 )
 
@@ -48,54 +49,6 @@ def decode_profile(profile_path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CodesignOracleError(f"profile {profile_path.stem} is not a dictionary")
     return value
-
-
-def keychain_groups(application_identifier: str, bundle_identifier: str) -> list[str]:
-    suffix = f".{bundle_identifier}"
-    if not application_identifier.endswith(suffix):
-        raise CodesignOracleError(
-            f"application identifier does not match target bundle {bundle_identifier}"
-        )
-    prefix = application_identifier[: -len(bundle_identifier)]
-    base = f"{prefix}com.kdt.livecontainer.shared"
-    return [base, *(f"{base}.{index}" for index in range(1, 128))]
-
-
-def authorizes(value: str, allowed_values: Sequence[str]) -> bool:
-    for allowed in allowed_values:
-        if allowed == value:
-            return True
-        if allowed.endswith("*") and value.startswith(allowed[:-1]):
-            return True
-    return False
-
-
-def materialize_entitlements(
-    role: str,
-    bundle_identifier: str,
-    profile_entitlements: Mapping[str, Any],
-) -> dict[str, Any]:
-    result = copy.deepcopy(dict(profile_entitlements))
-    if role not in {"root", "process"}:
-        return result
-
-    application_identifier = result.get("application-identifier")
-    allowed_groups = result.get("keychain-access-groups")
-    if not isinstance(application_identifier, str):
-        raise CodesignOracleError(f"{role} profile has no application identifier")
-    if not isinstance(allowed_groups, list) or not all(
-        isinstance(item, str) for item in allowed_groups
-    ):
-        raise CodesignOracleError(f"{role} profile has invalid keychain authorization")
-
-    expected_groups = keychain_groups(application_identifier, bundle_identifier)
-    unauthorized = [value for value in expected_groups if not authorizes(value, allowed_groups)]
-    if unauthorized:
-        raise CodesignOracleError(
-            f"{role} profile does not authorize {len(unauthorized)} expected keychain groups"
-        )
-    result["keychain-access-groups"] = expected_groups
-    return result
 
 
 def signing_order() -> list[str]:
@@ -259,7 +212,13 @@ def main() -> int:
         if not summary["contract_pass"]:
             return 2
         return 0
-    except (CodesignOracleError, OSError, ValueError, zipfile.BadZipFile) as error:
+    except (
+        BackendExerciseError,
+        CodesignOracleError,
+        OSError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as error:
         print(f"[codesign-oracle-error] {error}", file=sys.stderr)
         return 2
 

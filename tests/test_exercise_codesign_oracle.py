@@ -10,10 +10,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from exercise_codesign_oracle import (
-    CodesignOracleError,
+    signing_order,
+)
+from exercise_zsign_backend import (
+    BackendExerciseError,
     keychain_groups,
     materialize_entitlements,
-    signing_order,
 )
 
 
@@ -56,7 +58,7 @@ def test_oracle_rejects_unauthorized_keychain_groups() -> None:
     source = profile_entitlements(bundle_identifier)
     source["keychain-access-groups"] = [f"TEAM.{bundle_identifier}"]
 
-    with pytest.raises(CodesignOracleError, match="does not authorize 128"):
+    with pytest.raises(BackendExerciseError, match="does not authorize 128"):
         materialize_entitlements("process", bundle_identifier, source)
 
 

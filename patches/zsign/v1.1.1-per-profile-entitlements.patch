@@ -1,0 +1,55 @@
+diff --git a/src/zsign.cpp b/src/zsign.cpp
+index a5ce7e6..a53cb6e 100644
+--- a/src/zsign.cpp
++++ b/src/zsign.cpp
+@@ -133,7 +133,7 @@ int usage()
+ 	ZLog::Print("-b, --bundle_id\t\tNew bundle id to change.\n");
+ 	ZLog::Print("-n, --bundle_name\tNew bundle name to change.\n");
+ 	ZLog::Print("-r, --bundle_version\tNew bundle version to change.\n");
+-	ZLog::Print("-e, --entitlements\tNew entitlements to change.\n");
++	ZLog::Print("-e, --entitlements\tNew entitlements to change. Repeat to pair with repeated -m profiles.\n");
+ 	ZLog::Print("-I, --icon\t\tPath to new app icon to replace the primary icon. (PNG format)\n");
+ 	ZLog::Print("-z, --zip_level\t\tCompressed level when output the ipa file. (0-9)\n");
+ 	ZLog::Print("-l, --dylib\t\tPath to inject dylib file. Use -l multiple time to inject multiple dylib files at once.\n");
+@@ -189,6 +189,7 @@ int main(int argc, char* argv[])
+ 	string strOutputFile;
+ 	string strDisplayName;
+ 	string strEntitleFile;
++	vector<string> arrEntitleFiles;
+ 	string strIconFile;
+ 	vector<string> arrDylibFiles;
+ 	vector<string> arrRemoveDylibNames;
+@@ -233,6 +234,7 @@ int main(int argc, char* argv[])
+ 			break;
+ 		case 'e':
+ 			strEntitleFile = ZFile::GetFullPath(optarg);
++			arrEntitleFiles.push_back(strEntitleFile);
+ 			break;
+ 		case 'I':
+ 			strIconFile = ZFile::GetFullPath(optarg);
+@@ -329,6 +331,11 @@ int main(int argc, char* argv[])
+ 		return -1;
+ 	}
+ 
++	if (arrEntitleFiles.size() > 1 && arrEntitleFiles.size() != arrProvFiles.size()) {
++		ZLog::ErrorV(">>> Repeated entitlements must match the number and order of provisioning profiles.\n");
++		return -1;
++	}
++
+ 	for (const string& strDylibFile : arrDylibFiles) {
+ 		if (!ZFile::IsFileExists(strDylibFile.c_str())) {
+ 			ZLog::ErrorV(">>> Dylib file not found! %s\n", strDylibFile.c_str());
+@@ -457,9 +464,11 @@ int main(int argc, char* argv[])
+ 	bool bRet;
+ 	if (arrProvFiles.size() > 1) {
+ 		list<ZSignAsset> zsaList;
+-		for (const string& provFile : arrProvFiles) {
++		for (size_t i = 0; i < arrProvFiles.size(); i++) {
++			const string& provFile = arrProvFiles[i];
++			const string& entitleFile = arrEntitleFiles.size() > 1 ? arrEntitleFiles[i] : strEntitleFile;
+ 			zsaList.push_back(ZSignAsset());
+-			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, strEntitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
++			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, entitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
+ 				ZLog::ErrorV(">>> Failed to init provision: %s\n", provFile.c_str());
+ 				zsaList.pop_back();
+ 			}
