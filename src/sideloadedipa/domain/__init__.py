@@ -26,6 +26,12 @@ from sideloadedipa.domain.config import (
     TaskConfiguration,
     UnknownProfileBundlePolicy,
 )
+from sideloadedipa.domain.entitlements import (
+    EntitlementContext,
+    EntitlementTransformation,
+    MaterializedEntitlements,
+    materialize_entitlements,
+)
 from sideloadedipa.domain.identifiers import (
     BundleIdentifierMapping,
     derive_identifier_mappings,
@@ -71,8 +77,11 @@ __all__ = [
     "DiagnosticSeverity",
     "EntitlementMode",
     "EntitlementPolicy",
+    "EntitlementContext",
+    "EntitlementTransformation",
     "FrozenJsonValue",
     "IdentifierStrategy",
+    "MaterializedEntitlements",
     "OperationDisposition",
     "PipelineStage",
     "PolicyReconciliation",
@@ -101,5 +110,6 @@ __all__ = [
     "derive_identifier_mappings",
     "derive_target_bundle_id",
     "reconcile_bundle_rules",
+    "materialize_entitlements",
     "validate_bundle_identifier",
 ]

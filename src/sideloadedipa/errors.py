@@ -12,6 +12,8 @@ class ErrorCode(StrEnum):
     IDENTIFIER_INVALID = "identifier.invalid"
     IDENTIFIER_NON_DESCENDANT = "identifier.non_descendant"
     IDENTIFIER_COLLISION = "identifier.collision"
+    ENTITLEMENTS_POLICY_INVALID = "entitlements.policy_invalid"
+    ENTITLEMENTS_UNDECLARED_DROP = "entitlements.undeclared_drop"
     CONFIG_INVALID = "config.invalid"
     CONFIG_MISSING = "config.missing"
     ADAPTER_UNAVAILABLE = "adapter.unavailable"
