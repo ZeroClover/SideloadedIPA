@@ -4,6 +4,14 @@
 
 The current CI workflow processes all signing tasks on every run without checking if the source applications or device configurations have changed. This design introduces intelligent caching and change detection to minimize unnecessary work.
 
+**Archival reconciliation (2026-07-21):** The implementation originally landed in
+`084fbbc` and is live at repository baseline `9e04744`. Later changes migrated
+profile synchronization from Ruby to `scripts/sync_profiles_asc.py` and publishing
+from a conventional asset server to R2 plus the apps registry. Those adapters do
+not change the cache/release-tracking capability contract. Where this historical
+design names superseded files or publication infrastructure, the reconciled specs
+and current code are authoritative.
+
 ### Constraints
 
 - GitHub Actions cache has a 10GB total limit per repository

@@ -72,9 +72,10 @@ The system SHALL maintain and update cache state files throughout the workflow.
 
 #### Scenario: Save cache at workflow end
 
-- **WHEN** the workflow completes successfully
+- **WHEN** the workflow reaches its cache-finalization step, whether earlier task processing succeeded or failed
 - **THEN** the system SHALL save both `release-versions.json` and `device-list.json` to cache
 - **AND** the system SHALL use GitHub Actions cache save action
+- **AND** release-version entries SHALL only reflect tasks that completed signing and upload successfully
 - **AND** the cache SHALL be available for subsequent workflow runs
 
 #### Scenario: Handle cache save failure

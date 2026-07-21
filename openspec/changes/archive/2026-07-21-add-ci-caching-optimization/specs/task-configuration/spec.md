@@ -49,13 +49,13 @@ The system SHALL validate task configuration before execution to ensure data int
 #### Scenario: Validate required fields for GitHub release tasks
 
 - **WHEN** a task defines `repo_url`
-- **THEN** the task SHALL also have valid `task_name`, `app_name`, `bundle_id`, and `asset_server_path`
+- **THEN** the task SHALL also have valid `task_name`, `app_name`, and `bundle_id`
 - **AND** `repo_url` SHALL be a valid GitHub repository URL format
 
 #### Scenario: Validate required fields for direct URL tasks
 
 - **WHEN** a task defines `ipa_url`
-- **THEN** the task SHALL also have valid `task_name`, `app_name`, `bundle_id`, and `asset_server_path`
+- **THEN** the task SHALL also have valid `task_name`, `app_name`, and `bundle_id`
 - **AND** `ipa_url` SHALL be a valid HTTP/HTTPS URL
 
 ### Requirement: Backwards Compatibility

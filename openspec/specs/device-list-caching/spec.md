@@ -1,7 +1,8 @@
-# Device List Caching Specification
+# device-list-caching Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change add-ci-caching-optimization. Update Purpose after archive.
+## Requirements
 ### Requirement: Device List Snapshot
 
 The system SHALL create and maintain a snapshot of the App Store Connect device list in cache.
@@ -22,10 +23,10 @@ The system SHALL create and maintain a snapshot of the App Store Connect device 
 
 #### Scenario: Save device list to cache
 
-- **WHEN** the workflow completes successfully
+- **WHEN** the current device snapshot has been produced and the workflow reaches cache finalization
 - **THEN** the system SHALL save the device list as `device-list.json` in GitHub Actions cache
 - **AND** the file SHALL include devices array, last_updated timestamp, and checksum
-- **AND** the cache key SHALL be deterministic for the workflow
+- **AND** cache-save failure SHALL remain non-fatal
 
 ### Requirement: Device List Comparison
 
@@ -68,11 +69,11 @@ The system SHALL regenerate all provisioning profiles and rebuild all IPAs when 
 - **WHEN** `rebuild_all` flag is `true` due to device list changes
 - **THEN** the system SHALL regenerate provisioning profiles for all tasks
 - **AND** the system SHALL download and sign all IPAs regardless of version cache
-- **AND** the system SHALL upload all signed IPAs to the asset server
+- **AND** the system SHALL upload all signed IPAs through the configured publication backend
 
 #### Scenario: Skip profile regeneration when devices unchanged
 
 - **WHEN** `rebuild_all` flag is `false` (devices unchanged)
-- **THEN** the system SHALL skip the profile sync step
-- **AND** the system SHALL reuse existing provisioning profiles from previous run
+- **THEN** the system SHALL skip profile regeneration
+- **AND** the system SHALL download or reuse the existing valid provisioning profiles needed by changed tasks
 - **AND** the system SHALL only process tasks with version changes

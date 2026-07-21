@@ -1,5 +1,13 @@
 # Change: Add CI Caching and Smart Execution Optimization
 
+> **Implementation reconciliation (2026-07-21):** This change shipped in commit
+> `084fbbc` and subsequently evolved with the profile-sync and R2 publication
+> migrations. Before archival, its specs and task state were reconciled to the
+> behavior at `9e04744`, the passing 191-test suite, and successful scheduled and
+> manually dispatched production workflow runs. The archived asset-selection
+> baseline intentionally remains "first glob match with a warning"; the later
+> `add-multi-bundle-ipa-signing` change explicitly replaces that behavior.
+
 ## Why
 
 Currently, the CI workflow executes the full signing and publishing process for every IPA on every run, regardless of whether the source IPA has been updated or device configurations have changed. This results in:
@@ -46,7 +54,7 @@ By implementing intelligent caching and version tracking, we can minimize CI exe
 
 - **Affected code**:
   - `.github/workflows/sign-and-upload.yml` - Add caching, scheduling, and conditional execution
-  - `scripts/sync_profiles.rb` - Add device list comparison logic
+  - `scripts/sync_profiles_asc.py` - Snapshot devices and coordinate profile refresh/download
   - `scripts/run_signing.py` - Add GitHub API integration and version tracking
   - `configs/tasks.toml` - Schema extension for GitHub release tracking
   - New script: `scripts/check_changes.py` - Determine which tasks need execution
@@ -56,3 +64,4 @@ By implementing intelligent caching and version tracking, we can minimize CI exe
   - Subsequent runs will benefit from caching
   - No impact on manual `workflow_dispatch` behavior (can force full rebuild)
   - Existing `ipa_url` configuration remains fully supported
+  - Signed artifacts are published through the repository's current R2/registry pipeline
