@@ -25,7 +25,6 @@ from sideloadedipa.verification.report import (
     verification_report_sha256,
 )
 from sideloadedipa.verification.signatures import verify_signed_signatures
-from sideloadedipa.verification.service import PackageVerifier, VerificationChecks
 from sideloadedipa.verification.three_way import verify_three_way_entitlements
 
 __all__ = [
@@ -43,8 +42,6 @@ __all__ = [
     "canonical_verification_report_json",
     "human_verification_report",
     "inspect_signed_entitlements",
-    "PackageVerifier",
-    "VerificationChecks",
     "verify_output_integrity",
     "verify_signed_signatures",
     "verify_three_way_entitlements",

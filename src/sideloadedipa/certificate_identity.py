@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, pkcs12
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+    pkcs12,
+)
 from cryptography.x509.oid import NameOID
 
 from sideloadedipa.domain import (
@@ -14,6 +22,7 @@ from sideloadedipa.domain import (
     AppleResourceRequirement,
     AppleStateSnapshot,
     CertificateIdentity,
+    CertificateMaterial,
     OperationDisposition,
     P12CertificateIdentity,
 )
@@ -81,6 +90,70 @@ def load_p12_certificate_identity(path: Path, password: str) -> P12CertificateId
         certificate_sha256=hashlib.sha256(certificate_der).hexdigest(),
         expires_at=certificate.not_valid_after_utc,
     )
+
+
+def _atomic_private_write(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def load_p12_certificate_material(
+    path: Path,
+    password: str,
+    *,
+    resource_id: str,
+    output_directory: Path,
+) -> CertificateMaterial:
+    """Materialize a P12 as private PEM inputs for the qualified backend."""
+
+    if not resource_id:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "certificate material requires a stable Apple resource ID",
+        )
+    public = load_p12_certificate_identity(path, password)
+    try:
+        private_key, certificate, _ = pkcs12.load_key_and_certificates(
+            path.read_bytes(), password.encode() if password else None
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 could not be materialized",
+            remediation="verify the P12 content and password",
+            safe_details=(("path_name", path.name),),
+        ) from error
+    if private_key is None or certificate is None:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 must contain one private key and its certificate",
+        )
+    certificate_path = output_directory / "certificate.pem"
+    private_key_path = output_directory / "private-key.pem"
+    _atomic_private_write(certificate_path, certificate.public_bytes(Encoding.PEM))
+    _atomic_private_write(
+        private_key_path,
+        private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()),
+    )
+    identity = CertificateIdentity(
+        resource_id,
+        public.team_id,
+        public.serial_number,
+        public.public_key_sha256,
+        public.certificate_sha256,
+        public.expires_at,
+    )
+    return CertificateMaterial(identity, certificate_path, private_key_path)
 
 
 def matching_certificate_resource_ids(

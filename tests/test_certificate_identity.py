@@ -17,6 +17,7 @@ from sideloadedipa.apple_state_probe import redacted_certificate_summary
 from sideloadedipa.certificate_identity import (
     certificate_requirement,
     load_p12_certificate_identity,
+    load_p12_certificate_material,
     resolve_certificate_identity,
 )
 from sideloadedipa.domain import AppleCertificateState, AppleStateSnapshot
@@ -85,6 +86,24 @@ def test_extracts_only_stable_public_identity(tmp_path: Path) -> None:
     assert len(identity.certificate_sha256) == 64
     assert identity.expires_at == expires_at
     assert identity.certificate_sha256 == hashlib.sha256(certificate_der).hexdigest()
+
+
+def test_materializes_private_backend_inputs_with_restricted_permissions(tmp_path: Path) -> None:
+    path = tmp_path / "development.p12"
+    make_p12(path, "private-password")
+
+    material = load_p12_certificate_material(
+        path,
+        "private-password",
+        resource_id="CERT_ONE",
+        output_directory=tmp_path / "material",
+    )
+
+    assert material.identity.resource_id == "CERT_ONE"
+    assert material.certificate_path.read_bytes().startswith(b"-----BEGIN CERTIFICATE-----")
+    assert material.private_key_path.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+    assert material.certificate_path.stat().st_mode & 0o777 == 0o600
+    assert material.private_key_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_rejects_missing_or_bad_password_p12(tmp_path: Path) -> None:

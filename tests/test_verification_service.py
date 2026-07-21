@@ -16,11 +16,8 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
 )
-from sideloadedipa.verification import (
-    PackageVerifier,
-    SignedArtifactEntitlementEvidence,
-    VerificationChecks,
-)
+from sideloadedipa.verification import SignedArtifactEntitlementEvidence
+from sideloadedipa.verification.service import PackageVerifier, VerificationChecks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 ROOT = PurePosixPath("Payload/App.app")
