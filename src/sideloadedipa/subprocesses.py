@@ -46,6 +46,13 @@ def _bounded_text(value: bytes | str | None, limit: int, redactions: Sequence[st
     return (encoded[-limit:] if limit else b"").decode("utf-8", errors="replace")
 
 
+def _complete_text(value: bytes | str | None, redactions: Sequence[str]) -> str:
+    if value is None:
+        return ""
+    decoded = value if isinstance(value, str) else value.decode("utf-8", errors="replace")
+    return _redact(decoded, redactions)
+
+
 class SubprocessRunner:
     def __init__(
         self,
@@ -127,7 +134,7 @@ class SubprocessRunner:
                 safe_details=(("argv", safe_argv), ("os_error", type(error).__name__)),
             ) from error
 
-        stdout = _bounded_text(completed.stdout, self.max_output_bytes, redactions)
+        stdout = _complete_text(completed.stdout, redactions)
         stderr = _bounded_text(completed.stderr, self.max_output_bytes, redactions)
         duration = time.monotonic() - started
         if completed.returncode != 0:
@@ -139,7 +146,10 @@ class SubprocessRunner:
                 safe_details=(
                     ("argv", safe_argv),
                     ("exit_code", completed.returncode),
-                    ("stdout", stdout),
+                    (
+                        "stdout",
+                        _bounded_text(completed.stdout, self.max_output_bytes, redactions),
+                    ),
                     ("stderr", stderr),
                 ),
             )

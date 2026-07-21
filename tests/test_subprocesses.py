@@ -62,6 +62,19 @@ def test_failure_output_is_bounded_and_redacted(tmp_path: Path) -> None:
     assert len(details["stdout"]) <= 128
 
 
+def test_success_output_is_complete_and_redacted() -> None:
+    secret = "private-password"
+    runner = SubprocessRunner(max_output_bytes=128)
+    prefix = "x" * 256
+
+    result = runner.run(
+        [sys.executable, "-c", "import sys; print(sys.argv[1] + sys.argv[2])", prefix, secret],
+        secret_redactions=[secret],
+    )
+
+    assert result.stdout == f"{prefix}***\n"
+
+
 def test_timeout_and_missing_executable_have_stable_codes() -> None:
     runner = SubprocessRunner(default_timeout_seconds=0.01)
 
