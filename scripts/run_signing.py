@@ -17,6 +17,7 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 
 import apps_registry
+import app_icon
 import r2_store
 
 # Vercel on-demand revalidation hook (shared-secret protected). Overridable via
@@ -465,6 +466,16 @@ def validate_task(task: dict) -> tuple[bool, Optional[str]]:
             parse_repo_url(task["repo_url"])
         except ValueError as e:
             return False, str(e)
+
+    # icon_path is optional, but a repo-relative one needs a repo to resolve against.
+    icon_path = task.get("icon_path")
+    if icon_path is not None:
+        if not isinstance(icon_path, str) or not icon_path.strip():
+            return False, "icon_path must be a non-empty string"
+        is_url = icon_path.startswith(("http://", "https://"))
+        is_ipa = icon_path.strip() == app_icon.IPA_SCHEME
+        if not is_url and not is_ipa and not has_repo_url:
+            return False, "icon_path is repo-relative but no repo_url is set; use a full URL"
 
     return True, None
 
@@ -923,6 +934,28 @@ def main() -> int:
             f"({bundle_id_actual} v{publish_version})"
         )
 
+        # Refresh the card icon from the task's declared asset. Pinned to the
+        # release tag so the icon tracks the build being published. A failure
+        # here is non-fatal: the icon key keeps whatever it already held, and
+        # the download page falls back to a lettered tile if it is empty.
+        icon_url = store.public_url(store.icon_key(slug))
+        icon_path = task.get("icon_path")
+        if icon_path:
+            try:
+                png = app_icon.build_icon_png(
+                    icon_path,
+                    task.get("repo_url"),
+                    ref=(version_info or {}).get("version"),
+                    ipa_path=signed_ipa,
+                )
+                icon_url = store.upload_icon(slug, png)
+            except Exception as e:
+                print(
+                    f"[task {i}] Icon refresh failed ({e}); keeping existing icon", file=sys.stderr
+                )
+        else:
+            print(f"[task {i}] No icon_path configured; keeping existing icon")
+
         # The itms.plist is no longer uploaded — the Vercel front-end renders it
         # dynamically from apps.json. Queue the registry refresh for this app.
         registry_updates.append(
@@ -932,7 +965,7 @@ def main() -> int:
                 "bundleId": bundle_id_actual,
                 "version": publish_version,
                 "ipaUrl": ipa_url,
-                "iconUrl": store.public_url(store.icon_key(slug)),
+                "iconUrl": icon_url,
             }
         )
         processed_slugs.append(slug)

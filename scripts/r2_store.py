@@ -4,7 +4,7 @@
 The bucket holds every publishable artifact of the signing pipeline:
 
     apps/<slug>/<version>/<App>.ipa   # versioned IPA (immutable, one per release)
-    apps/<slug>/icon.png              # card icon (migrated once from the old server)
+    apps/<slug>/icon.png              # card icon (from the task's icon_path)
     site/apps.json                    # the single data source for page + plist
 
 Credentials and bucket settings come from environment variables (GitHub
@@ -46,6 +46,11 @@ IPA_CACHE_CONTROL = "public, max-age=31536000, immutable"
 # apps.json is the page/plist data source; keep it short-cached at the edge.
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
 JSON_CACHE_CONTROL = "public, max-age=60"
+
+# Icons live at a stable, mutable key (apps/<slug>/icon.png) and are refreshed
+# whenever upstream changes theirs, so they cannot be cached immutably.
+ICON_CONTENT_TYPE = "image/png"
+ICON_CACHE_CONTROL = "public, max-age=3600"
 
 REQUIRED_ENV_VARS = (
     "R2_ACCOUNT_ID",
@@ -151,6 +156,20 @@ class R2Store:
             cache_control=IPA_CACHE_CONTROL,
             content_disposition=IPA_CONTENT_DISPOSITION,
         )
+
+    def upload_icon(self, slug: str, png_bytes: bytes) -> str:
+        """Upload a normalised PNG icon to ``apps/<slug>/icon.png``; returns its URL."""
+        key = self.icon_key(slug)
+        self._client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=png_bytes,
+            ContentType=ICON_CONTENT_TYPE,
+            CacheControl=ICON_CACHE_CONTROL,
+        )
+        url = self.public_url(key)
+        print(f"[info] Uploaded icon: {url} ({len(png_bytes)} bytes)")
+        return url
 
     def upload_json(self, key: str, payload: dict[str, Any]) -> str:
         """Upload a JSON document (e.g. apps.json); returns its public URL."""

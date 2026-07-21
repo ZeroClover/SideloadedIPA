@@ -381,6 +381,51 @@ class TestValidateTask:
         assert is_valid is False
         assert "slug" in error
 
+    def test_icon_path_repo_relative_accepted(self) -> None:
+        task = {
+            "task_name": "TestApp",
+            "app_name": "Test App",
+            "bundle_id": "com.example.testapp",
+            "repo_url": "https://github.com/example/testapp",
+            "icon_path": "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon.png",
+        }
+        assert validate_task(task) == (True, None)
+
+    def test_icon_path_ipa_scheme_needs_no_repo(self) -> None:
+        """'ipa:' reads the signed IPA, so an ipa_url task may use it."""
+        task = {
+            "task_name": "TestApp",
+            "app_name": "Test App",
+            "bundle_id": "com.example.testapp",
+            "ipa_url": "https://example.com/app.ipa",
+            "icon_path": "ipa:",
+        }
+        assert validate_task(task) == (True, None)
+
+    def test_icon_path_repo_relative_without_repo_rejected(self) -> None:
+        task = {
+            "task_name": "TestApp",
+            "app_name": "Test App",
+            "bundle_id": "com.example.testapp",
+            "ipa_url": "https://example.com/app.ipa",
+            "icon_path": "ios/Runner/Icon.png",
+        }
+        is_valid, error = validate_task(task)
+        assert is_valid is False
+        assert "repo_url" in error
+
+    def test_icon_path_empty_rejected(self) -> None:
+        task = {
+            "task_name": "TestApp",
+            "app_name": "Test App",
+            "bundle_id": "com.example.testapp",
+            "repo_url": "https://github.com/example/testapp",
+            "icon_path": "   ",
+        }
+        is_valid, error = validate_task(task)
+        assert is_valid is False
+        assert "icon_path" in error
+
     def test_missing_required_field(self) -> None:
         """Should fail validation for missing required field."""
         task = {

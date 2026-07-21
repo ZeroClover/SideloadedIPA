@@ -89,6 +89,7 @@ repo_url = "https://github.com/owner/repo"
 release_glob = "*.ipa"          # Optional, default: "*.ipa"
 use_prerelease = false           # Optional, default: false
 slug = "anotherapp"              # Optional, default: slugified app_name
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 ```
 
 **Required fields**:
@@ -105,6 +106,20 @@ slug = "anotherapp"              # Optional, default: slugified app_name
 - `use_prerelease` — Whether to use prerelease versions (default: `false`)
   - If `true`, fetches latest prerelease; falls back to latest stable if none exist
   - If `false`, fetches only latest stable release
+- `icon_path` — Where to get the app's card icon. Nothing is inferred, because
+  upstream repository layouts differ too much; each task names its own source:
+  - `"<path>"` — a path inside `repo_url`, fetched at the release tag so the icon
+    matches the published build
+  - `"https://…"` — any absolute URL
+  - `"ipa:"` — the signed IPA itself, for projects whose repository has no square
+    master (Icon Composer ships SVG layers). Caps out at 152×152, so prefer a
+    repository asset when one exists.
+
+  Any raster format is accepted — detected by magic bytes, not file extension,
+  since upstream does commit WebP data named `.png` — and normalised to a square
+  PNG of at most 512×512. Point it at a **square, full-bleed** master: the
+  download page rounds corners with a CSS mask, so a pre-rounded source ends up
+  visibly double-rounded. Omit the field to leave the existing icon untouched.
 
 See `configs/tasks.toml.example` for more details.
 

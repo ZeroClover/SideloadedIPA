@@ -9,6 +9,18 @@
 # - slug: Optional. Stable key for R2 object paths and the apps.json registry /
 #   download-page URLs (defaults to a slugified app_name). Keep the legacy
 #   download-page directory value so existing links stay stable.
+# - icon_path: Optional. Where to get the app's icon. Nothing is inferred —
+#   upstream layouts differ too much — so each task names its own source:
+#     "<path>"    a path inside repo_url, fetched at the release tag so the
+#                 icon matches the published build
+#     "https://…" any absolute URL
+#     "ipa:"      the signed IPA itself; use when the repository has no square
+#                 master (caps out at 152x152, so prefer a repo asset)
+#   Any raster format is accepted (detected by magic bytes, not extension —
+#   upstream does commit WebP named .png) and normalised to a square PNG of at
+#   most 512x512. Point it at a SQUARE, full-bleed master: the download page
+#   rounds corners with a CSS mask, so a pre-rounded source double-rounds.
+#   Omit it to leave the existing icon untouched.
 #
 # After each resign the pipeline uploads the IPA to Cloudflare R2 under a
 # versioned key (apps/<slug>/<version>/<App>.ipa) and merges the result into
@@ -27,6 +39,7 @@ app_name = "JHenTai"
 bundle_id = "io.zeroclover.app.jhentai"
 repo_url = "https://github.com/jiangtian616/JHenTai"
 slug = "JHenTai"
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 [[tasks]]
 task_name = "Eros FE"
@@ -34,6 +47,7 @@ app_name = "Eros FE"
 bundle_id = "io.zeroclover.apps.eros-fe"
 repo_url = "https://github.com/erosTeam/eros_fe"
 slug = "fehviewer" # legacy download-page directory name
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 [[tasks]]
 task_name = "Asspp"
@@ -41,6 +55,9 @@ app_name = "Asspp"
 bundle_id = "io.zeroclover.app.asspp"
 repo_url = "https://github.com/Lakr233/Asspp"
 slug = "Asspp"
+# asspp_appstore.png is the macOS icon (pre-rounded + inset); asspp.png is the
+# iOS "universal" 1024x1024 entry, i.e. the square master this page wants.
+icon_path = "Asspp/App/Assets.xcassets/AppIcon.appiconset/asspp.png"
 
 [[tasks]]
 task_name = "PiliPlus"
@@ -48,6 +65,7 @@ app_name = "PiliPlus"
 bundle_id = "io.zeroclover.app.piliplus"
 repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 slug = "PiliPlus"
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 # LiveContainer: temporarily deferred. It ships 3-4 nested app extensions and
 # heavy entitlements (App Groups, HealthKit, increased-memory-limit, 128
@@ -66,3 +84,7 @@ app_name = "StikDebug"
 bundle_id = "io.zeroclover.app.stikdebug"
 repo_url = "https://github.com/StephenDev0/StikDebug"
 slug = "StikDebug"
+# Every raster StikDebug commits is a pre-rounded Icon Composer export, and its
+# only square master is a .icon bundle of SVG layers. Take the (square, 152x152)
+# icon out of the signed IPA instead.
+icon_path = "ipa:"

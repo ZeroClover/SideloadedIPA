@@ -43,6 +43,10 @@ ipa_url = "https://example.com/path/to/MyApp.ipa"
 # download-page URLs. Defaults to a slugified app_name ("MyApp" here).
 # slug = "myapp"
 
+# Optional: card icon source. An ipa_url task has no repository to read from,
+# so it needs either an absolute URL or "ipa:" (pull it out of the signed IPA).
+# icon_path = "ipa:"
+
 # ========================================
 # Option 2: GitHub Release Tracking (New, with Caching)
 # ========================================
@@ -69,6 +73,15 @@ use_prerelease = false
 # Explicit slug needed when the slugified app name ("Another_App") is not the
 # desired public key.
 slug = "anotherapp"
+
+# Optional: card icon source — a path inside repo_url (fetched at the release
+# tag), an absolute URL, or "ipa:". Nothing is inferred: Flutter projects keep
+# the master under ios/Runner/Assets.xcassets/, native projects use their own
+# names and directories. Any raster format is accepted (detected by magic bytes,
+# not extension) and normalised to a square PNG of at most 512x512. Use a
+# SQUARE, full-bleed master — the page rounds corners in CSS, so a pre-rounded
+# source double-rounds. Omit to leave the existing icon untouched.
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
 # ========================================
 # Example: Tracking a Specific Asset Pattern

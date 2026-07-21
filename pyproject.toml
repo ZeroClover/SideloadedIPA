@@ -5,6 +5,7 @@ description = "Automated IPA signing and distribution workflow using GitHub Acti
 requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.43.51",
+    "pillow>=10.4.0",
     "tomli>=2.0.0; python_version < '3.11'",
 ]
 

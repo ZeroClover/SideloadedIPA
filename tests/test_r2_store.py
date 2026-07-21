@@ -12,6 +12,8 @@ from botocore.exceptions import ClientError
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from r2_store import (
+    ICON_CACHE_CONTROL,
+    ICON_CONTENT_TYPE,
     IPA_CACHE_CONTROL,
     IPA_CONTENT_DISPOSITION,
     IPA_CONTENT_TYPE,
@@ -254,3 +256,20 @@ class TestReferencedKeysFromApps:
             "apps/ehpanda/2.7.4/EhPanda.ipa",
             "apps/ehpanda/icon.png",
         }
+
+
+class TestUploadIcon:
+    """Icons sit at a stable, mutable key and must not be cached immutably."""
+
+    def test_uploads_png_with_icon_headers(self) -> None:
+        client = MagicMock()
+        store = _store(client)
+        url = store.upload_icon("JHenTai", b"\x89PNG\r\n\x1a\nfake")
+
+        assert url == f"{BASE_URL}/apps/JHenTai/icon.png"
+        kwargs = client.put_object.call_args.kwargs
+        assert kwargs["Key"] == "apps/JHenTai/icon.png"
+        assert kwargs["Body"] == b"\x89PNG\r\n\x1a\nfake"
+        assert kwargs["ContentType"] == ICON_CONTENT_TYPE
+        assert kwargs["CacheControl"] == ICON_CACHE_CONTROL
+        assert "immutable" not in kwargs["CacheControl"]
