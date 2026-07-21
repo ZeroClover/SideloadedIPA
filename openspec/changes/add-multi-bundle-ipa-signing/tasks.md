@@ -80,7 +80,7 @@
 - [x] 7.6 Implement profile-free framework/dylib signing with the intended identity and empty application entitlements.
 - [x] 7.7 Implement copy-on-write signing workspaces, temporary output, atomic result promotion, failure cleanup, and preservation of the downloaded source and prior verified artifact.
 - [x] 7.8 Emit canonical plan/result digests and per-node backend evidence without credentials, P12 passwords, private keys, or raw profile payloads.
-- [ ] 7.9 Run current root-only tasks through the new planner/executor behind a per-task engine flag and satisfy all single-bundle characterization tests.
+- [x] 7.9 Run current root-only tasks through the new planner/executor behind a per-task engine flag and satisfy all single-bundle characterization tests.
 
 ## 8. Fail-Closed Verification
 

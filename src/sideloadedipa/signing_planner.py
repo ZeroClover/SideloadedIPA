@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 
-from sideloadedipa.apple_intents import derive_bundle_resource_intents
+from sideloadedipa.apple_intents import BundleResourceIntent, derive_bundle_resource_intents
 from sideloadedipa.domain import (
     BundleGraph,
     BundleNodeKind,
@@ -116,6 +116,13 @@ def _duplicates(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted({value for value in values if values.count(value) > 1}))
 
 
+def _resource_intents(request: SigningPlanRequest) -> tuple[BundleResourceIntent, ...]:
+    intents = derive_bundle_resource_intents(request.task)
+    if request.task.signing is None and len(request.policy.matches) == 1:
+        return (replace(intents[0], source_bundle_id=request.policy.matches[0].source_bundle_id),)
+    return intents
+
+
 def _require_exact_paths(
     request: SigningPlanRequest,
     *,
@@ -205,7 +212,7 @@ def _validate_request(request: SigningPlanRequest) -> None:
     if request.profile_manifest.task_name != request.task.task_name:
         raise _fail(request, "profile manifest belongs to a different task")
 
-    intents = derive_bundle_resource_intents(request.task)
+    intents = _resource_intents(request)
     target_ids = tuple(value.target_bundle_id.casefold() for value in intents)
     duplicate_targets = _duplicates(target_ids)
     if duplicate_targets:
@@ -323,10 +330,7 @@ def build_signing_plan(request: SigningPlanRequest) -> SigningPlan:
     """Join validated planning inputs without filesystem or external-service access."""
 
     _validate_request(request)
-    intents = {
-        value.source_bundle_id.casefold(): value
-        for value in derive_bundle_resource_intents(request.task)
-    }
+    intents = {value.source_bundle_id.casefold(): value for value in _resource_intents(request)}
     matches = {value.node_path: value for value in request.policy.matches}
     manifest_entries = {
         value.target_bundle_id.casefold(): value for value in request.profile_manifest.entries

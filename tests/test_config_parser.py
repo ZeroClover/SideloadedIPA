@@ -12,6 +12,7 @@ from sideloadedipa.domain import (
     IdentifierStrategy,
     ProfileType,
     R2Config,
+    SigningEngine,
     SourceKind,
     UnknownProfileBundlePolicy,
 )
@@ -43,6 +44,7 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
     assert configuration.tasks[0].source.release_glob == "*.ipa"
     assert configuration.tasks[-1].icon_path == "ipa:"
+    assert all(task.signing_engine is SigningEngine.LEGACY for task in configuration.tasks)
     assert configuration.r2 == R2Config()
 
 
@@ -144,6 +146,12 @@ def test_signing_schema_uses_documented_defaults() -> None:
     assert signing.bundles == ()
 
 
+def test_parses_per_task_package_engine_opt_in() -> None:
+    task = parse_configuration({"tasks": [direct_task(signing_engine="package")]}).tasks[0]
+
+    assert task.signing_engine is SigningEngine.PACKAGE
+
+
 @pytest.mark.parametrize(
     ("task", "field"),
     [
@@ -161,6 +169,7 @@ def test_signing_schema_uses_documented_defaults() -> None:
         (direct_task(icon_path="assets/Icon.png"), "icon_path"),
         (direct_task(use_prerelease="yes"), "use_prerelease"),
         (direct_task(release_glob="*.ipa"), "release_glob|use_prerelease"),
+        (direct_task(signing_engine="future"), "signing_engine"),
     ],
 )
 def test_rejects_invalid_legacy_task_fields(task: dict[str, object], field: str) -> None:

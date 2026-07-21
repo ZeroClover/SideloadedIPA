@@ -12,6 +12,11 @@ class SourceKind(StrEnum):
     GITHUB_RELEASE = "github-release"
 
 
+class SigningEngine(StrEnum):
+    LEGACY = "legacy"
+    PACKAGE = "package"
+
+
 class IdentifierStrategy(StrEnum):
     PRESERVE_SOURCE_SUFFIX = "preserve-source-suffix"
 
@@ -73,6 +78,7 @@ class Task:
     slug: str
     icon_path: str | None = None
     signing: SigningPolicy | None = None
+    signing_engine: SigningEngine = SigningEngine.LEGACY
 
 
 @dataclass(frozen=True, slots=True)
