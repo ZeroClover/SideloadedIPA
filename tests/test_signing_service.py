@@ -290,7 +290,10 @@ def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> N
 
 
 def test_legacy_engine_cannot_enter_package_route(tmp_path: Path) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = replace(
+        load_configuration(Path("configs/tasks.toml")).tasks[0],
+        signing_engine=SigningEngine.LEGACY,
+    )
     request = replace(request_for(task, tmp_path), task=task)
 
     with pytest.raises(ConfigurationError) as caught:

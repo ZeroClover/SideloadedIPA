@@ -47,11 +47,7 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
     assert configuration.tasks[0].source.release_glob == "*.ipa"
     assert configuration.tasks[-1].icon_path == "ipa:"
-    assert all(
-        task.signing_engine is SigningEngine.LEGACY
-        for task in configuration.tasks
-        if task.task_name != "LiveContainer"
-    )
+    assert all(task.signing_engine is SigningEngine.PACKAGE for task in configuration.tasks)
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
 

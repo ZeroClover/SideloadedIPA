@@ -58,7 +58,7 @@ def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
 
     assert "pipeline-cache-v2-${{ runner.os }}" in signing
     assert "ci-cache-v1" not in signing
-    assert "if: ${{ success() && steps.legacy-signing.outcome == 'success' }}" in signing
+    assert "if: ${{ success() && steps.package-signing.outcome == 'success' }}" in signing
     save_cache = signing.split("- name: Save cache", maxsplit=1)[1].split(
         '- name: "Debug:', maxsplit=1
     )[0]

@@ -40,13 +40,6 @@ def _profile_error(entry: ProfileManifestEntry, message: str) -> DomainError:
     )
 
 
-def _string(document: Mapping[str, object], key: str, entry: ProfileManifestEntry) -> str:
-    value = document.get(key)
-    if not isinstance(value, str) or not value:
-        raise _profile_error(entry, f"provisioning profile has invalid {key}")
-    return value
-
-
 def _strings(value: object, field: str, entry: ProfileManifestEntry) -> tuple[str, ...]:
     if (
         not isinstance(value, Sequence)

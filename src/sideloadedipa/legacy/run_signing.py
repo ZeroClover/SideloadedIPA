@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 
+from sideloadedipa.config import load_configuration
+from sideloadedipa.domain import SigningEngine
 from sideloadedipa.legacy import app_icon, apps_registry, r2_store
+from sideloadedipa.package_runner import run_package_signing
 from sideloadedipa.sources import select_release_asset
 
 # Vercel on-demand revalidation hook (shared-secret protected). Overridable via
@@ -635,6 +638,11 @@ def main() -> int:
     if not tasks:
         print("[warn] No tasks defined in TOML")
         return 0
+    typed_tasks = {
+        task.task_name: task
+        for task in load_configuration(config_path).tasks
+        if task.publication_enabled
+    }
 
     # Get rebuild directives from check_changes.py output
     rebuild_all = os.getenv("REBUILD_ALL", "false").lower() in ("true", "1", "yes")
@@ -678,6 +686,11 @@ def main() -> int:
     for key in required_envs:
         if not os.getenv(key):
             print(f"[error] Missing required environment variable: {key}", file=sys.stderr)
+            return 3
+
+    if any(task.signing_engine is SigningEngine.PACKAGE for task in typed_tasks.values()):
+        if not os.getenv("ZSIGN_SHA256"):
+            print("[error] Missing required environment variable: ZSIGN_SHA256", file=sys.stderr)
             return 3
 
     cert_password = os.environ["APPLE_DEV_CERT_PASSWORD"]
@@ -827,22 +840,6 @@ def main() -> int:
         tdir = work_root / safe_name
         tdir.mkdir(parents=True, exist_ok=True)
 
-        # Use provisioning profile synced by sync_profiles_asc.py
-        synced_profile = Path(f"work/profiles/{task_name}.mobileprovision")
-        mobileprov_path = tdir / "profile.mobileprovision"
-
-        if not synced_profile.exists():
-            print(
-                f"[task {i}] Provisioning profile not found: {synced_profile}\n"
-                f"  Ensure sync_profiles_asc.py ran successfully and bundle_id is correct.",
-                file=sys.stderr,
-            )
-            any_fail = True
-            continue
-
-        print(f"[task {i}] Using synced profile: {synced_profile}")
-        shutil.copy2(synced_profile, mobileprov_path)
-
         # Download IPA
         ori_ipa = tdir / f"{safe_name}_ori.ipa"
         print(f"[task {i}] Downloading IPA from: {ipa_url}")
@@ -859,24 +856,59 @@ def main() -> int:
             any_fail = True
             continue
 
-        # Re-sign with zsign (p12 + provisioning profile -> fresh output IPA).
+        # Re-sign through the selected per-task migration route.
         signed_ipa = tdir / f"{safe_name}.ipa"
-        zsign_argv = build_zsign_argv(
-            zsign_bin,
-            p12_path,
-            cert_password,
-            mobileprov_path,
-            ori_ipa,
-            signed_ipa,
-            bundle_id=task["bundle_id"],
-        )
         print(f"[task {i}] Re-signing with zsign -> {signed_ipa.name}")
-        try:
-            subprocess.run(zsign_argv, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"[task {i}] zsign re-sign failed: {e}", file=sys.stderr)
-            any_fail = True
-            continue
+        typed_task = typed_tasks[task_name]
+        if typed_task.signing_engine is SigningEngine.PACKAGE:
+            try:
+                execution = run_package_signing(
+                    task=typed_task,
+                    source_ipa=ori_ipa,
+                    destination_ipa=signed_ipa,
+                    profile_root=work_root / "profiles",
+                    p12_path=p12_path,
+                    p12_password=cert_password,
+                    private_directory=tdir / "package-private",
+                    zsign_executable=Path(zsign_bin),
+                    zsign_sha256=os.environ["ZSIGN_SHA256"],
+                    repository_root=config_path.parent.parent,
+                )
+                print(
+                    f"[task {i}] Package verification passed: "
+                    f"{execution.execution.verification.report_sha256}"
+                )
+            except Exception as e:
+                print(f"[task {i}] package signing failed: {e}", file=sys.stderr)
+                any_fail = True
+                continue
+        else:
+            synced_profile = Path(f"work/profiles/{task_name}.mobileprovision")
+            mobileprov_path = tdir / "profile.mobileprovision"
+            if not synced_profile.exists():
+                print(
+                    f"[task {i}] Provisioning profile not found: {synced_profile}\n"
+                    "  Ensure sync_profiles_asc.py ran successfully and bundle_id is correct.",
+                    file=sys.stderr,
+                )
+                any_fail = True
+                continue
+            shutil.copy2(synced_profile, mobileprov_path)
+            zsign_argv = build_zsign_argv(
+                zsign_bin,
+                p12_path,
+                cert_password,
+                mobileprov_path,
+                ori_ipa,
+                signed_ipa,
+                bundle_id=task["bundle_id"],
+            )
+            try:
+                subprocess.run(zsign_argv, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"[task {i}] zsign re-sign failed: {e}", file=sys.stderr)
+                any_fail = True
+                continue
 
         if not signed_ipa.exists() or signed_ipa.stat().st_size == 0:
             print(f"[task {i}] Signed IPA missing or empty: {signed_ipa}", file=sys.stderr)
