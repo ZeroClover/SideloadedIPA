@@ -321,6 +321,22 @@ jobs:
           printf 'configured certificate sha256: '
           sha256sum "$private_dir/certificate.der" | cut -d ' ' -f 1
 
+      - name: Build pinned synthetic four-bundle fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_dir="$RUNNER_TEMP/backend-qualification/fixture"
+          mkdir -p "$fixture_dir"
+          curl --fail --location --silent --show-error \
+            --output "$fixture_dir/LiveContainer.ipa" \
+            "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa"
+          python3 scripts/build_backend_qualification_fixture.py \
+            --source-ipa "$fixture_dir/LiveContainer.ipa" \
+            --output-ipa "$fixture_dir/qualification.ipa" \
+            --expected-source-sha256 \
+            "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6"
+          unzip -l "$fixture_dir/qualification.ipa"
+
       - name: Probe private Apple qualification prerequisites
         shell: bash
         run: |

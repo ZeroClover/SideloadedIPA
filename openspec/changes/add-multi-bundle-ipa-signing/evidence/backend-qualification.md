@@ -33,7 +33,14 @@ The post-create validation stopped at the intended capability boundary: all four
 
 After the operator registered a team-owned App Group and assigned the App ID capabilities, [read-only qualification run 29833005095](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29833005095) reported `APP_GROUPS`, `HEALTHKIT`, and `INCREASED_MEMORY_LIMIT` on root and LiveProcess, and `APP_GROUPS` on Launch and Share. `Clinical Health Records` and HealthKit background delivery are local entitlement-template values under HealthKit, not separate Developer Portal capabilities. The capability changes invalidated all four earlier profiles as expected, leaving zero active development profiles and requiring additive replacements.
 
-The hard gate specifically requires private or sanitized real development profiles whose App IDs and entitlements deliberately differ across root, process, Launch, and Share bundles. Generating replacement profiles that satisfy it requires App Group/capability setup where the official API permits it and manual account work where it does not. Synthetic CMS files or ad-hoc signatures would not prove Apple's authorization behavior and therefore cannot satisfy the gate.
+The first replacement attempt retained the invalid profiles as required but proved that Apple also retains their display names, so the base profile names could not be reused. The qualification helper now chooses the next numeric revision without deleting history. [Qualification run 29833282121](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29833282121) created the four `Dev 2` replacement profiles and completed with `ready: true`:
+
+- all four profiles authorize `group.io.zeroclover.app.livecontainer`, use the configured certificate, and share 10 enabled iOS devices;
+- root and LiveProcess profiles contain HealthKit, `healthkit.access`, HealthKit background delivery, increased memory limit, App Groups, `get-task-allow`, and keychain access-group authorization;
+- Launch and Share contain App Groups, `get-task-allow`, and keychain access-group profile defaults without the root-only HealthKit or increased-memory keys;
+- the runner deleted all downloaded profile and P12 material after validation and skipped the production sign/upload job.
+
+The hard gate now has four private real development profiles whose App IDs and entitlement authorization deliberately differ across root, process, Launch, and Share bundles. The remaining section 2 work must construct the synthetic bundle graph, test repeated-profile zsign behavior, and compare it with the macOS oracle; synthetic CMS files or ad-hoc signatures alone would not prove Apple's authorization behavior.
 
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
 
@@ -41,8 +48,8 @@ No section 3 implementation may start until the required private fixture inputs 
 
 Provide these through a private, non-artifact-retained environment rather than committing them:
 
-1. One development signing identity export (P12 plus password) matching the profiles.
-2. Four development profiles for deliberately distinct target App IDs: root, LiveProcess-equivalent, Launch-equivalent, and Share-equivalent.
-3. Profiles that exercise the reviewed App Group mapping; root/process must additionally authorize the sensitive policy and exact target-team keychain-group contract used by the qualification.
-4. At least one enabled registered iOS device in every profile.
-5. Approval to run the private qualification without publishing its IPA, profiles, P12, private key, or raw entitlement/profile artifacts.
+1. The existing CI development signing identity export matching the profiles.
+2. The four validated `Dev 2` profiles for root, LiveProcess, Launch, and Share.
+3. Version-controlled local entitlement templates that request the reviewed App Group mapping and exact target-team 128-keychain-group contract.
+4. The existing common enabled-device set.
+5. A private non-publishing qualification job that retains no IPA, profile, P12, private key, or raw entitlement/profile artifacts.
