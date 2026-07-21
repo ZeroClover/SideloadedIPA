@@ -44,6 +44,10 @@ The hard gate now has four private real development profiles whose App IDs and e
 
 [Qualification run 29833747687](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29833747687) built the deterministic synthetic four-bundle IPA on `ubuntu-latest` from only the four audited Mach-O executables in the checksum-pinned LiveContainer 3.8.0 asset. The generated archive contains four minimal profile-bearing bundles and eight files total, has SHA-256 `75fe30fff97b883b374288b31509d9063d7df73e3442aec65ace717dd54020f8`, and matched the locally generated digest. The same run revalidated all four private profiles with `ready: true`; neither the source asset nor private profiles are committed or retained as CI artifacts.
 
+[Linux backend exercise 29834532465](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29834532465) invoked checksum-verified zsign v1.1.1 with four repeated `-m` arguments and no `-e`. The four output bundles embedded byte-identical copies of their intended input profiles. Root and LiveProcess received the profile-derived HealthKit, `health-records`, background-delivery, increased-memory, App Group, and development defaults; Launch and Share received the common App Group and development defaults without root-only HealthKit or increased-memory keys.
+
+The upstream profile-only mode failed the exact functional contract: all four signed bundles contained two profile-default keychain groups, while root and LiveProcess require the reviewed 128 exact target-team groups. Both violations were reported independently, the signed IPA remained private, cleanup ran, and publication was skipped. This proves that repeated-profile selection works but profile-derived entitlements cannot replace per-bundle local entitlement documents.
+
 No section 3 implementation may start until the required private fixture inputs are provided or an authorized private qualification job can generate them, the Linux result is compared with the macOS `codesign` oracle, and an ADR is accepted.
 
 ## Required private inputs
