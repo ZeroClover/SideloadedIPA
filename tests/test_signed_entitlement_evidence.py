@@ -76,6 +76,28 @@ def signed_macho() -> bytes:
     return header + segment + command + signature
 
 
+def signed_macho_without_entitlements() -> bytes:
+    signature = struct.pack(">III", 0xFADE0CC0, 12, 0)
+    header = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, 88, 0, 0)
+    signature_offset = len(header) + 88
+    segment = struct.pack(
+        "<II16sQQQQIIII",
+        0x19,
+        72,
+        b"__LINKEDIT",
+        0,
+        len(signature),
+        signature_offset,
+        len(signature),
+        1,
+        1,
+        0,
+        0,
+    )
+    command = struct.pack("<IIII", 0x1D, 16, signature_offset, len(signature))
+    return header + segment + command + signature
+
+
 def plan() -> SigningPlan:
     expected = normalize_entitlements(EXPECTED)
     root = PurePosixPath("Payload/App.app")
@@ -133,6 +155,17 @@ def test_reopens_ipa_and_records_xml_and_der_evidence_per_executable(tmp_path: P
     assert node.slices[0].xml.semantic_sha256 == node.slices[0].der.semantic_sha256
     assert node.slices[0].xml.raw_sha256 != node.slices[0].der.raw_sha256
     assert not (tmp_path / ".sideloadedipa-verification").exists()
+
+
+def test_records_a_signed_slice_with_no_entitlement_slots(tmp_path: Path) -> None:
+    artifact = tmp_path / "signed.ipa"
+    signed_ipa(artifact, executable=signed_macho_without_entitlements())
+
+    evidence = inspect_signed_entitlements(plan(), artifact)
+
+    assert len(evidence.nodes[0].slices) == 1
+    assert evidence.nodes[0].slices[0].xml is None
+    assert evidence.nodes[0].slices[0].der is None
 
 
 @pytest.mark.parametrize("failure", ["missing", "unsigned", "unsafe-path"])

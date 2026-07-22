@@ -151,12 +151,11 @@ def test_inspects_every_slice_in_fat_macho(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "signature, message",
     [
-        (make_superblob(xml=None, der=None), "no entitlement evidence"),
         (make_superblob(xml=b"not a plist", der=None), "Invalid file"),
         (make_superblob(xml=None, der=DER_ENTITLEMENTS[:-1]), "substrate"),
     ],
 )
-def test_rejects_missing_or_unreadable_evidence(
+def test_rejects_unreadable_entitlement_evidence(
     tmp_path: Path, signature: bytes, message: str
 ) -> None:
     executable = tmp_path / "invalid"

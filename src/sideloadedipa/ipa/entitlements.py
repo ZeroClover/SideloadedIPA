@@ -229,8 +229,6 @@ class LiefEntitlementInspector:
                     if len(signature_bytes) != signature.data_size:
                         raise ValueError("code signature data is truncated")
                     xml_raw, der_raw = _entitlement_blobs(signature_bytes)
-                    if xml_raw is None and der_raw is None:
-                        raise ValueError("code signature has no entitlement evidence")
                     xml = _decode_xml_entitlements(xml_raw) if xml_raw is not None else None
                     der = decode_der_entitlements(der_raw) if der_raw is not None else None
                     slices.append(

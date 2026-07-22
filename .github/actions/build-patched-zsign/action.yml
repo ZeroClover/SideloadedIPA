@@ -10,7 +10,7 @@ inputs:
   version:
     description: Expected patched executable version
     required: false
-    default: 1.1.1+sideloadedipa.2
+    default: 1.1.1+sideloadedipa.3
 outputs:
   executable:
     description: Absolute path to patched zsign

@@ -40,6 +40,9 @@ from sideloadedipa.tools.exercise_zsign_backend import (
     signing_order,
     zsign_command,
 )
+from sideloadedipa.verification import inspect_signed_entitlements
+
+HELPER = PurePosixPath("Payload/Qualification.app/Frameworks/helper")
 
 
 def _unsigned_macho() -> bytes:
@@ -185,6 +188,7 @@ def _fixture_ipa(path: Path) -> None:
                 ),
             )
             archive.writestr(f"{bundle}/{executable}", _unsigned_macho())
+        archive.writestr(HELPER.as_posix(), _unsigned_macho())
 
 
 def profile_entitlements(bundle_identifier: str) -> dict:
@@ -427,8 +431,22 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         certificate_path=certificate_path,
         private_key_path=private_key,
     )
-    nodes = []
-    for order, role in enumerate(("launch", "process", "share", "root")):
+    empty_entitlements = normalize_entitlements({})
+    nodes = [
+        SigningNodePlan(
+            source_path=HELPER,
+            executable_path=HELPER,
+            kind=BundleNodeKind.EXECUTABLE,
+            order=0,
+            target_bundle_id=None,
+            profile_resource_id=None,
+            profile_path=None,
+            profile_sha256=None,
+            expected_entitlements=empty_entitlements.values,
+            expected_entitlements_sha256=empty_entitlements.sha256,
+        )
+    ]
+    for order, role in enumerate(("launch", "process", "share", "root"), start=1):
         bundle, executable, bundle_identifier = TARGETS[role]
         entitlements = normalize_entitlements(expected[role])
         profile = profile_bytes[role]
@@ -480,6 +498,10 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         )
         assert actual[role] == expected[role]
     assert evaluate_contract(actual) == []
+    helper_evidence = inspect_signed_entitlements(plan, signed).nodes[0]
+    assert helper_evidence.source_path == HELPER
+    assert all(value.xml is None and value.der is None for value in helper_evidence.slices)
     assert {node.source_path for node in result.nodes} == {
-        PurePosixPath(bundle) for bundle, _, _ in TARGETS.values()
+        HELPER,
+        *(PurePosixPath(bundle) for bundle, _, _ in TARGETS.values()),
     }

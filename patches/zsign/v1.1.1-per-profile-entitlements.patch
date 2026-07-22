@@ -1,33 +1,15 @@
-diff --git a/src/zsign.cpp b/src/zsign.cpp
-index a5ce7e6..a53cb6e 100644
---- a/src/zsign.cpp
-+++ b/src/zsign.cpp
-@@ -136 +136 @@ int usage()
--	ZLog::Print("-e, --entitlements\tNew entitlements to change.\n");
-+	ZLog::Print("-e, --entitlements\tNew entitlements to change. Repeat to pair with repeated -m profiles.\n");
-@@ -191,0 +192 @@ int main(int argc, char* argv[])
-+	vector<string> arrEntitleFiles;
-@@ -235,0 +237 @@ int main(int argc, char* argv[])
-+			arrEntitleFiles.push_back(strEntitleFile);
-@@ -331,0 +334,5 @@ int main(int argc, char* argv[])
-+	if (arrEntitleFiles.size() > 1 && arrEntitleFiles.size() != arrProvFiles.size()) {
-+		ZLog::ErrorV(">>> Repeated entitlements must match the number and order of provisioning profiles.\n");
-+		return -1;
-+	}
-+
-@@ -460 +467,3 @@ int main(int argc, char* argv[])
--		for (const string& provFile : arrProvFiles) {
-+		for (size_t i = 0; i < arrProvFiles.size(); i++) {
-+			const string& provFile = arrProvFiles[i];
-+			const string& entitleFile = arrEntitleFiles.size() > 1 ? arrEntitleFiles[i] : strEntitleFile;
-@@ -462 +471 @@ int main(int argc, char* argv[])
--			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, strEntitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
-+			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, entitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
 diff --git a/src/bundle.cpp b/src/bundle.cpp
-index 58c1f5f..d7de860 100644
+index 1ce62ce..49b36ec 100644
 --- a/src/bundle.cpp
 +++ b/src/bundle.cpp
-@@ -403,0 +404,17 @@ bool ZBundle::SignNode(jvalue& jvNode)
+@@ -318 +318,5 @@ bool ZBundle::SignNode(jvalue& jvNode)
+-				if (!macho.Sign(m_pSignAsset, m_bForceSign, "", "", "", "")) {
++				string strEntitleData = m_pSignAsset->m_strEntitleData;
++				m_pSignAsset->m_strEntitleData.clear();
++				bool bSigned = macho.Sign(m_pSignAsset, m_bForceSign, "", "", "", "");
++				m_pSignAsset->m_strEntitleData = strEntitleData;
++				if (!bSigned) {
+@@ -403,0 +408,17 @@ bool ZBundle::SignNode(jvalue& jvNode)
 +	if (m_pSignAssets) {
 +		auto endsWith = [](const string& str, const string& suffix) {
 +			return str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
@@ -45,7 +27,7 @@ index 58c1f5f..d7de860 100644
 +		}
 +	}
 +
-@@ -449,34 +465,0 @@ bool ZBundle::SignNode(jvalue& jvNode)
+@@ -449,34 +469,0 @@ bool ZBundle::SignNode(jvalue& jvNode)
 -	if (m_pSignAssets) {
 -		auto endsWith = [](const string& str, const string& suffix) {
 -			return str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
@@ -80,3 +62,27 @@ index 58c1f5f..d7de860 100644
 -		}
 -	}
 -
+diff --git a/src/zsign.cpp b/src/zsign.cpp
+index a5ce7e6..ababe36 100644
+--- a/src/zsign.cpp
++++ b/src/zsign.cpp
+@@ -136 +136 @@ int usage()
+-	ZLog::Print("-e, --entitlements\tNew entitlements to change.\n");
++	ZLog::Print("-e, --entitlements\tNew entitlements to change. Repeat to pair with repeated -m profiles.\n");
+@@ -191,0 +192 @@ int main(int argc, char* argv[])
++	vector<string> arrEntitleFiles;
+@@ -235,0 +237 @@ int main(int argc, char* argv[])
++			arrEntitleFiles.push_back(strEntitleFile);
+@@ -330,0 +333,4 @@ int main(int argc, char* argv[])
++	if (arrEntitleFiles.size() > 1 && arrEntitleFiles.size() != arrProvFiles.size()) {
++		ZLog::ErrorV(">>> Repeated entitlements must match the number and order of provisioning profiles.\n");
++		return -1;
++	}
+@@ -460 +466,3 @@ int main(int argc, char* argv[])
+-		for (const string& provFile : arrProvFiles) {
++		for (size_t i = 0; i < arrProvFiles.size(); i++) {
++			const string& provFile = arrProvFiles[i];
++			const string& entitleFile = arrEntitleFiles.size() > 1 ? arrEntitleFiles[i] : strEntitleFile;
+@@ -462 +470 @@ int main(int argc, char* argv[])
+-			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, strEntitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
++			if (!zsaList.back().Init(strCertFile, strPKeyFile, provFile, entitleFile, strPassword, bAdhoc, bSHA256Only, false)) {

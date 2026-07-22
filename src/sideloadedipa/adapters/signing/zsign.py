@@ -22,7 +22,7 @@ from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
 from sideloadedipa.util.atomics import file_sha256
 from sideloadedipa.util.subprocesses import SubprocessRunner
 
-EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.2"
+EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.3"
 ZSIGN_CONTRACT_VERSION = "1"
 _FEATURES = (
     SigningBackendFeature.PER_PROFILE_ENTITLEMENTS,

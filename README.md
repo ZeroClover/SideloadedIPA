@@ -234,7 +234,7 @@ Example `repository_dispatch` payload:
 ## How It Works
 
 1. **Restore Cache**: Restores the digest-verified signing index and content-addressed signed artifacts from the last successful boundary
-2. **Build qualified zsign**: Downloads checksum-pinned upstream source, applies the reviewed per-profile-entitlements patch, builds version `1.1.1+sideloadedipa.2`, verifies it, and reuses a source/patch-keyed CI cache. The backend signs from extracted private key and certificate material without a Keychain
+2. **Build qualified zsign**: Downloads checksum-pinned upstream source, applies the reviewed per-profile-entitlements patch, builds version `1.1.1+sideloadedipa.3`, verifies it, and reuses a source/patch-keyed CI cache. The backend signs from extracted private key and certificate material without a Keychain. Profile-free helper executables are signed without inheriting an enclosing app's entitlements
 3. **Inventory and aggregate preflight**: `sideloadedipa inspect` selects current assets, inventories every executable recursively, and validates all selected task policies before any Apple mutation
 4. **Plan Apple resources**: `sideloadedipa plan` performs a read-only reconciliation and records the canonical resource plan
 5. **Sync package profiles**: `sideloadedipa sync --apply` via the typed App Store Connect adapters:
