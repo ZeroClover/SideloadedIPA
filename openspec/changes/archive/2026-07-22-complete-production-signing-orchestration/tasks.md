@@ -28,6 +28,6 @@
 ## 5. Acceptance
 
 - [x] 5.1 Run formatting, strict typing, package coverage, workflow static checks, web tests/build, and strict OpenSpec validation.
-- [ ] 5.2 Run a credentialed development-branch CI batch covering all production tasks without publication or with the existing safe publication policy, as authorized by available credentials.
-- [ ] 5.3 Run and retain evidence for a second CI execution with at least one cache hit, confirming full reopen verification and no legacy selection path.
-- [ ] 5.4 Reconcile every original review finding against code and CI evidence; treat time-blocked observation-only checks as complete with their last verified evidence and explicit residual risk.
+- [x] 5.2 Run a credentialed development-branch CI batch covering all production tasks without publication or with the existing safe publication policy, as authorized by available credentials.
+- [x] 5.3 Run and retain evidence for a second CI execution with at least one cache hit, confirming full reopen verification and no legacy selection path.
+- [x] 5.4 Reconcile every original review finding against code and CI evidence; treat time-blocked observation-only checks as complete with their last verified evidence and explicit residual risk.
