@@ -148,8 +148,13 @@ RGBA, and SHA-256
 `c20526ad070a551a50fb89c4f505b47beff14bf22425853944cd3febe7d2e796`.
 Both the live registry and rendered page reference that exact icon URL.
 
-## Remaining acceptance gates
+## Post-archive operating constraints
 
-- Observe a scheduled refresh and a real upstream release transition.
-- Keep `LiveContainer+SideStore.ipa` absent from production configuration until
-  its fifth App ID/profile, widget policy, and device acceptance are completed.
+The maintainer accepted the scheduled-refresh and future-upstream-transition
+observation as complete for archive purposes on 2026-07-22 without claiming
+those time-dependent events occurred. Existing automated graph-change and
+publication-rollback coverage supplies the fail-closed evidence; the real events
+remain routine production monitoring.
+
+Keep `LiveContainer+SideStore.ipa` absent from production configuration until
+its fifth App ID/profile, widget policy, and device acceptance are completed.

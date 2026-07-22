@@ -131,7 +131,7 @@
 - [x] 11.6 Produce a private non-publishing canary and pass all automated identifier, profile, entitlement, XML/DER, nested-signature, graph, and package checks.
 - [x] 11.7 **Manual:** install the canary on a registered device and record install/launch, Launch extension, Share extension, LiveProcess/JIT-less, App Group storage, approved HealthKit behavior, and the 128-keychain-group diagnostic results.
 - [x] 11.8 Enable production publication only through a reviewed per-task configuration change after both automated and manual evidence pass.
-- [ ] 11.9 Observe one scheduled refresh and one upstream-release transition; verify graph changes block safely and prior published output remains available on failure.
+- [x] 11.9 Observe one scheduled refresh and one upstream-release transition; verify graph changes block safely and prior published output remains available on failure.
 - [x] 11.10 Keep `LiveContainer+SideStore.ipa` non-publishing until a separate fifth-profile/widget-policy plan and device acceptance are completed.
 
 ## 12. Migration, Cleanup, Documentation, and Final Acceptance
@@ -145,4 +145,4 @@
 - [x] 12.7 Add troubleshooting examples for multiple release assets, new upstream extensions, missing App Groups, unsupported/managed capabilities, profile authorization mismatches, 128-keychain-group loss, XML/DER drift, and nested-signature failures.
 - [x] 12.8 Run the full unit, fixture, adapter, integration, LiveContainer canary, strict mypy, coverage, formatting, workflow, security, performance, and publication-rollback acceptance matrix.
 - [x] 12.9 Run `openspec validate add-multi-bundle-ipa-signing --strict` and `git diff --check`, confirm no unreviewed Apple or publication side effects occurred during tests, and attach final evidence to the change.
-- [ ] 12.10 Archive the OpenSpec change only after implementation, production canary observation, documentation, and rollback acceptance are complete.
+- [x] 12.10 Archive the OpenSpec change only after implementation, production canary observation, documentation, and rollback acceptance are complete.

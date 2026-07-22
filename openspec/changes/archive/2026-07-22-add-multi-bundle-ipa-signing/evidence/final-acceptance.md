@@ -82,10 +82,21 @@ PR Checks run 29883264735 and production run 29883266633 passed; the live
 registry and rendered page now reference the verified 512x512 content-addressed
 PNG `apps/LiveContainer/icon-c20526ad070a.png`.
 
-## Required before archive
+## Maintainer disposition of time-blocked observation
 
-- 11.9: one scheduled refresh and one real upstream-release transition.
-- 12.10: archive only after all preceding evidence is complete.
+On 2026-07-22, the maintainer explicitly accepted task 11.9 as complete for
+archive purposes rather than keeping this implementation change open for a
+future scheduled refresh and an upstream release that does not yet exist. This
+is an acceptance-policy decision, not a claim that those two events were
+observed.
+
+The completed failure-injection, graph-change, atomic-publication, and rollback
+tests remain the automated evidence that an unknown upstream bundle blocks
+safely and a failed replacement does not displace the prior published object.
+The next real scheduled refresh and upstream transition remain normal production
+monitoring events, not archive gates. With all implementation, production,
+documentation, device, icon, and rollback evidence accepted, task 12.10 is
+closed by the requested archive operation.
 
 ## Final profile-seal regression
 
@@ -99,5 +110,5 @@ passed all four jobs. [Private canary run 29879583177](https://github.com/ZeroCl
 then passed the installable Linux canary, private artifact upload, independent
 macOS strict oracle, and cross-platform evidence comparison. This closes the
 automated 11.6 gate; the later operator confirmation and reviewed configuration
-close 11.7 and 11.8 without changing the upstream-transition or archive gates
-above.
+close 11.7 and 11.8. The maintainer disposition above closes the remaining
+time-blocked observation for archive purposes.
