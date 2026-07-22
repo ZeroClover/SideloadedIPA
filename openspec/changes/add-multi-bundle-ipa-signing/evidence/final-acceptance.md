@@ -77,6 +77,11 @@ LiveContainer 3.8.0 published at the content-addressed object
 The public object returned HTTP 200 and the live registry referenced the same
 URL and target bundle ID.
 
+The initially empty LiveContainer `iconUrl` was corrected by commit `0eed465`.
+PR Checks run 29883264735 and production run 29883266633 passed; the live
+registry and rendered page now reference the verified 512x512 content-addressed
+PNG `apps/LiveContainer/icon-c20526ad070a.png`.
+
 ## Required before archive
 
 - 11.9: one scheduled refresh and one real upstream-release transition.

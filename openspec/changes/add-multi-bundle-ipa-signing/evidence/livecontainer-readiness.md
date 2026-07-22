@@ -131,6 +131,23 @@ live `site/apps.json` entry identified `io.zeroclover.app.livecontainer`, versio
 3.8.0, and the same object URL. The SideStore asset was not selected or
 published.
 
+### App icon publication regression
+
+The first production registry entry exposed an empty `iconUrl` because the
+LiveContainer task omitted the deliberately explicit `icon_path` setting.
+Commit `0eed465` selected the release-tag-aligned 1024x1024 upstream master at
+`Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png` and added a
+production-configuration regression assertion.
+
+[PR Checks run 29883264735](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29883264735)
+passed all four jobs. [Sign & Upload run 29883266633](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29883266633)
+then fetched the icon from the 3.8.0 tag, normalized it to a 512x512 PNG, uploaded
+`apps/LiveContainer/icon-c20526ad070a.png`, updated the registry, and revalidated
+the page. Independent public checks confirmed HTTP 200, `image/png`, 512x512
+RGBA, and SHA-256
+`c20526ad070a551a50fb89c4f505b47beff14bf22425853944cd3febe7d2e796`.
+Both the live registry and rendered page reference that exact icon URL.
+
 ## Remaining acceptance gates
 
 - Observe a scheduled refresh and a real upstream release transition.
