@@ -113,6 +113,10 @@ class R2PublicationGateway:
                 lambda: self._store.upload_json(self._store.apps_json_key, payload),
             )
 
+    def delete_uploaded(self, keys: Sequence[str]) -> None:
+        if keys:
+            self._store.delete_keys(list(keys))
+
     def revalidate(self) -> None:
         if not self._trigger_revalidate():
             raise DomainError(

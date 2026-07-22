@@ -1,7 +1,7 @@
 # signed-ipa-verification Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define independent post-signing verification that reopens an IPA and proves its bundle graph, profiles, entitlements, signatures, and package integrity before reuse or publication.
 ## Requirements
 ### Requirement: Three-way entitlement verification
 

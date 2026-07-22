@@ -102,6 +102,7 @@ class AppleCommandDependencies:
     load: Callable[[Path], TaskConfiguration] = load_configuration
     backend: AppleCommandBackend | None = None
     profile_root: Path = Path("work/profiles")
+    record_created_resource: Callable[[str, str], None] | None = None
 
 
 class AscAppleCommandBackend:
@@ -685,7 +686,10 @@ def sync_command(
 
     for task in tasks:
         for intent in intents[task.task_name]:
-            backend.ensure_bundle(intent)
+            existing = _exact_bundle(snapshot, intent.target_bundle_id)
+            ensured = backend.ensure_bundle(intent)
+            if existing is None and dependencies.record_created_resource is not None:
+                dependencies.record_created_resource("bundle-id", ensured.resource_id)
 
     snapshot = backend.collect()
     for task in tasks:
@@ -735,19 +739,17 @@ def sync_command(
                     task_name=task.task_name,
                     bundle_id=intent.target_bundle_id,
                 )
-            reconciled[task.task_name].append(
-                (
-                    intent,
-                    backend.ensure_profile(
-                        task=task,
-                        intent=intent,
-                        snapshot=snapshot,
-                        certificate=certificate,
-                        bundle=bundle,
-                        config_path=request.config_path,
-                    ),
-                )
+            result = backend.ensure_profile(
+                task=task,
+                intent=intent,
+                snapshot=snapshot,
+                certificate=certificate,
+                bundle=bundle,
+                config_path=request.config_path,
             )
+            if result.created and dependencies.record_created_resource is not None:
+                dependencies.record_created_resource("profile", result.profile.resource_id)
+            reconciled[task.task_name].append((intent, result))
 
     final_snapshot = backend.collect()
     immutable_results = {key: tuple(value) for key, value in reconciled.items()}

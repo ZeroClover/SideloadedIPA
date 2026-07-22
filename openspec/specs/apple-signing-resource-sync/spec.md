@@ -1,7 +1,7 @@
 # apple-signing-resource-sync Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define additive, auditable reconciliation of Apple identifiers, capabilities, certificates, devices, and provisioning profiles required by the current IPA bundle graph.
 ## Requirements
 ### Requirement: Read-only Apple resource plan before apply
 

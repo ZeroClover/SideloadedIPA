@@ -135,6 +135,7 @@ def app_for(handler: object) -> Application:
         sync=unavailable,
         sign=unavailable,
         verify=unavailable,
+        publish=unavailable,
         run=unavailable,
     )
 

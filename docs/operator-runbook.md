@@ -8,18 +8,19 @@ Install exactly the locked project environment before local operations:
 uv sync --frozen
 ```
 
-The package CLI composes `inspect`, `plan`, `sync`, `sign`, and `run`. Both
-`sign` and `run` independently verify the signed package before returning
-success; `run --publish` additionally performs verified atomic publication.
-The standalone `verify` command remains reserved because the production command
-does not persist private verification inputs between invocations.
+The package CLI composes `inspect`, `plan`, `sync`, `sign`, `verify`, `publish`,
+and `run`. Each visible command persists a canonical, redacted stage manifest
+under `work/pipeline/<run-id>/`; its successor refuses to run if the predecessor
+is missing, unsuccessful, or no longer forms the same digest chain. Use one
+unique `--run-id` for every attempt and pass it to every command in that attempt.
 
 ## Read-only inspection
 
 Inspect one task before any Apple work:
 
 ```bash
-uv run sideloadedipa inspect --task LiveContainer --json > inventory.json
+run_id="local-$(date +%Y%m%d%H%M%S)"
+uv run sideloadedipa inspect --run-id "$run_id" --task LiveContainer --json
 ```
 
 The command downloads the uniquely selected asset, validates the ZIP, discovers
@@ -34,7 +35,7 @@ Provide the App Store Connect environment and the development P12 inputs used by
 CI, then plan one task:
 
 ```bash
-uv run sideloadedipa plan --task LiveContainer --json > apple-plan.json
+uv run sideloadedipa plan --run-id "$run_id" --task LiveContainer --json
 ```
 
 Review every `manual-required` and `blocked` operation. App Group registration
@@ -52,7 +53,7 @@ validates the exact App Group entitlement for every affected bundle.
 Apply only after the inventory and plan have been reviewed:
 
 ```bash
-uv run sideloadedipa sync --task LiveContainer --apply --json > apple-apply.json
+uv run sideloadedipa sync --run-id "$run_id" --task LiveContainer --apply --json
 ```
 
 Apply is additive: it may create an explicit App ID, enable an allowlisted API
@@ -78,25 +79,57 @@ profiles, the checksum-qualified backend, and an independent macOS oracle. It ha
 no R2 credentials and retains only redacted JSON. For interactive device
 handoff, add `-f debug=true`; the workflow's SSH step keeps that runner alive.
 
-Production publication uses `sideloadedipa run --publish` in the scheduled/manual
-`Sign & Upload IPAs` job for tasks with `publication_enabled = true`.
-LiveContainer remains excluded while its flag is false. The enforced order is:
-verified output first, immutable upload second, atomic registry update third,
-revalidation fourth, stale cleanup last.
+The production job exposes the remaining boundaries explicitly:
+
+```bash
+uv run sideloadedipa sign --run-id "$run_id" --task LiveContainer --json
+uv run sideloadedipa verify --run-id "$run_id" --task LiveContainer --publish --json
+uv run sideloadedipa publish --run-id "$run_id" --task LiveContainer --json
+```
+
+Omit `--publish` from `verify` for a non-publishing run; successful verification
+then promotes its cache evidence immediately. With `--publish`, cache promotion
+waits until publication and revalidation have succeeded. `publish` independently
+reopens and verifies each IPA again before upload. The enforced publication order
+is verified output first, immutable upload second, atomic registry update third,
+revalidation fourth, stale cleanup last. A failed batch compensates only newly
+uploaded objects that are no longer referenced and preserves the prior registry.
+
+`sideloadedipa run --apply [--publish]` remains the convenience composition for
+local use. CI intentionally invokes the visible stages above so its logs and
+artifacts show every boundary.
+
+## Cache and retained evidence
+
+`work/cache/signing-index.json` is a canonical digest-verified index; signed IPA
+paths are content-addressed by the complete signing fingerprint. A matching
+fingerprint is only a candidate cache hit: production checks current profile and
+certificate prerequisites, confirms the stored verification-report digest, and
+reopens the cached IPA through the full independent verification gate. Invalid
+or tampered candidates are reported as `cache-rejected` and rebuilt.
+
+The final redacted report is `work/reports/<run-id>.json`. It contains timings,
+source and graph provenance, bundle/profile mappings, capability decisions,
+non-secret tool and certificate fingerprints, cache decisions, verification,
+and publication outcomes. Per-stage manifests and cache decisions remain under
+`work/pipeline/<run-id>/`; CI uploads these JSON files even after failure.
 
 ## Retry and rollback
 
 - Retry transient reads, downloads, and content-addressed uploads with the same
   operation identity. Do not blindly retry an ambiguous Apple create result;
   perform an exact lookup first.
-- On cancellation, remove temporary extracted/signing workspaces. Record Apple
-  resources already created and leave them in place.
+- On cancellation, remove temporary extracted/signing workspaces. The command
+  writes `work/reports/<run-id>-cancellation.json` with Apple resources already
+  created; leave those additive resources in place and reconcile them on retry.
 - A failed sign, verify, upload, or registry update must leave the prior R2 object
   and registry entry active. Never delete the old object before registry success
   and revalidation.
-- Roll back a task by restoring its last reviewed configuration and published registry entry.
-  Keep `publication_enabled = false` for a new multi-bundle task until a fresh
-  automated canary and physical-device checklist pass.
+- Roll back a task by restoring its last reviewed configuration and the last
+  verified registry document. Keep `publication_enabled = false` for a new
+  multi-bundle task until a fresh automated canary and physical-device checklist
+  pass. Do not reuse manifests across run IDs or manually mark a failed cache
+  record successful.
 
 ## Profile refresh and cleanup
 

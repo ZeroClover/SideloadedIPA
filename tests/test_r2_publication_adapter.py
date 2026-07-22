@@ -126,6 +126,9 @@ def test_adapter_delegates_registry_revalidation_and_cleanup() -> None:
 
     adapter.restore_registry({"apps": []})
     assert store.registry == {"apps": []}
+    store.objects["new"] = b"value"
+    adapter.delete_uploaded(("new",))
+    assert "new" not in store.objects
 
 
 def test_registry_retry_preserves_the_exact_document() -> None:

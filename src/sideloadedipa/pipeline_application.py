@@ -57,12 +57,14 @@ _COMMAND_STAGES = {
     "sync": (PipelineStage.RESOURCE_APPLY,),
     "sign": (PipelineStage.SIGNING_PLAN, PipelineStage.SIGN),
     "verify": (PipelineStage.VERIFY,),
+    "publish": (PipelineStage.PUBLISH,),
 }
 _PREDECESSORS = {
     "plan": PipelineStage.INVENTORY,
     "sync": PipelineStage.RESOURCE_PLAN,
     "sign": PipelineStage.RESOURCE_APPLY,
     "verify": PipelineStage.SIGN,
+    "publish": PipelineStage.VERIFY,
 }
 
 
@@ -247,6 +249,9 @@ class ManifestPipelineUseCases:
     def verify(self, request: CommandRequest) -> CommandResult:
         return self._execute(request, _COMMAND_STAGES["verify"])
 
+    def publish(self, request: CommandRequest) -> CommandResult:
+        return self._execute(request, _COMMAND_STAGES["publish"])
+
     def run(self, request: CommandRequest) -> CommandResult:
         stages = tuple(PipelineStage)
         if not request.publish:
@@ -260,5 +265,6 @@ class ManifestPipelineUseCases:
             sync=self.sync,
             sign=self.sign,
             verify=self.verify,
+            publish=self.publish,
             run=self.run,
         )

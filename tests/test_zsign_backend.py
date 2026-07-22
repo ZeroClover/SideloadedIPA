@@ -10,18 +10,23 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+import sideloadedipa.adapters.signing.zsign as zsign_module
 from sideloadedipa.adapters.signing.zsign import (
     EXPECTED_ZSIGN_VERSION,
     ZSIGN_CONTRACT_VERSION,
     ZsignBackend,
+    collect_signed_node_evidence,
 )
 from sideloadedipa.domain import (
+    BundleGraph,
+    BundleNode,
     BundleNodeKind,
     CertificateIdentity,
     CertificateMaterial,
     SigningBackendFeature,
     SigningBackendIdentity,
     SigningNodePlan,
+    SigningNodeResult,
     SigningPlan,
     normalize_entitlements,
 )
@@ -151,6 +156,16 @@ def backend(tmp_path: Path, executable_path: Path) -> ZsignBackend:
         executable=executable_path,
         expected_executable_sha256=hashlib.sha256(executable_path.read_bytes()).hexdigest(),
         profile_root=tmp_path / "profiles",
+        evidence_collector=lambda signing_plan, output: tuple(
+            SigningNodeResult(
+                node.source_path,
+                hashlib.sha256(output.read_bytes()).hexdigest(),
+                node.profile_sha256,
+                node.expected_entitlements_sha256,
+                0.0,
+            )
+            for node in signing_plan.nodes
+        ),
     )
 
 
@@ -189,12 +204,81 @@ def test_signs_with_adjacent_profile_entitlement_pairs_and_redacted_argv(
     assert argv[-2:] == [str(output), str(source)]
     assert result.output_sha256 == hashlib.sha256(output.read_bytes()).hexdigest()
     assert result.output_path == PurePosixPath(output.name)
-    assert result.nodes == ()
+    assert {node.source_path for node in result.nodes} == {
+        node.source_path for node in signing_plan.nodes
+    }
     rendered = repr(result.backend_argv)
     assert str(source) not in rendered
     assert str(output) not in rendered
     assert str(certificate(tmp_path).private_key_path) not in rendered
     assert "***" in rendered
+
+
+def test_collects_actual_evidence_for_every_planned_node(tmp_path: Path, monkeypatch) -> None:
+    executable_path = executable(tmp_path)
+    signing_plan = plan(tmp_path / "profiles", backend(tmp_path, executable_path).identity())
+    output = tmp_path / "signed.ipa"
+    output.write_bytes(b"signed")
+    graph_nodes = tuple(
+        BundleNode(
+            path=node.source_path,
+            kind=node.kind,
+            depth=0,
+            executable_path=node.executable_path,
+            executable_sha256=str(node.order + 1) * 64,
+            embedded_profile_sha256=node.profile_sha256,
+            entitlements=node.expected_entitlements,
+        )
+        for node in signing_plan.nodes
+    )
+    graph = BundleGraph(
+        signing_plan.nodes[-1].source_path,
+        graph_nodes,
+        hashlib.sha256(b"signed").hexdigest(),
+        "f" * 64,
+    )
+
+    monkeypatch.setattr(
+        zsign_module,
+        "extract_ipa_safely",
+        lambda source, destination: destination.mkdir(parents=True),
+    )
+    monkeypatch.setattr(
+        zsign_module,
+        "discover_bundle_graph",
+        lambda extracted, sha256: graph,
+    )
+
+    evidence = collect_signed_node_evidence(signing_plan, output)
+
+    assert len(evidence) == len(signing_plan.nodes)
+    assert evidence[-1].signed_executable_sha256 == str(signing_plan.nodes[-1].order + 1) * 64
+    assert (
+        evidence[-1].signed_entitlements_sha256
+        == signing_plan.nodes[-1].expected_entitlements_sha256
+    )
+
+
+def test_rejects_incomplete_actual_node_evidence(tmp_path: Path, monkeypatch) -> None:
+    executable_path = executable(tmp_path)
+    signing_plan = plan(tmp_path / "profiles", backend(tmp_path, executable_path).identity())
+    output = tmp_path / "signed.ipa"
+    output.write_bytes(b"signed")
+    graph = BundleGraph(
+        signing_plan.nodes[-1].source_path,
+        (),
+        hashlib.sha256(b"signed").hexdigest(),
+        "f" * 64,
+    )
+    monkeypatch.setattr(
+        zsign_module,
+        "extract_ipa_safely",
+        lambda source, destination: destination.mkdir(parents=True),
+    )
+    monkeypatch.setattr(zsign_module, "discover_bundle_graph", lambda extracted, sha256: graph)
+
+    with pytest.raises(AdapterError, match="differs from the signing plan"):
+        collect_signed_node_evidence(signing_plan, output)
 
 
 @pytest.mark.parametrize("mismatch", ["checksum", "version", "plan"])

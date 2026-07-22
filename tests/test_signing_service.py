@@ -44,6 +44,8 @@ from sideloadedipa.signing_service import (
     PackageSigningRequest,
     build_package_signing_request,
     execute_package_signing,
+    plan_package_signing,
+    verify_package_artifact,
 )
 from sideloadedipa.verification import build_verification_result, required_verification_checks
 
@@ -211,6 +213,24 @@ def test_current_root_only_tasks_run_through_package_planner_and_executor(
     with zipfile.ZipFile(request.destination_ipa) as archive:
         document = plistlib.loads(archive.read("Payload/Upstream.app/Info.plist"))
     assert document["CFBundleIdentifier"] == task.bundle_id
+
+
+def test_reconstructs_plan_and_verifies_existing_artifact_without_backend(
+    tmp_path: Path,
+) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    request = request_for(task, tmp_path)
+    execution = execute_package_signing(request)
+    backend = request.backend
+    assert isinstance(backend, CopyBackend)
+    backend.called = False
+
+    reconstructed = plan_package_signing(request)
+    verification = verify_package_artifact(request, reconstructed, request.destination_ipa)
+
+    assert reconstructed == execution.plan
+    assert verification.passed
+    assert backend.called is False
 
 
 def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) -> None:

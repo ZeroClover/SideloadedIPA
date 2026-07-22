@@ -15,6 +15,7 @@ from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
 from sideloadedipa.profile_storage import load_profile_manifest
 from sideloadedipa.signing_inputs import load_synced_profiles
 from sideloadedipa.signing_service import (
+    PackageSigningRequest,
     PlannedSigningExecution,
     build_package_signing_request,
     execute_package_signing,
@@ -43,7 +44,7 @@ def inspect_source_graph(source_ipa: Path, *, task: Task | None = None) -> Bundl
         )
 
 
-def run_package_signing(
+def prepare_package_signing(
     *,
     task: Task,
     source_ipa: Path,
@@ -56,8 +57,8 @@ def run_package_signing(
     zsign_sha256: str,
     repository_root: Path,
     now: datetime | None = None,
-) -> PlannedSigningExecution:
-    """Load current synced inputs, sign one task, and verify before promotion."""
+) -> PackageSigningRequest:
+    """Load current authenticated inputs without invoking the signing backend."""
 
     current_time = now or datetime.now(timezone.utc)
     manifest = load_profile_manifest(profile_root, task.task_name)
@@ -93,7 +94,7 @@ def run_package_signing(
         profile_root=profile_root,
     )
     verifier = PackageVerifier(source_ipa, profiles, current_time)
-    request = build_package_signing_request(
+    return build_package_signing_request(
         task=task,
         graph=graph,
         profile_manifest=manifest,
@@ -105,5 +106,36 @@ def run_package_signing(
         source_ipa=source_ipa,
         destination_ipa=destination_ipa,
         repository_root=repository_root,
+    )
+
+
+def run_package_signing(
+    *,
+    task: Task,
+    source_ipa: Path,
+    destination_ipa: Path,
+    profile_root: Path,
+    p12_path: Path,
+    p12_password: str,
+    private_directory: Path,
+    zsign_executable: Path,
+    zsign_sha256: str,
+    repository_root: Path,
+    now: datetime | None = None,
+) -> PlannedSigningExecution:
+    """Load current synced inputs, sign one task, and verify before promotion."""
+
+    request = prepare_package_signing(
+        task=task,
+        source_ipa=source_ipa,
+        destination_ipa=destination_ipa,
+        profile_root=profile_root,
+        p12_path=p12_path,
+        p12_password=p12_password,
+        private_directory=private_directory,
+        zsign_executable=zsign_executable,
+        zsign_sha256=zsign_sha256,
+        repository_root=repository_root,
+        now=now,
     )
     return execute_package_signing(request)

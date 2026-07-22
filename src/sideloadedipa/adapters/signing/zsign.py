@@ -5,18 +5,21 @@ from __future__ import annotations
 import hashlib
 import plistlib
 import tempfile
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from sideloadedipa.domain import (
     CertificateMaterial,
     SigningBackendFeature,
     SigningBackendIdentity,
+    SigningNodeResult,
     SigningPlan,
     SigningResult,
     normalize_entitlements,
     thaw_json,
 )
 from sideloadedipa.errors import AdapterError, ErrorCode
+from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
 from sideloadedipa.subprocesses import SubprocessRunner
 
 EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.2"
@@ -25,6 +28,8 @@ _FEATURES = (
     SigningBackendFeature.PER_PROFILE_ENTITLEMENTS,
     SigningBackendFeature.RECURSIVE_SIGNING,
 )
+
+NodeEvidenceCollector = Callable[[SigningPlan, Path], tuple[SigningNodeResult, ...]]
 
 
 def _file_sha256(path: Path, *, operation: str) -> str:
@@ -60,6 +65,64 @@ def _resolved_below(root: Path, relative: PurePosixPath) -> Path:
     return path
 
 
+def collect_signed_node_evidence(
+    plan: SigningPlan,
+    output_ipa: Path,
+) -> tuple[SigningNodeResult, ...]:
+    """Reopen zsign output and collect actual non-secret evidence for every node."""
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="sideloadedipa-zsign-evidence-") as directory:
+            extracted = Path(directory) / "extracted"
+            extract_ipa_safely(output_ipa, extracted)
+            output_sha256 = _file_sha256(output_ipa, operation="inspect-output")
+            graph = discover_bundle_graph(extracted, output_sha256)
+    except (AdapterError, OSError, ValueError) as error:
+        raise AdapterError(
+            ErrorCode.ADAPTER_RESPONSE_INVALID,
+            "zsign output could not provide complete per-node evidence",
+            adapter="zsign",
+            operation="collect-node-evidence",
+            task_name=plan.task_name,
+        ) from error
+
+    actual_by_path = {node.path: node for node in graph.nodes}
+    actual_paths = set(actual_by_path)
+    planned_paths = {node.source_path for node in plan.nodes}
+    if actual_paths != planned_paths:
+        raise AdapterError(
+            ErrorCode.ADAPTER_RESPONSE_INVALID,
+            "zsign output node evidence differs from the signing plan",
+            adapter="zsign",
+            operation="collect-node-evidence",
+            task_name=plan.task_name,
+            safe_details=(
+                (
+                    "missing_paths",
+                    tuple(sorted(str(path) for path in planned_paths - actual_paths)),
+                ),
+                ("extra_paths", tuple(sorted(str(path) for path in actual_paths - planned_paths))),
+            ),
+        )
+
+    evidence: list[SigningNodeResult] = []
+    for planned in sorted(plan.nodes, key=lambda value: value.order):
+        actual = actual_by_path[planned.source_path]
+        entitlements = normalize_entitlements(
+            {key: thaw_json(value) for key, value in actual.entitlements}
+        )
+        evidence.append(
+            SigningNodeResult(
+                source_path=planned.source_path,
+                signed_executable_sha256=actual.executable_sha256,
+                embedded_profile_sha256=actual.embedded_profile_sha256,
+                signed_entitlements_sha256=entitlements.sha256,
+                duration_seconds=0.0,
+            )
+        )
+    return tuple(evidence)
+
+
 class ZsignBackend:
     def __init__(
         self,
@@ -68,12 +131,14 @@ class ZsignBackend:
         expected_executable_sha256: str,
         profile_root: Path,
         runner: SubprocessRunner | None = None,
+        evidence_collector: NodeEvidenceCollector = collect_signed_node_evidence,
         timeout_seconds: float = 180,
     ) -> None:
         self.executable = executable
         self.expected_executable_sha256 = expected_executable_sha256
         self.profile_root = profile_root
         self.runner = runner or SubprocessRunner(default_timeout_seconds=timeout_seconds)
+        self.evidence_collector = evidence_collector
         self.timeout_seconds = timeout_seconds
 
     def identity(self) -> SigningBackendIdentity:
@@ -234,12 +299,21 @@ class ZsignBackend:
                 ) from error
 
         output_sha256 = _file_sha256(output_ipa, operation="verify-output")
+        nodes = self.evidence_collector(plan, output_ipa)
+        if {node.source_path for node in nodes} != {node.source_path for node in plan.nodes}:
+            raise AdapterError(
+                ErrorCode.ADAPTER_RESPONSE_INVALID,
+                "zsign backend evidence is incomplete",
+                adapter="zsign",
+                operation="collect-node-evidence",
+                task_name=plan.task_name,
+            )
         return SigningResult(
             plan_sha256=plan.plan_sha256,
             output_path=PurePosixPath(output_ipa.name),
             output_sha256=output_sha256,
             backend=identity,
-            nodes=(),
+            nodes=nodes,
             duration_seconds=result.duration_seconds,
             backend_argv=result.argv,
         )

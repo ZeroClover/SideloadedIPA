@@ -1,7 +1,7 @@
 # signing-workflow-orchestration Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define the staged production workflow, canonical evidence chain, cache safety boundaries, retained reports, and fail-closed publication behavior for IPA signing runs.
 ## Requirements
 ### Requirement: Ordered staged workflow
 

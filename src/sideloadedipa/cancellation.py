@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from sideloadedipa.errors import ConfigurationError, ErrorCode
+
 
 @dataclass(slots=True)
 class SideEffectJournal:
@@ -23,10 +25,10 @@ class SideEffectJournal:
     def mark_publication_committed(self) -> None:
         self.publication_committed = True
 
-    def document(self) -> dict[str, object]:
+    def document(self, *, cancelled: bool = True) -> dict[str, object]:
         return {
             "schema_version": 1,
-            "cancelled": True,
+            "cancelled": cancelled,
             "created_apple_resources": [
                 {"kind": kind, "resource_id": resource_id}
                 for kind, resource_id in self.created_apple_resources
@@ -56,6 +58,41 @@ def _write_atomic(path: Path, document: dict[str, object]) -> None:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def load_side_effect_journal(path: Path) -> SideEffectJournal:
+    if not path.exists():
+        return SideEffectJournal()
+    try:
+        document = json.loads(path.read_text())
+        resources = document["created_apple_resources"]
+        committed = document["publication_committed"]
+        if (
+            document.get("schema_version") != 1
+            or not isinstance(resources, list)
+            or not isinstance(committed, bool)
+        ):
+            raise TypeError
+        created = [
+            (value["kind"], value["resource_id"])
+            for value in resources
+            if isinstance(value, dict)
+            and isinstance(value.get("kind"), str)
+            and isinstance(value.get("resource_id"), str)
+        ]
+        if len(created) != len(resources):
+            raise TypeError
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "side-effect journal is invalid",
+            remediation="restart the pipeline with a new run ID",
+        ) from error
+    return SideEffectJournal(created, committed)
+
+
+def write_side_effect_journal(path: Path, journal: SideEffectJournal) -> None:
+    _write_atomic(path, journal.document(cancelled=False))
 
 
 @contextmanager

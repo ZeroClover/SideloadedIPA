@@ -7,7 +7,7 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 - For each task: download the IPA (from direct URL or GitHub Release), re-sign with [`zsign`](https://github.com/zhlynn/zsign) (directly from the P12 certificate, no Keychain) using synced profiles, and upload to Cloudflare R2 (S3-compatible, via `boto3`) under a versioned key.
 - **Publish the registry**: merge each result into `site/apps.json` on R2 — the single data source for the download page and the itms.plist manifests, both served by the Vercel-hosted front-end.
 - **Refresh the edge cache**: call the front-end's on-demand revalidation hook, then delete stale versioned IPA keys no longer referenced by the registry.
-- **Intelligent caching**: Only rebuild IPAs when releases are updated or devices change, reducing workflow runtime and costs.
+- **Verified caching**: Rebuild only affected IPAs, while reopening and independently verifying every matching cached artifact before reuse.
 - **Multi-bundle safety**: Inventory, plan, sign, and independently verify one
   profile per app/extension with task-specific identifiers and entitlements.
 
@@ -15,9 +15,9 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 
 - `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
 - `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
-- `src/sideloadedipa/package_commands.py` — signs, independently verifies, uploads to R2, and atomically publishes the registry
+- `src/sideloadedipa/production_pipeline.py` — manifest-driven production inventory, Apple reconciliation, signing, verification, caching, and publication
 - `scripts/r2_store.py` — Cloudflare R2 storage wrapper (boto3): uploads, apps.json IO, stale-key cleanup
-- `scripts/check_changes.py` — detects changes to determine which tasks need rebuilding
+- `src/sideloadedipa/cache_decisions.py` — complete-fingerprint selective rebuild decisions and digest-verified cache records
 - `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
 - `configs/signing/` — reviewed entitlement plist templates with typed placeholders
@@ -225,50 +225,36 @@ Example `repository_dispatch` payload:
 
 ## How It Works
 
-1. **Restore Cache**: Restores cached device lists and release versions from previous runs
+1. **Restore Cache**: Restores the digest-verified signing index and content-addressed signed artifacts from the last successful boundary
 2. **Install zsign**: Downloads [`zsign`](https://github.com/zhlynn/zsign)'s official prebuilt Linux binary (pinned via `ZSIGN_VERSION`, checksum-verified). The static `musl` build has no runtime dependencies, and `zsign` signs straight from the P12 — no Keychain involved
-3. **Check Entitlements Profile**: Python script (`sync_profiles_asc.py check`) via App Store Connect CLI:
-   - Fetches all enabled iOS devices
-   - Saves device list snapshot to cache for change detection
-   - Compares with cached device list to detect changes
-   - Verifies `tasks.toml` apps have corresponding provisioning profiles
-4. **Check App Version**: Python script (`check_changes.py`):
-   - Uses device-change status + `force_rebuild` to decide whether to rebuild all
-   - Checks GitHub release versions vs cache to decide which tasks need rebuilding
+3. **Inventory and aggregate preflight**: `sideloadedipa inspect` selects current assets, inventories every executable recursively, and validates all selected task policies before any Apple mutation
+4. **Plan Apple resources**: `sideloadedipa plan` performs a read-only reconciliation and records the canonical resource plan
 5. **Sync package profiles**: `sideloadedipa sync --apply` via the typed App Store Connect adapters:
    - Reconciles selected task profiles against current devices, certificate, and capabilities
    - Downloads and validates every profile before signing
-6. **Sign and verify IPAs**: `sideloadedipa run --publish`:
-   - For `ipa_url` tasks: Always downloads and rebuilds
-   - For `repo_url` tasks:
-     - Fetches latest release via authenticated GitHub API
-     - Compares version with cache
-     - Only rebuilds if version or publish timestamp changed
+6. **Sign IPAs**: `sideloadedipa sign`:
+   - Builds a complete fingerprint from source, graph, policy, Apple resources, profiles, certificate, devices, backend/tool versions, and schema
+   - Selectively rebuilds changed tasks
+   - Treats a matching cache record only as a reuse candidate and fully reopens and verifies its IPA before accepting the hit
    - Re-signs with `zsign` using the P12 certificate and all task profiles
-   - Independently verifies identifiers, profiles, entitlements, nested signatures, graph integrity, and package integrity
+7. **Verify IPAs**: `sideloadedipa verify --publish` independently reopens every output and verifies identifiers, profiles, entitlements, nested signatures, graph integrity, and package integrity
+8. **Publish registry**: `sideloadedipa publish` re-verifies outputs, then:
    - Reads the signed IPA's actual bundle id + version, uploads the IPA to R2 under a versioned, immutable key (`apps/<slug>/<version>/<App>.ipa`)
    - Uploads the card icon under a content-addressed, immutable key (`apps/<slug>/icon-<sha12>.png`), so a changed icon lands on a fresh URL rather than waiting out the zone's 4-hour browser cache. The `no-transform` directive opts icons out of Cloudflare Polish, which otherwise re-encodes them lossily at the edge
-   - Updates release cache with new versions
-7. **Publish registry**: merges results into `site/apps.json` on R2, calls the Vercel `/api/revalidate` hook (shared secret), then deletes stale keys — superseded IPA versions and superseded icons alike — that the registry no longer references (skipped if any step fails)
-8. **Save Cache**: Saves updated cache state for next run
+   - Merges results into `site/apps.json` on R2, calls the Vercel `/api/revalidate` hook, then deletes stale referenced keys; failed batches remove only new unreferenced uploads
+9. **Save Cache and evidence**: Promotes the cache only after verification/publication succeeds and uploads redacted stage manifests plus the complete run report
 
 ## Caching Behavior
 
 The workflow uses GitHub Actions cache to minimize unnecessary work:
 
-- **Cache Storage**: `work/cache/` directory containing:
-  - `device-list.json` — Snapshot of registered devices with checksum
-  - `release-versions.json` — Tracked release versions and timestamps
+- **Cache Storage**: `work/cache/` contains `signing-index.json` plus content-addressed signed IPA artifacts
 
 - **Cache Lifetime**: 7 days of inactivity (refreshed by daily scheduled runs)
 
-- **Change Detection Logic**:
-  - Device list changes → Full rebuild (all profiles regenerated, all IPAs re-signed)
-  - Release version changes → Rebuild only affected IPA
-  - Direct URL (`ipa_url`) tasks → Always rebuild (no version tracking)
-  - New tasks or first run → Always rebuild
+- **Reuse Logic**: A complete fingerprint mismatch rebuilds only affected tasks. A match still requires current prerequisite checks and full independent IPA reopen verification; a rejected hit is rebuilt fail-closed.
 
-- **Force Rebuild**: Use the `force_rebuild` input to bypass cache and rebuild everything
+- **Force Rebuild**: Use the `force_rebuild` input to bypass signing cache reuse and rebuild everything
 
 ## Requirements and Notes
 
@@ -289,6 +275,7 @@ If `debug` is enabled for a manual run (workflow_dispatch), the workflow will:
 - Write the provided `DEBUG_SSH_PUBLIC_KEY` to `~runner/.ssh/authorized_keys`.
 - Start a throwaway [`dropbear`](https://matt.ucc.asn.au/dropbear/dropbear.html) SSH server on `127.0.0.1:2222` — public-key auth only (password auth disabled), with a per-run host key.
 - Download `cloudflared` and run `cloudflared --no-autoupdate --url ssh://localhost:2222` in the foreground, which prints a `trycloudflare.com` hostname.
+- Remove Apple, signing, GitHub, R2, and revalidation credentials from the long-lived SSH server, tunnel, and wait-process environments before the session opens.
 
 Connect with the private key matching `DEBUG_SSH_PUBLIC_KEY`, tunnelling SSH through Cloudflare (end-to-end encrypted, no third-party SSH relay):
 
@@ -326,11 +313,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python dependency managem
 
 3. **Run scripts**:
    ```bash
-   # Run check_changes.py
-   uv run python scripts/check_changes.py
-
    # Run selected package tasks without publication
-   uv run sideloadedipa run --task JHenTai --json
+   uv run sideloadedipa run --run-id local-jhentai --task JHenTai --apply --json
    ```
 
 4. **Run tests** (when available):

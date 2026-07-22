@@ -1,7 +1,7 @@
 # signing-task-configuration Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define compatible task configuration for bundle mappings, entitlement policies, capability handling, manual Apple relationships, and publication gates.
 ## Requirements
 ### Requirement: Backwards-compatible single-bundle tasks
 

@@ -13,6 +13,7 @@ from sideloadedipa.cache_decisions import (
     TaskCacheRecord,
     build_cache_index,
     canonical_cache_index_json,
+    parse_cache_index_json,
     select_rebuilds,
 )
 from sideloadedipa.cache_fingerprint import SigningCacheFingerprint
@@ -83,8 +84,13 @@ def test_cache_index_is_canonical_and_detects_tampering() -> None:
     assert document["schema_version"] == CACHE_INDEX_SCHEMA_VERSION
     assert [value["task_name"] for value in document["records"]] == ["First", "Second"]
     assert document["index_sha256"] == index.index_sha256
+    assert parse_cache_index_json(canonical_cache_index_json(index)) == index
     with pytest.raises(ValueError, match="inconsistent"):
         canonical_cache_index_json(replace(index, index_sha256="0" * 64))
+
+    document["records"][0]["artifact_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="digest does not match"):
+        parse_cache_index_json(json.dumps(document).encode())
 
 
 def test_duplicate_current_or_cached_tasks_are_rejected() -> None:

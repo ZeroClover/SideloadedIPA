@@ -18,6 +18,7 @@ from sideloadedipa.domain import (
     SigningBackendIdentity,
     SigningPlan,
     Task,
+    VerificationResult,
     materialize_entitlements,
     normalize_entitlements,
     reconcile_bundle_rules,
@@ -27,6 +28,10 @@ from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.ports import SigningBackend, Verifier
 from sideloadedipa.signing_executor import SigningExecutionResult, execute_signing_plan
 from sideloadedipa.signing_planner import SigningPlanRequest, build_signing_plan
+from sideloadedipa.verification import (
+    verification_publication_gate,
+    verification_report_sha256,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,10 +167,10 @@ def build_package_signing_request(
     )
 
 
-def execute_package_signing(request: PackageSigningRequest) -> PlannedSigningExecution:
-    """Build, execute, and independently verify one package signing plan."""
+def plan_package_signing(request: PackageSigningRequest) -> SigningPlan:
+    """Reconstruct the immutable signing plan from current authenticated inputs."""
 
-    plan = build_signing_plan(
+    return build_signing_plan(
         SigningPlanRequest(
             task=request.task,
             graph=request.graph,
@@ -177,6 +182,36 @@ def execute_package_signing(request: PackageSigningRequest) -> PlannedSigningExe
             backend=request.backend_identity,
         )
     )
+
+
+def verify_package_artifact(
+    request: PackageSigningRequest,
+    plan: SigningPlan,
+    artifact: Path,
+) -> VerificationResult:
+    """Reopen an existing artifact with the independent verifier and fail closed."""
+
+    result = request.verifier.verify(plan, artifact)
+    if (
+        not result.passed
+        or result.plan_sha256 != plan.plan_sha256
+        or not verification_publication_gate(plan, result)
+        or result.report_sha256 != verification_report_sha256(plan, result)
+    ):
+        raise DomainError(
+            ErrorCode.SIGNING_VERIFICATION_FAILED,
+            "existing signed IPA did not pass independent verification",
+            task_name=plan.task_name,
+            remediation="discard the artifact and rebuild from the current signing plan",
+            safe_details=(("artifact", artifact.name),),
+        )
+    return result
+
+
+def execute_package_signing(request: PackageSigningRequest) -> PlannedSigningExecution:
+    """Build, execute, and independently verify one package signing plan."""
+
+    plan = plan_package_signing(request)
     execution = execute_signing_plan(
         plan=plan,
         source_ipa=request.source_ipa,

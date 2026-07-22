@@ -38,6 +38,7 @@ def application(handler: RecordingUseCase) -> Application:
         sync=handler,
         sign=handler,
         verify=handler,
+        publish=handler,
         run=handler,
     )
 

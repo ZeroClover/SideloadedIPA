@@ -148,7 +148,7 @@ def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, m
         runner, "execute_package_signing", lambda value: result if value is request else None
     )
 
-    actual = runner.run_package_signing(
+    prepared = runner.prepare_package_signing(
         task=task,
         source_ipa=tmp_path / "source.ipa",
         destination_ipa=tmp_path / "signed.ipa",
@@ -162,11 +162,26 @@ def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, m
         now=NOW,
     )
 
-    assert actual is result
+    assert prepared is request
     assert calls["certificate"][2] == "CERT_ONE"
     assert calls["profiles"]["certificate"] is certificate.identity
     assert calls["request"]["graph"] is graph
     assert calls["request"]["backend_identity"] is backend_identity
+
+    actual = runner.run_package_signing(
+        task=task,
+        source_ipa=tmp_path / "source.ipa",
+        destination_ipa=tmp_path / "signed.ipa",
+        profile_root=tmp_path / "profiles",
+        p12_path=tmp_path / "certificate.p12",
+        p12_password="secret",
+        private_directory=tmp_path / "private-second",
+        zsign_executable=tmp_path / "zsign",
+        zsign_sha256="c" * 64,
+        repository_root=tmp_path,
+        now=NOW,
+    )
+    assert actual is result
 
 
 def test_rejects_mixed_certificate_manifest_before_private_key_load(

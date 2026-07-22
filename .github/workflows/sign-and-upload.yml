@@ -72,31 +72,13 @@ jobs:
       ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
       ASC_VERSION: "3.1.1"
       ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
-      # Apple Developer credentials
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-      # App Store Connect API (env-based auth, no temp key file needed)
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-      ASC_BYPASS_KEYCHAIN: "1"
-      # Cloudflare R2 object storage (S3-compatible publishing target)
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
       # Signing region pinned to the bucket's location hint (avoids picking up
       # an invalid region from ambient AWS config; "auto" also works)
       R2_REGION: apac
-      # Vercel on-demand revalidation hook (download-page / plist cache refresh)
-      VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
       # Hook URL: production default is the live domain; override with the repo
       # variable (e.g. https://sideloadedipa.vercel.app/api/revalidate) while
       # testing pre-cutover, then delete the variable at DNS switchover.
       VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
-      # GitHub Token for API access (authenticated rate limits)
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Enable verbose logging in scripts (used for GitHub API rate limit debug)
       DEBUG: ${{ github.event.inputs.debug || 'false' }}
       # Force rebuild flag
@@ -124,16 +106,6 @@ jobs:
           restore-keys: |
             pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-
             pipeline-cache-v2-${{ runner.os }}-
-
-      - name: Preserve cached device list for comparison
-        run: |
-          mkdir -p work/cache-old
-          if [ -f work/cache/device-list.json ]; then
-            cp work/cache/device-list.json work/cache-old/device-list.json
-            echo "Preserved cached device list for comparison"
-          else
-            echo "No cached device list found (first run)"
-          fi
 
       - name: Preflight - install checksum-verified App Store Connect CLI
         shell: bash
@@ -192,92 +164,100 @@ jobs:
           echo "ZSIGN_SHA256=$zsign_sha256" >> "$GITHUB_ENV"
           printf 'qualified zsign executable sha256: %s\n' "$zsign_sha256"
 
-      - name: Verify App Store Connect credentials
-        run: asc devices list --limit 1 --output json > /dev/null
-
-      - name: Check Entitlements Profile
-        id: check-entitlements
-        run: |
-          uv run python scripts/sync_profiles_asc.py check
-
-      - name: Check App Version
-        id: check-version
+      - name: Inventory and aggregate policy preflight
         env:
-          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run python scripts/check_changes.py
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sideloadedipa-reports"
+          uv run sideloadedipa inspect --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/01-inspect.json"
+
+      - name: Apple plan - read-only
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_BYPASS_KEYCHAIN: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run sideloadedipa plan --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/02-apple-plan.json"
 
       - name: Apple apply - sync package profiles
-        if: ${{ steps.check-version.outputs.rebuild_all == 'true' || steps.check-version.outputs.rebuild_tasks != '[]' }}
         env:
-          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
-          ALL_PROFILES_PRESENT: ${{ steps.check-entitlements.outputs.all_profiles_present }}
-          MISSING_PROFILES: ${{ steps.check-entitlements.outputs.missing_profiles }}
-          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
-          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_BYPASS_KEYCHAIN: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "DEVICES_CHANGED=${DEVICES_CHANGED}"
-          echo "ALL_PROFILES_PRESENT=${ALL_PROFILES_PRESENT}"
-          echo "MISSING_PROFILES=${MISSING_PROFILES}"
-          echo "REBUILD_ALL=${REBUILD_ALL}"
-          echo "REBUILD_TASKS=${REBUILD_TASKS}"
-          mapfile -t publication_tasks < <(
-            uv run python -c 'from pathlib import Path; from sideloadedipa.config import load_configuration; print("\n".join(task.task_name for task in load_configuration(Path("configs/tasks.toml")).tasks if task.publication_enabled))'
-          )
-          args=()
-          for task_name in "${publication_tasks[@]}"; do
-            args+=(--task "$task_name")
-          done
-          mkdir -p "$RUNNER_TEMP/sideloadedipa-reports"
-          uv run sideloadedipa sync --apply --json "${args[@]}" \
-            > "$RUNNER_TEMP/sideloadedipa-reports/profile-sync.json"
+          uv run sideloadedipa sync --apply --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json"
 
-      - name: Run signer
+      - name: Sign selected tasks
         id: package-signing
-        if: ${{ steps.check-version.outputs.rebuild_all == 'true' || steps.check-version.outputs.rebuild_tasks != '[]' }}
         env:
-          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
-          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          mapfile -t selected_tasks < <(
-            uv run python -c '
-          import json
-          import os
-          from pathlib import Path
-          from sideloadedipa.config import load_configuration
-
-          configuration = load_configuration(Path("configs/tasks.toml"))
-          enabled = {task.task_name for task in configuration.tasks if task.publication_enabled}
-          requested = (
-              [task.task_name for task in configuration.tasks]
-              if os.environ["REBUILD_ALL"] == "true"
-              else json.loads(os.environ["REBUILD_TASKS"])
-          )
-          print("\n".join(name for name in requested if name in enabled))
-          '
-          )
           args=()
-          for task_name in "${selected_tasks[@]}"; do
-            args+=(--task "$task_name")
-          done
-          test "${#args[@]}" -gt 0
-          mkdir -p "$RUNNER_TEMP/sideloadedipa-reports"
-          uv run sideloadedipa run --publish --json "${args[@]}" \
-            > "$RUNNER_TEMP/sideloadedipa-reports/package-run.json"
+          if [[ "${FORCE_REBUILD}" == "true" || "${FORCE_REBUILD}" == "1" ]]; then
+            args+=(--force-rebuild)
+          fi
+          uv run sideloadedipa sign --run-id "$GITHUB_RUN_ID" --json "${args[@]}" \
+            > "$RUNNER_TEMP/sideloadedipa-reports/04-sign.json"
+
+      - name: Independently reopen and verify signed IPAs
+        id: package-verification
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run sideloadedipa verify --publish --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/05-verify.json"
+
+      - name: Publish verified batch
+        id: package-publication
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
+        run: |
+          set -euo pipefail
+          uv run sideloadedipa publish --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/06-publish.json"
 
       - name: Upload redacted run report
         if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: signing-run-report-${{ github.run_id }}
-          path: ${{ runner.temp }}/sideloadedipa-reports/*.json
+          path: |
+            ${{ runner.temp }}/sideloadedipa-reports/*.json
+            work/reports/*.json
+            work/pipeline/**/*.json
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Save cache
-        if: ${{ success() && steps.package-signing.outcome == 'success' }}
+        if: ${{ success() && steps.package-publication.outcome == 'success' }}
         uses: actions/cache/save@v6.1.0
         continue-on-error: true
         with:

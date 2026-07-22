@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
 from sideloadedipa import __version__
-from sideloadedipa.apple_commands import plan_command, sync_command
 from sideloadedipa.application import (
     Application,
     CommandName,
@@ -19,17 +19,16 @@ from sideloadedipa.application import (
     OutputFormat,
 )
 from sideloadedipa.domain import thaw_json
-from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
-from sideloadedipa.inspection import inspect_command
-from sideloadedipa.package_commands import run_command, sign_command
-
-
-def _unconfigured(request: CommandRequest) -> CommandResult:
-    raise ConfigurationError(
-        ErrorCode.CONFIG_MISSING,
-        f"{request.command.value} dependencies are not configured",
-        remediation="compose the command use case in the application entry point",
-    )
+from sideloadedipa.errors import SideloadedIPAError
+from sideloadedipa.production_pipeline import (
+    inspect_command,
+    plan_command,
+    publish_command,
+    run_command,
+    sign_command,
+    sync_command,
+    verify_command,
+)
 
 
 def default_application() -> Application:
@@ -38,7 +37,8 @@ def default_application() -> Application:
         plan=plan_command,
         sync=sync_command,
         sign=sign_command,
-        verify=_unconfigured,
+        verify=verify_command,
+        publish=publish_command,
         run=run_command,
     )
 
@@ -52,10 +52,16 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.add_argument("--config", type=Path, default=Path("configs/tasks.toml"))
         command_parser.add_argument("--task", action="append", default=[])
         command_parser.add_argument("--json", action="store_true")
+        command_parser.add_argument(
+            "--run-id",
+            default=os.environ.get("GITHUB_RUN_ID", "local"),
+        )
         if command in {CommandName.SYNC, CommandName.RUN}:
             command_parser.add_argument("--apply", action="store_true")
-        if command is CommandName.RUN:
+        if command in {CommandName.VERIFY, CommandName.RUN}:
             command_parser.add_argument("--publish", action="store_true")
+        if command in {CommandName.SIGN, CommandName.RUN}:
+            command_parser.add_argument("--force-rebuild", action="store_true")
     return parser
 
 
@@ -67,6 +73,8 @@ def _request(namespace: argparse.Namespace) -> CommandRequest:
         output_format=OutputFormat.JSON if namespace.json else OutputFormat.HUMAN,
         apply=getattr(namespace, "apply", False),
         publish=getattr(namespace, "publish", False),
+        run_id=namespace.run_id,
+        force_rebuild=getattr(namespace, "force_rebuild", False),
     )
 
 

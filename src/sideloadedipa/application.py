@@ -16,6 +16,7 @@ class CommandName(StrEnum):
     SYNC = "sync"
     SIGN = "sign"
     VERIFY = "verify"
+    PUBLISH = "publish"
     RUN = "run"
 
 
@@ -32,6 +33,8 @@ class CommandRequest:
     output_format: OutputFormat
     apply: bool = False
     publish: bool = False
+    run_id: str = "local"
+    force_rebuild: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +55,7 @@ class Application:
     sync: CommandUseCase
     sign: CommandUseCase
     verify: CommandUseCase
+    publish: CommandUseCase
     run: CommandUseCase
 
     def execute(self, request: CommandRequest) -> CommandResult:
@@ -61,6 +65,7 @@ class Application:
             CommandName.SYNC: self.sync,
             CommandName.SIGN: self.sign,
             CommandName.VERIFY: self.verify,
+            CommandName.PUBLISH: self.publish,
             CommandName.RUN: self.run,
         }[request.command]
         return handler(request)

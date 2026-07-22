@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from sideloadedipa.cancellation import SideEffectJournal, record_cancellation
+from sideloadedipa.cancellation import (
+    SideEffectJournal,
+    load_side_effect_journal,
+    record_cancellation,
+    write_side_effect_journal,
+)
+from sideloadedipa.errors import ConfigurationError
 from sideloadedipa.workspace import task_workspace
 
 
@@ -42,3 +48,42 @@ def test_completed_scope_writes_no_cancellation_report(tmp_path: Path) -> None:
         journal.mark_publication_committed()
 
     assert not report.exists()
+
+
+def test_side_effect_journal_round_trips_between_stage_processes(tmp_path: Path) -> None:
+    path = tmp_path / "side-effects.json"
+    journal = SideEffectJournal([("bundle-id", "BUNDLE_NEW")], True)
+
+    write_side_effect_journal(path, journal)
+
+    assert load_side_effect_journal(path) == journal
+    document = json.loads(path.read_text())
+    assert document["cancelled"] is False
+
+    path.write_text("{}")
+    with pytest.raises(ConfigurationError, match="journal is invalid"):
+        load_side_effect_journal(path)
+
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "created_apple_resources": [],
+                "publication_committed": False,
+            }
+        )
+    )
+    with pytest.raises(ConfigurationError, match="journal is invalid"):
+        load_side_effect_journal(path)
+
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "created_apple_resources": [{}],
+                "publication_committed": False,
+            }
+        )
+    )
+    with pytest.raises(ConfigurationError, match="journal is invalid"):
+        load_side_effect_journal(path)

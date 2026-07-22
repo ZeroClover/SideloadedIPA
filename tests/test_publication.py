@@ -86,6 +86,7 @@ class RecordingGateway:
     published: dict[str, object] | None = None
     restored: dict[str, object] | None = None
     fail_at: str | None = None
+    deleted_uploaded: tuple[str, ...] = ()
 
     def read_registry(self) -> dict[str, object]:
         self.calls.append("read")
@@ -122,6 +123,11 @@ class RecordingGateway:
         self.calls.append("restore")
         assert isinstance(document, dict)
         self.restored = document
+
+    def delete_uploaded(self, keys: object) -> None:
+        self.calls.append("delete-uploaded")
+        assert isinstance(keys, tuple)
+        self.deleted_uploaded = keys
 
     def revalidate(self) -> None:
         self.calls.append("revalidate")
@@ -192,7 +198,11 @@ def test_uploaded_digest_mismatch_stops_before_registry_mutation(tmp_path: Path)
     with pytest.raises(DomainError, match="digest"):
         VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
 
-    assert gateway.calls == ["read", "upload"]
+    assert gateway.calls == ["read", "upload", "delete-uploaded"]
+    assert gateway.deleted_uploaded == (
+        "apps/example/1.2.3/Example.ipa",
+        "apps/example/icon.png",
+    )
 
 
 def test_batch_atomic_policy_blocks_all_candidates_after_upstream_failure(tmp_path: Path) -> None:
@@ -259,7 +269,7 @@ def test_independent_policy_allows_verified_candidates_after_other_failure(
 
 
 @pytest.mark.parametrize("failure", ["upload", "registry", "revalidate"])
-def test_failure_preserves_previous_registry_and_blocks_cleanup(
+def test_failure_preserves_previous_registry_and_discards_new_uploads(
     tmp_path: Path, failure: str
 ) -> None:
     artifact = tmp_path / "Example.ipa"
@@ -271,8 +281,13 @@ def test_failure_preserves_previous_registry_and_blocks_cleanup(
 
     assert "cleanup" not in gateway.calls
     if failure == "upload":
-        assert gateway.calls == ["read", "upload"]
+        assert gateway.calls == ["read", "upload", "delete-uploaded"]
         assert gateway.restored is None
+        assert gateway.deleted_uploaded == ("apps/example/icon.png",)
     else:
-        assert gateway.calls[-1] == "restore"
+        assert gateway.calls[-2:] == ["restore", "delete-uploaded"]
         assert gateway.restored == gateway.read_registry()
+        assert gateway.deleted_uploaded == (
+            "apps/example/1.2.3/Example.ipa",
+            "apps/example/icon.png",
+        )

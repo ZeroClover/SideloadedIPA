@@ -4,27 +4,46 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from sideloadedipa.domain import PipelineStage, StageManifest
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.stage_manifests import (
+    PIPELINE_STAGE_ORDER,
     canonical_stage_manifest_json,
     parse_stage_manifest_json,
 )
 
 
-class FileStageManifestStore:
-    def __init__(self, root: Path) -> None:
-        self.root = root
+def _path_component(value: str) -> str:
+    if not value:
+        raise ConfigurationError(ErrorCode.CONFIG_INVALID, "pipeline identity is empty")
+    prefix = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")[:48] or "value"
+    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+    return f"{prefix}-{digest}"
 
-    def _path(self, task_name: str, stage: PipelineStage) -> Path:
-        task_key = hashlib.sha256(task_name.encode()).hexdigest()[:16]
-        return self.root / task_key / f"{stage.value}.json"
+
+@dataclass(frozen=True, slots=True)
+class FileStageManifestStore:
+    root: Path
+    run_id: str = "local"
+
+    @property
+    def run_root(self) -> Path:
+        return self.root / _path_component(self.run_id)
+
+    def task_root(self, task_name: str) -> Path:
+        return self.run_root / _path_component(task_name)
+
+    def path(self, task_name: str, stage: PipelineStage) -> Path:
+        index = PIPELINE_STAGE_ORDER.index(stage)
+        return self.task_root(task_name) / f"{index:02d}-{stage.value}.json"
 
     def load(self, task_name: str, stage: PipelineStage) -> StageManifest | None:
-        path = self._path(task_name, stage)
+        path = self.path(task_name, stage)
         if not path.exists():
             return None
         manifest = parse_stage_manifest_json(path.read_bytes())
@@ -39,7 +58,7 @@ class FileStageManifestStore:
         return manifest
 
     def save(self, manifest: StageManifest) -> None:
-        path = self._path(manifest.task_name, manifest.stage)
+        path = self.path(manifest.task_name, manifest.stage)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = canonical_stage_manifest_json(manifest)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -57,3 +76,31 @@ class FileStageManifestStore:
                 pass
             Path(temporary).unlink(missing_ok=True)
             raise
+
+    def completed(self, task_name: str) -> tuple[StageManifest, ...]:
+        manifests: list[StageManifest] = []
+        predecessor_sha256: str | None = None
+        for index, stage in enumerate(PIPELINE_STAGE_ORDER):
+            manifest = self.load(task_name, stage)
+            if manifest is None:
+                if any(
+                    self.path(task_name, later).exists()
+                    for later in PIPELINE_STAGE_ORDER[index + 1 :]
+                ):
+                    raise ConfigurationError(
+                        ErrorCode.CONFIG_INVALID,
+                        "stored stage manifest predecessor chain is invalid",
+                        task_name=task_name,
+                        safe_details=(("stage", stage.value),),
+                    )
+                break
+            if manifest.predecessor_sha256 != predecessor_sha256:
+                raise ConfigurationError(
+                    ErrorCode.CONFIG_INVALID,
+                    "stored stage manifest predecessor chain is invalid",
+                    task_name=task_name,
+                    safe_details=(("stage", stage.value),),
+                )
+            manifests.append(manifest)
+            predecessor_sha256 = manifest.manifest_sha256
+        return tuple(manifests)

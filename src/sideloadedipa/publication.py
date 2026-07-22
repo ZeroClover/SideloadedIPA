@@ -121,6 +121,21 @@ def _referenced_keys(
     return frozenset(result)
 
 
+def _discard_unreferenced_uploads(
+    gateway: VerifiedPublicationGateway,
+    previous_registry: Mapping[str, object] | None,
+    artifacts: Sequence[StoredArtifact],
+    additional_keys: Sequence[str] = (),
+) -> None:
+    previous_keys = _referenced_keys(gateway, previous_registry or {})
+    uploaded = tuple(
+        key
+        for key in dict.fromkeys((*(artifact.key for artifact in artifacts), *additional_keys))
+        if key not in previous_keys
+    )
+    gateway.delete_uploaded(uploaded)
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedPublicationService:
     gateway: VerifiedPublicationGateway
@@ -153,13 +168,46 @@ class VerifiedPublicationService:
             _validate_candidate(candidate)
 
         current = self.gateway.read_registry()
+        previous_keys = _referenced_keys(self.gateway, current or {})
+        new_icon_keys = tuple(
+            key
+            for candidate in candidates
+            if candidate.icon_url is not None
+            if (key := self.gateway.object_key_from_url(candidate.icon_url)) is not None
+            if key not in previous_keys
+        )
         artifacts: list[StoredArtifact] = []
         for candidate in candidates:
             try:
                 artifact = self.gateway.upload_artifact(candidate)
             except Exception as error:
+                try:
+                    _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+                except Exception as cleanup_error:
+                    raise DomainError(
+                        ErrorCode.PUBLICATION_FAILED,
+                        "immutable artifact upload failed and compensating cleanup was incomplete",
+                        task_name=candidate.task_name,
+                        remediation="delete the reported unreferenced upload keys before retrying",
+                        safe_details=(
+                            ("unreferenced_keys", tuple(value.key for value in artifacts)),
+                        ),
+                    ) from cleanup_error
                 raise _publication_error(candidate, "immutable artifact upload failed") from error
             if artifact.sha256 != candidate.artifact_sha256:
+                artifacts.append(artifact)
+                try:
+                    _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+                except Exception as cleanup_error:
+                    raise DomainError(
+                        ErrorCode.PUBLICATION_FAILED,
+                        "uploaded artifact digest differed and compensating cleanup was incomplete",
+                        task_name=candidate.task_name,
+                        remediation="delete the reported unreferenced upload keys before retrying",
+                        safe_details=(
+                            ("unreferenced_keys", tuple(value.key for value in artifacts)),
+                        ),
+                    ) from cleanup_error
                 raise _publication_error(candidate, "uploaded artifact digest was not confirmed")
             artifacts.append(artifact)
 
@@ -176,6 +224,15 @@ class VerifiedPublicationService:
                     "registry publication and rollback both failed",
                     remediation="restore the previous registry snapshot before another publication",
                 ) from rollback_error
+            try:
+                _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+            except Exception as cleanup_error:
+                raise DomainError(
+                    ErrorCode.PUBLICATION_FAILED,
+                    "registry publication failed and compensating upload cleanup was incomplete",
+                    remediation="delete the reported unreferenced upload keys before retrying",
+                    safe_details=(("unreferenced_keys", tuple(value.key for value in artifacts)),),
+                ) from cleanup_error
             if isinstance(error, DomainError):
                 raise
             raise DomainError(

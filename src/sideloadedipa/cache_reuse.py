@@ -126,6 +126,7 @@ def revalidate_cached_artifact(
         or not verification_publication_gate(plan, result)
         or result.passed is not True
         or result.report_sha256 != verification_report_sha256(plan, result)
+        or result.report_sha256 != cache_record.verification_report_sha256
     ):
         raise _reject(plan, "cached artifact did not pass current full verification")
     return result

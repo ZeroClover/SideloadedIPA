@@ -1,7 +1,7 @@
 # multi-bundle-signing Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define fail-closed planning and signing for an IPA bundle graph in which every executable receives the intended identifier, profile, entitlements, and signing order.
 ## Requirements
 ### Requirement: Complete immutable signing plan
 

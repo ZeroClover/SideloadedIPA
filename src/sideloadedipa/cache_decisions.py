@@ -14,6 +14,7 @@ CACHE_INDEX_SCHEMA_VERSION = 1
 
 class RebuildReason(StrEnum):
     CACHE_HIT = "cache-hit"
+    CACHE_REJECTED = "cache-rejected"
     FIRST_RUN = "first-run"
     FINGERPRINT_CHANGED = "fingerprint-changed"
     SCHEMA_CHANGED = "schema-changed"
@@ -87,6 +88,53 @@ def canonical_cache_index_json(index: CacheIndex) -> bytes:
         raise ValueError("cache index digest is inconsistent with its records")
     document["index_sha256"] = index.index_sha256
     return _canonical_json(document)
+
+
+def parse_cache_index_json(payload: bytes) -> CacheIndex:
+    """Parse a digest-verified cache index without accepting partial records."""
+
+    try:
+        document = json.loads(payload)
+        if not isinstance(document, dict):
+            raise TypeError
+        records_document = document["records"]
+        if not isinstance(records_document, list):
+            raise TypeError
+        records = tuple(
+            TaskCacheRecord(
+                task_name=value["task_name"],
+                fingerprint_schema_version=value["fingerprint_schema_version"],
+                fingerprint_sha256=value["fingerprint_sha256"],
+                artifact_sha256=value["artifact_sha256"],
+                verification_report_sha256=value["verification_report_sha256"],
+            )
+            for value in records_document
+            if isinstance(value, dict)
+        )
+        if len(records) != len(records_document):
+            raise TypeError
+        index = CacheIndex(
+            schema_version=document["schema_version"],
+            records=records,
+            index_sha256=document["index_sha256"],
+        )
+        if not isinstance(index.schema_version, int) or not isinstance(index.index_sha256, str):
+            raise TypeError
+        if any(
+            not isinstance(field, str) or not field
+            for record in records
+            for field in (
+                record.task_name,
+                record.fingerprint_sha256,
+                record.artifact_sha256,
+                record.verification_report_sha256,
+            )
+        ) or any(not isinstance(record.fingerprint_schema_version, int) for record in records):
+            raise TypeError
+        canonical_cache_index_json(index)
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("cache index is invalid or its digest does not match") from error
+    return index
 
 
 def select_rebuilds(

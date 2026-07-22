@@ -77,12 +77,18 @@ def profile() -> ProvisioningProfile:
 
 
 def cache_record(artifact: Path) -> TaskCacheRecord:
+    signing_plan = plan()
+    verification = build_verification_result(
+        signing_plan,
+        hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        passing_findings(signing_plan),
+    )
     return TaskCacheRecord(
         "Example",
         1,
         "0" * 64,
         hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        "1" * 64,
+        verification.report_sha256,
     )
 
 

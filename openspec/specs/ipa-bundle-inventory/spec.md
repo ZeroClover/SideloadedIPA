@@ -1,7 +1,7 @@
 # ipa-bundle-inventory Specification
 
 ## Purpose
-TBD - created by archiving change add-multi-bundle-ipa-signing. Update Purpose after archive.
+Define deterministic, recursive discovery of every signable bundle and executable in an IPA before Apple resource mutation, signing, caching, or publication.
 ## Requirements
 ### Requirement: Safe immutable IPA intake
 

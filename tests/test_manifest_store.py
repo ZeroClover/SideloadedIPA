@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -44,7 +43,7 @@ def test_round_trips_canonical_manifest_with_private_mode(tmp_path: Path) -> Non
     store.save(manifest)
 
     assert store.load("Example", PipelineStage.SOURCE) == manifest
-    path = next(tmp_path.rglob("source.json"))
+    path = store.path("Example", PipelineStage.SOURCE)
     assert path.stat().st_mode & 0o777 == 0o600
     assert json.loads(path.read_text())["manifest_sha256"] == manifest.manifest_sha256
     assert store.load("Missing", PipelineStage.SOURCE) is None
@@ -53,7 +52,7 @@ def test_round_trips_canonical_manifest_with_private_mode(tmp_path: Path) -> Non
 def test_rejects_tampered_or_misaddressed_manifest(tmp_path: Path) -> None:
     store = FileStageManifestStore(tmp_path)
     store.save(succeeded_source("../Example"))
-    path = next(tmp_path.rglob("source.json"))
+    path = store.path("../Example", PipelineStage.SOURCE)
     document = json.loads(path.read_text())
     document["result_sha256"] = "0" * 64
     path.write_text(json.dumps(document))
@@ -94,8 +93,7 @@ def test_rejects_unsupported_or_untrusted_manifest_fields(mutation: str) -> None
 def test_rejects_manifest_stored_under_another_task_identity(tmp_path: Path) -> None:
     store = FileStageManifestStore(tmp_path)
     manifest = succeeded_source("Example")
-    task_key = hashlib.sha256(b"Other").hexdigest()[:16]
-    path = tmp_path / task_key / "source.json"
+    path = store.path("Other", PipelineStage.SOURCE)
     path.parent.mkdir(parents=True)
     path.write_bytes(canonical_stage_manifest_json(manifest))
 

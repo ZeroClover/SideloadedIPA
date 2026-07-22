@@ -10,6 +10,7 @@ from sideloadedipa.adapters.apple.asc import SUPPORTED_ASC_VERSION
 ROOT = Path(__file__).parents[1]
 SIGN_WORKFLOW = ROOT / ".github" / "workflows" / "sign-and-upload.yml"
 PR_WORKFLOW = ROOT / ".github" / "workflows" / "pr-checks.yml"
+SSH_DEBUG_ACTION = ROOT / ".github" / "actions" / "ssh-debug" / "action.yml"
 ASC_CONTRACT = ROOT / "tests" / "fixtures" / "asc" / "3.1.1-contract.json"
 
 ASC_SHA256 = "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
@@ -58,16 +59,55 @@ def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
 
     assert "pipeline-cache-v2-${{ runner.os }}" in signing
     assert "ci-cache-v1" not in signing
-    signer = signing.split("- name: Run signer", maxsplit=1)[1].split(
-        "- name: Upload redacted run report", maxsplit=1
+    production_job = signing.split("  sign-and-upload:", maxsplit=1)[1].split(
+        "  package-shadow:", maxsplit=1
     )[0]
-    assert "sideloadedipa run --publish --json" in signer
-    assert "scripts/run_signing.py" not in signer
-    assert "if: ${{ success() && steps.package-signing.outcome == 'success' }}" in signing
+    assert "scripts/check_changes.py" not in production_job
+    assert "scripts/run_signing.py" not in production_job
+    assert 'sideloadedipa inspect --run-id "$GITHUB_RUN_ID" --json' in production_job
+    assert 'sideloadedipa sign --run-id "$GITHUB_RUN_ID" --json' in production_job
+    assert 'sideloadedipa verify --publish --run-id "$GITHUB_RUN_ID" --json' in production_job
+    assert 'sideloadedipa publish --run-id "$GITHUB_RUN_ID" --json' in production_job
+    assert "if: ${{ success() && steps.package-publication.outcome == 'success' }}" in signing
     save_cache = signing.split("- name: Save cache", maxsplit=1)[1].split(
         '- name: "Debug:', maxsplit=1
     )[0]
     assert "always()" not in save_cache
+
+
+def test_production_debug_step_does_not_inherit_job_level_secrets() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+    production_job = signing.split("  sign-and-upload:", maxsplit=1)[1].split(
+        "  package-shadow:", maxsplit=1
+    )[0]
+    job_environment = production_job.split("    env:", maxsplit=1)[1].split(
+        "    steps:", maxsplit=1
+    )[0]
+
+    assert "secrets." not in job_environment
+    assert 'name: "Debug: Start SSH session"' in production_job
+    assert (
+        "APPLE_DEV_CERT_P12_ENCODED:"
+        not in production_job.split('name: "Debug: Start SSH session"', maxsplit=1)[1].split(
+            "- name: Notify webhook", maxsplit=1
+        )[0]
+    )
+
+
+def test_ssh_debug_long_lived_processes_drop_production_credentials() -> None:
+    action = SSH_DEBUG_ACTION.read_text()
+
+    for step in (
+        "Start public-key-only SSH server",
+        "Start Cloudflare Tunnel",
+        "Hold runner open",
+    ):
+        body = action.split(f"- name: {step}", maxsplit=1)[1].split("    - name:", maxsplit=1)[0]
+        assert "unset APPLE_DEV_CERT_P12_ENCODED APPLE_DEV_CERT_PASSWORD" in body
+        assert "unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64" in body
+        assert "unset GITHUB_TOKEN GH_TOKEN" in body
+        assert "unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY" in body
+        assert "unset VERCEL_REVALIDATE_SECRET WEBHOOK_URL" in body
 
 
 def test_shadow_and_canary_are_non_publishing_and_retain_only_reports() -> None:
