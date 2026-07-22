@@ -10,17 +10,17 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from sideloadedipa.cache_decisions import RebuildDecision, RebuildReason
+from sideloadedipa.cache.decisions import RebuildDecision, RebuildReason
 from sideloadedipa.domain import PipelineStage, PublicationResult, SourceAsset, StageStatus
-from sideloadedipa.run_reports import (
+from sideloadedipa.errors import DomainError
+from sideloadedipa.pipeline.run_reports import (
     RunReport,
     TaskRunEvidence,
     canonical_run_report_json,
-    human_run_report,
     write_run_report,
 )
-from sideloadedipa.stage_manifests import finish_stage, start_stage
-from tests.test_publication import candidate
+from sideloadedipa.pipeline.stage_manifests import finish_stage, start_stage
+from tests.conftest import publication_candidate as candidate
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -107,16 +107,13 @@ def test_report_contains_complete_provenance_and_redacts_secrets(tmp_path: Path)
     assert digest == hashlib.sha256(canonical).hexdigest()
 
 
-def test_writes_atomic_json_and_concise_human_summary(tmp_path: Path) -> None:
+def test_writes_atomic_json_report(tmp_path: Path) -> None:
     report = RunReport("run-123", NOW, NOW + timedelta(seconds=3), (evidence(tmp_path),))
     output = tmp_path / "reports" / "run.json"
 
     write_run_report(output, report)
 
     assert json.loads(output.read_text())["run_id"] == "run-123"
-    assert human_run_report(report) == (
-        "Run run-123: 1 task(s), 3.00s\n" "Example: succeeded; cache=fingerprint-changed; published"
-    )
 
 
 @pytest.mark.parametrize("mismatch", ["stage", "plan", "verification", "publication"])
@@ -134,5 +131,5 @@ def test_rejects_cross_task_or_digest_mismatches(tmp_path: Path, mismatch: str) 
         assert task.publication is not None
         task = replace(task, publication=replace(task.publication, artifact_sha256="9" * 64))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         canonical_run_report_json(RunReport("run-123", NOW, NOW + timedelta(seconds=3), (task,)))

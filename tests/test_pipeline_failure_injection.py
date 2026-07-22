@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
-import sideloadedipa.production_pipeline as production
+import sideloadedipa.pipeline.production as production
+import sideloadedipa.pipeline.publish_stage as publish_stage
 from sideloadedipa.application import CommandName, CommandResult
-from sideloadedipa.cache_fingerprint import SigningCacheFingerprint
+from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     PipelineStage,
@@ -19,10 +20,13 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.metadata import IpaMetadata
-from sideloadedipa.preflight import PreflightResult
-from sideloadedipa.production_pipeline import PreparedContext, ProductionPipeline
-from tests.test_production_pipeline import command, dependencies, source_context
-from tests.test_signing_service import CopyBackend, request_for
+from sideloadedipa.pipeline.production import PreparedContext, ProductionPipeline
+from sideloadedipa.signing.preflight import PreflightResult
+from tests.conftest import FixtureCopyBackend as CopyBackend
+from tests.conftest import package_request as request_for
+from tests.conftest import production_command as command
+from tests.conftest import production_dependencies as dependencies
+from tests.conftest import production_source_context as source_context
 
 
 @pytest.mark.parametrize("failed_stage", tuple(PipelineStage))
@@ -128,13 +132,13 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
 
     monkeypatch.setattr(
         production,
-        "_publication_runtime",
+        "publication_runtime",
         lambda configuration, environment: (PublicationStore(), Publisher()),
     )
     monkeypatch.setattr(
-        production, "read_ipa_metadata", lambda path: IpaMetadata("com.example.app", "1.0")
+        publish_stage, "read_ipa_metadata", lambda path: IpaMetadata("com.example.app", "1.0")
     )
-    monkeypatch.setattr(production, "build_icon_png", lambda *args, **kwargs: b"icon")
+    monkeypatch.setattr(publish_stage, "build_icon_png", lambda *args, **kwargs: b"icon")
 
     original_record = pipeline._record_success
 

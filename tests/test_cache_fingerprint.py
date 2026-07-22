@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
-from sideloadedipa.cache_fingerprint import (
-    CACHE_FINGERPRINT_SCHEMA_VERSION,
+from sideloadedipa.cache.fingerprint import (
     SigningCacheFingerprint,
     ToolFingerprint,
     build_signing_cache_fingerprint,
-    canonical_cache_fingerprint_json,
 )
 from sideloadedipa.domain import (
     BundleGraph,
@@ -150,23 +147,6 @@ def build(values: FixtureInputs) -> SigningCacheFingerprint:
     )
 
 
-def test_fingerprint_is_canonical_complete_and_redacted() -> None:
-    fingerprint = build(inputs())
-    encoded = canonical_cache_fingerprint_json(fingerprint)
-    document = json.loads(encoded)
-
-    assert document["schema_version"] == CACHE_FINGERPRINT_SCHEMA_VERSION
-    assert document["sha256"] == fingerprint.sha256
-    assert document["components"]["source"]["asset_id"] == "ASSET"
-    assert document["components"]["target_bundle_ids"] == ["io.example.app"]
-    assert document["components"]["apple_resources"]["manifest_sha256"] == "1" * 64
-    assert document["components"]["certificate_sha256"] == "c" * 64
-    assert document["components"]["device_set_sha256"] == "9" * 64
-    assert document["components"]["backend"]["version"] == "1.1.1"
-    assert document["components"]["tools"][0]["version"] == "3.1.1"
-    assert "token=private" not in encoded.decode()
-
-
 def test_every_cache_input_category_changes_the_fingerprint() -> None:
     original = inputs()
     baseline = build(original).sha256
@@ -209,14 +189,3 @@ def test_unrelated_task_fingerprint_remains_stable() -> None:
 
     assert build(first).sha256 != build(inputs()).sha256
     assert build(unrelated) == before
-
-
-def test_serialization_rejects_tampered_components() -> None:
-    fingerprint = build(inputs())
-
-    try:
-        canonical_cache_fingerprint_json(replace(fingerprint, task_name="Other"))
-    except ValueError as error:
-        assert "inconsistent" in str(error)
-    else:
-        raise AssertionError("tampered fingerprint was accepted")

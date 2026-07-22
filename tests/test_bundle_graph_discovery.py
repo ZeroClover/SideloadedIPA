@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import plistlib
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -283,7 +284,9 @@ def test_entitlement_failure_replaces_workspace_path_with_bundle_path(tmp_path: 
     assert dict(caught.value.safe_details)["path"] == "Payload/App.app/App"
 
 
-def test_allows_explicit_unsigned_source_without_inventing_entitlements(tmp_path: Path) -> None:
+def test_allows_explicit_unsigned_source_without_inventing_entitlements(
+    tmp_path: Path, thin_macho_bytes: Callable[[], bytes]
+) -> None:
     bundle = make_bundle(
         tmp_path,
         "Payload/App.app",
@@ -291,12 +294,13 @@ def test_allows_explicit_unsigned_source_without_inventing_entitlements(tmp_path
         executable="App",
         package_type="APPL",
     )
+    (bundle / "App").write_bytes(thin_macho_bytes())
     (bundle / "embedded.mobileprovision").write_bytes(b"source profile")
 
     graph = discover_bundle_graph(
         tmp_path,
         "a" * 64,
-        macho_probe=MarkerMachOProbe(),
+        macho_probe=LiefMachOProbe(),
         entitlement_inspector=UnsignedEntitlementInspector(),
         allow_missing_code_signature=True,
     )
@@ -335,6 +339,7 @@ def test_rejects_entitlement_disagreement_between_fat_slices(tmp_path: Path) -> 
 
 def test_rejects_non_macho_bundle_and_dylib_but_ignores_executable_resource(
     tmp_path: Path,
+    thin_macho_bytes: Callable[[], bytes],
 ) -> None:
     app = make_bundle(
         tmp_path,
@@ -348,16 +353,26 @@ def test_rejects_non_macho_bundle_and_dylib_but_ignores_executable_resource(
         discover(tmp_path)
     assert root_error.value.code is ErrorCode.INVENTORY_EXECUTABLE_INVALID
 
-    (app / "App").write_bytes(b"MACHO:root")
+    (app / "App").write_bytes(thin_macho_bytes())
     (app / "Invalid.dylib").write_bytes(b"not macho")
     with pytest.raises(DomainError, match="dylib"):
-        discover(tmp_path)
+        discover_bundle_graph(
+            tmp_path,
+            "a" * 64,
+            macho_probe=LiefMachOProbe(),
+            entitlement_inspector=MarkerEntitlementInspector(),
+        )
 
     (app / "Invalid.dylib").unlink()
     unknown = app / "unknown-tool"
     unknown.write_bytes(b"script")
     unknown.chmod(0o755)
-    graph = discover(tmp_path)
+    graph = discover_bundle_graph(
+        tmp_path,
+        "a" * 64,
+        macho_probe=LiefMachOProbe(),
+        entitlement_inspector=MarkerEntitlementInspector(),
+    )
     assert all(node.path.name != "unknown-tool" for node in graph.nodes)
 
 

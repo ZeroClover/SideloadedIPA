@@ -6,7 +6,7 @@ import base64
 import binascii
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Protocol
 
 from sideloadedipa.adapters.apple.asc import AscResponse
@@ -19,8 +19,6 @@ from sideloadedipa.domain import (
     thaw_json,
 )
 from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
-from sideloadedipa.profile_validation import validate_mobileprovision_content
-from sideloadedipa.subprocesses import SubprocessRunner
 
 _UNCERTAIN_CREATE_ERRORS = frozenset(
     {
@@ -59,22 +57,6 @@ class ProfileContentValidator(Protocol):
     def validate(
         self, content: bytes, request: ProfileValidationRequest
     ) -> ProvisioningProfile: ...
-
-
-@dataclass(frozen=True, slots=True)
-class MobileProvisionValidator:
-    refresh_threshold: timedelta
-    now: datetime | None = None
-    runner: SubprocessRunner | None = None
-
-    def validate(self, content: bytes, request: ProfileValidationRequest) -> ProvisioningProfile:
-        return validate_mobileprovision_content(
-            content,
-            request,
-            now=self.now or datetime.now(timezone.utc),
-            refresh_threshold=self.refresh_threshold,
-            runner=self.runner,
-        )
 
 
 @dataclass(frozen=True, slots=True)

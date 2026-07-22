@@ -57,17 +57,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  dispatch-input-guard:
+    name: Validate manual dispatch inputs
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject qualification options without qualification mode
+        if: ${{ (inputs.qualification_apply == true || inputs.qualification_reset_names == true) && inputs.backend_qualification != true }}
+        shell: bash
+        run: |
+          echo "qualification_apply and qualification_reset_names require backend_qualification." >&2
+          exit 1
+
   sign-and-upload:
     name: Sign & Upload IPAs
     if: >-
       ${{ github.event_name != 'workflow_dispatch' ||
           (inputs.backend_qualification != true && inputs.apple_state_probe != true &&
-           inputs.package_shadow != true && inputs.multi_bundle_canary != true) }}
+           inputs.package_shadow != true && inputs.multi_bundle_canary != true &&
+           inputs.qualification_apply != true && inputs.qualification_reset_names != true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ZSIGN_VERSION: "v1.1.1"
-      ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
       ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
       ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
       ASC_VERSION: "3.1.1"
@@ -79,13 +91,13 @@ jobs:
       # variable (e.g. https://sideloadedipa.vercel.app/api/revalidate) while
       # testing pre-cutover, then delete the variable at DNS switchover.
       VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
-      # Enable verbose logging in scripts (used for GitHub API rate limit debug)
-      DEBUG: ${{ github.event.inputs.debug || 'false' }}
       # Force rebuild flag
       FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@v9.0.0
@@ -108,61 +120,17 @@ jobs:
             pipeline-cache-v2-${{ runner.os }}-
 
       - name: Preflight - install checksum-verified App Store Connect CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
-          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
-          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
-            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
-      - name: Preflight - install checksum-verified zsign
-        shell: bash
-        run: |
-          set -euo pipefail
-          asset="zsign-linux-musl-static.tar.gz"
-          base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
-          curl -fLsS -o "$RUNNER_TEMP/zsign_SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asset" zsign_SHA256SUMS.txt | sha256sum -c -)
-          printf '%s  %s\n' "$ZSIGN_LINUX_MUSL_SHA256" "$RUNNER_TEMP/$asset" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
-          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-musl" >> "$GITHUB_ENV"
-          test "$("$RUNNER_TEMP/zsign-musl" -v)" = "version: ${ZSIGN_VERSION#v}"
-          printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
-            "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
-
-      - name: Preflight - build qualified per-profile-entitlement zsign
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_dir="$RUNNER_TEMP/zsign-package-source"
-          archive="$RUNNER_TEMP/zsign-package-source.tar.gz"
-          sudo apt-get update
-          sudo apt-get install --yes g++ libssl-dev pkg-config
-          curl -fLsS -o "$archive" \
-            "https://codeload.github.com/zhlynn/zsign/tar.gz/$ZSIGN_SOURCE_COMMIT"
-          printf '%s  %s\n' "$ZSIGN_SOURCE_SHA256" "$archive" | sha256sum -c -
-          mkdir -p "$source_dir"
-          tar -xzf "$archive" --strip-components=1 -C "$source_dir"
-          git -C "$source_dir" apply --check --unidiff-zero \
-            "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
-          git -C "$source_dir" apply --unidiff-zero \
-            "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
-          make -C "$source_dir/build/linux" clean
-          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.2 -j"$(nproc)"
-          install -m 0755 "$source_dir/bin/zsign" "$RUNNER_TEMP/zsign-package"
-          test "$("$RUNNER_TEMP/zsign-package" -v)" = "version: 1.1.1+sideloadedipa.2"
-          zsign_sha256="$(sha256sum "$RUNNER_TEMP/zsign-package" | cut -d ' ' -f 1)"
-          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-package" >> "$GITHUB_ENV"
-          echo "ZSIGN_SHA256=$zsign_sha256" >> "$GITHUB_ENV"
-          printf 'qualified zsign executable sha256: %s\n' "$zsign_sha256"
+      - name: Preflight - build cached qualified zsign
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
 
       - name: Inventory and aggregate policy preflight
         env:
@@ -257,19 +225,12 @@ jobs:
           retention-days: 7
 
       - name: Save cache
-        if: ${{ success() && steps.package-publication.outcome == 'success' }}
+        if: ${{ success() }}
         uses: actions/cache/save@v6.1.0
-        continue-on-error: true
         with:
           path: |
             work/cache
           key: pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-${{ github.run_id }}
-
-      - name: "Debug: Start SSH session"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        uses: ./.github/actions/ssh-debug
-        with:
-          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
       - name: Notify webhook
         if: ${{ always() && (job.status == 'success' || job.status == 'failure') }}
@@ -287,6 +248,12 @@ jobs:
             -d "$payload" \
             "$WEBHOOK_URL"
 
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
   package-shadow:
     name: Read-only package pipeline shadow
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_shadow == true }}
@@ -299,6 +266,8 @@ jobs:
     steps:
       - name: Preflight - checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Preflight - set up Python with uv
         uses: astral-sh/setup-uv@v9.0.0
@@ -310,23 +279,11 @@ jobs:
         run: uv sync --frozen
 
       - name: Preflight - install checksum-verified App Store Connect CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
-          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
-
-      - name: Preflight - verify file-backed manifest handoff
-        run: |
-          uv run python scripts/run_workflow_fixture.py \
-            --output "$RUNNER_TEMP/sideloadedipa-shadow/fixture"
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
       - name: Inventory - inspect every current task without mutation
         id: shadow-inventory
@@ -403,7 +360,7 @@ jobs:
           retention-days: 3
 
       - name: "Debug: Start SSH session"
-        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        if: ${{ always() && inputs.debug == true }}
         uses: ./.github/actions/ssh-debug
         with:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
@@ -420,6 +377,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@v9.0.0
@@ -431,20 +390,11 @@ jobs:
         run: uv sync --frozen
 
       - name: Install checksum-verified App Store Connect CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
-          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
-          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
-            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
       - name: Collect redacted read-only snapshot
         env:
@@ -453,10 +403,10 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: uv run python -m sideloadedipa.apple_state_probe
+        run: uv run python -m sideloadedipa.apple.state_probe
 
       - name: "Debug: Start SSH session"
-        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        if: ${{ always() && inputs.debug == true }}
         uses: ./.github/actions/ssh-debug
         with:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
@@ -477,6 +427,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@v9.0.0
@@ -488,20 +440,11 @@ jobs:
         run: uv sync --frozen
 
       - name: Install checksum-verified App Store Connect CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | sha256sum -c -)
-          printf '%s  %s\n' "$ASC_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asc_bin" | sha256sum -c -
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
-          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
-            "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
       - name: Install checksum-verified zsign
         shell: bash
@@ -526,32 +469,10 @@ jobs:
             "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
 
       - name: Preflight - build pinned per-profile-entitlement zsign extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_dir="$RUNNER_TEMP/backend-qualification/zsign-source"
-          archive="$RUNNER_TEMP/backend-qualification/zsign-source.tar.gz"
-          sudo apt-get update
-          sudo apt-get install --yes g++ libssl-dev pkg-config
-          curl -fLsS -o "$archive" \
-            "https://codeload.github.com/zhlynn/zsign/tar.gz/$ZSIGN_SOURCE_COMMIT"
-          printf '%s  %s\n' "$ZSIGN_SOURCE_SHA256" "$archive" | sha256sum -c -
-          mkdir -p "$source_dir"
-          tar -xzf "$archive" --strip-components=1 -C "$source_dir"
-          git -C "$source_dir" apply --check --unidiff-zero \
-            "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
-          git -C "$source_dir" apply --unidiff-zero \
-            "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
-          make -C "$source_dir/build/linux" clean
-          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.2 -j"$(nproc)"
-          install -m 0755 "$source_dir/bin/zsign" \
-            "$RUNNER_TEMP/backend-qualification/zsign-per-profile"
-          test "$("$RUNNER_TEMP/backend-qualification/zsign-per-profile" -v)" \
-            = "version: 1.1.1+sideloadedipa.2"
-          help_output="$("$RUNNER_TEMP/backend-qualification/zsign-per-profile" -h || true)"
-          grep -F "Repeat to pair with repeated -m profiles." <<< "$help_output"
-          printf 'extended zsign executable sha256: '
-          sha256sum "$RUNNER_TEMP/backend-qualification/zsign-per-profile" | cut -d ' ' -f 1
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
 
       - name: Preflight - extract configured public signing certificate
         shell: bash
@@ -574,20 +495,10 @@ jobs:
           sha256sum "$private_dir/certificate.der" | cut -d ' ' -f 1
 
       - name: Inventory - build pinned synthetic four-bundle fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          fixture_dir="$RUNNER_TEMP/backend-qualification/fixture"
-          mkdir -p "$fixture_dir"
-          curl --fail --location --silent --show-error \
-            --output "$fixture_dir/LiveContainer.ipa" \
-            "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa"
-          python3 scripts/build_backend_qualification_fixture.py \
-            --source-ipa "$fixture_dir/LiveContainer.ipa" \
-            --output-ipa "$fixture_dir/qualification.ipa" \
-            --expected-source-sha256 \
-            "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6"
-          unzip -l "$fixture_dir/qualification.ipa"
+        uses: ./.github/actions/build-qualification-fixture
+        with:
+          source-url: https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa
+          source-sha256: b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6
 
       - name: Apple plan and optional apply - reconcile private prerequisites
         shell: bash
@@ -609,7 +520,7 @@ jobs:
           if [[ "${{ inputs.qualification_reset_names }}" == "true" ]]; then
             args+=(--reset-legacy-names)
           fi
-          python3 scripts/qualify_backend_prerequisites.py "${args[@]}"
+          uv run python -m sideloadedipa.tools.qualify_backend_prerequisites "${args[@]}"
 
       - name: Signing and verification - exercise upstream negative control
         continue-on-error: true
@@ -617,7 +528,7 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          uv run python scripts/exercise_zsign_backend.py \
+          uv run python -m sideloadedipa.tools.exercise_zsign_backend \
             --zsign "$RUNNER_TEMP/backend-qualification/zsign" \
             --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
             --private-key "$private_dir/private-key.pem" \
@@ -631,8 +542,8 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          uv run python scripts/exercise_zsign_backend.py \
-            --zsign "$RUNNER_TEMP/backend-qualification/zsign-per-profile" \
+          uv run python -m sideloadedipa.tools.exercise_zsign_backend \
+            --zsign "$ZSIGN_BIN" \
             --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
             --private-key "$private_dir/private-key.pem" \
             --certificate "$private_dir/certificate.pem" \
@@ -655,9 +566,6 @@ jobs:
         run: |
           set -euo pipefail
           report_dir="$RUNNER_TEMP/backend-qualification"
-          export ZSIGN_BIN="$RUNNER_TEMP/backend-qualification/zsign-per-profile"
-          export ZSIGN_SHA256
-          ZSIGN_SHA256="$(sha256sum "$ZSIGN_BIN" | cut -d ' ' -f 1)"
           uv run sideloadedipa run --task LiveContainer --apply \
             --run-id "$GITHUB_RUN_ID" --json > "$report_dir/livecontainer-run.json"
           jq -e '.status == "passed" and (.report_path | type == "string")' \
@@ -694,15 +602,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload private installable LiveContainer canary
-        if: ${{ inputs.multi_bundle_canary == true }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: livecontainer-device-canary-${{ github.run_id }}
-          path: work/signed/LiveContainer.ipa
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Remove private qualification material
         if: ${{ always() }}
         shell: bash
@@ -713,7 +612,7 @@ jobs:
           rm -rf -- "$private_dir"
 
       - name: "Debug: Start SSH session"
-        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        if: ${{ always() && inputs.debug == true }}
         uses: ./.github/actions/ssh-debug
         with:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
@@ -731,23 +630,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
 
       - name: Install checksum-verified App Store Connect CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          asc_bin="asc_${ASC_VERSION}_macOS_arm64"
-          base="https://github.com/rorkai/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "  $asc_bin" asc_checksums.txt | shasum -a 256 -c -)
-          printf '%s  %s\n' "$ASC_MACOS_ARM64_SHA256" "$RUNNER_TEMP/$asc_bin" \
-            | shasum -a 256 -c -
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          test "$(asc version | cut -d ' ' -f 1)" = "$ASC_VERSION"
-          printf 'asc repository=rorkai/App-Store-Connect-CLI version=%s sha256=%s\n' \
-            "$ASC_VERSION" "$ASC_MACOS_ARM64_SHA256"
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_macOS_arm64
+          sha256: ${{ env.ASC_MACOS_ARM64_SHA256 }}
 
       - name: Import configured signing identity into an isolated keychain
         shell: bash
@@ -793,19 +693,10 @@ jobs:
           shasum -a 256 "$private_dir/certificate.der" | cut -d ' ' -f 1
 
       - name: Build pinned synthetic four-bundle fixture
-        shell: bash
-        run: |
-          set -euo pipefail
-          fixture_dir="$RUNNER_TEMP/backend-qualification/fixture"
-          mkdir -p "$fixture_dir"
-          curl --fail --location --silent --show-error \
-            --output "$fixture_dir/LiveContainer.ipa" \
-            "https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa"
-          python3 scripts/build_backend_qualification_fixture.py \
-            --source-ipa "$fixture_dir/LiveContainer.ipa" \
-            --output-ipa "$fixture_dir/qualification.ipa" \
-            --expected-source-sha256 \
-            "b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6"
+        uses: ./.github/actions/build-qualification-fixture
+        with:
+          source-url: https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa
+          source-sha256: b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6
 
       - name: Probe private Apple qualification prerequisites
         shell: bash
@@ -816,7 +707,7 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          python3 scripts/qualify_backend_prerequisites.py \
+          uv run python -m sideloadedipa.tools.qualify_backend_prerequisites \
             --certificate-der "$private_dir/certificate.der" \
             --private-dir "$private_dir/profiles" \
             --summary "$RUNNER_TEMP/backend-qualification/profile-summary.json"
@@ -826,7 +717,7 @@ jobs:
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
-          python3 scripts/exercise_codesign_oracle.py \
+          uv run python -m sideloadedipa.tools.exercise_codesign_oracle \
             --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
             --identity "$CODESIGN_IDENTITY" \
             --keychain "$QUALIFICATION_KEYCHAIN" \
@@ -864,6 +755,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
 
       - name: Download Linux qualification summary
         uses: actions/download-artifact@v8.0.1
@@ -881,9 +783,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/compare_backend_qualification.py \
+          uv run python -m sideloadedipa.tools.compare_backend_qualification \
             --linux-summary "$RUNNER_TEMP/backend-comparison/linux/zsign-summary.json" \
             --macos-summary "$RUNNER_TEMP/backend-comparison/macos/codesign-summary.json" \
+            --negative-control-summary "$RUNNER_TEMP/backend-comparison/linux/zsign-profile-only-summary.json" \
             --summary "$RUNNER_TEMP/backend-comparison/comparison-summary.json"
 
       - name: Upload redacted comparison summary

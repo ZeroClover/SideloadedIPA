@@ -11,37 +11,44 @@ ROOT = Path(__file__).parents[1]
 SIGN_WORKFLOW = ROOT / ".github" / "workflows" / "sign-and-upload.yml"
 PR_WORKFLOW = ROOT / ".github" / "workflows" / "pr-checks.yml"
 SSH_DEBUG_ACTION = ROOT / ".github" / "actions" / "ssh-debug" / "action.yml"
+ASC_ACTION = ROOT / ".github" / "actions" / "install-asc" / "action.yml"
+ZSIGN_ACTION = ROOT / ".github" / "actions" / "build-patched-zsign" / "action.yml"
 ASC_CONTRACT = ROOT / "tests" / "fixtures" / "asc" / "3.1.1-contract.json"
 
 ASC_SHA256 = "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
 ASC_MACOS_SHA256 = "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef"
 ZSIGN_SHA256 = "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
+ZSIGN_SOURCE_COMMIT = "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
+ZSIGN_SOURCE_SHA256 = "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
 
 
 def test_workflows_pin_current_canonical_tool_releases() -> None:
     workflows = SIGN_WORKFLOW.read_text() + PR_WORKFLOW.read_text()
+    actions = ASC_ACTION.read_text() + ZSIGN_ACTION.read_text()
 
-    assert "rudrankriyam/App-Store-Connect-CLI" not in workflows
-    assert 'ASC_VERSION: "2.4.0"' not in workflows
-    assert "ZSIGN_VERSION: v1.0.4" not in workflows
-    assert "github.com/rorkai/App-Store-Connect-CLI/releases/download/" in workflows
+    assert "github.com/rorkai/App-Store-Connect-CLI/releases/download/" in actions
     assert "github.com/zhlynn/zsign/releases/download/" in workflows
     assert workflows.count(ASC_SHA256) == 5
     assert workflows.count(ASC_MACOS_SHA256) == 1
-    assert workflows.count(ZSIGN_SHA256) == 3
+    assert workflows.count(ZSIGN_SHA256) == 1
+    assert workflows.count(ZSIGN_SOURCE_COMMIT) == 3
+    assert workflows.count(ZSIGN_SOURCE_SHA256) == 3
 
 
 def test_workflows_verify_published_checksum_pin_and_runtime_version() -> None:
     signing = SIGN_WORKFLOW.read_text()
     pull_request = PR_WORKFLOW.read_text()
 
+    asc_action = ASC_ACTION.read_text()
+    zsign_action = ZSIGN_ACTION.read_text()
+    assert 'grep -F "  $ASC_ASSET" asc_checksums.txt' in asc_action
+    assert 'test "$(asc version | cut -d \' \' -f 1)" = "$ASC_VERSION"' in asc_action
+    assert 'test "$("$executable" -v)" = "version: $ZSIGN_EXPECTED_VERSION"' in zsign_action
     for workflow in (signing, pull_request):
-        assert 'grep -F "  $asc_bin" asc_checksums.txt' in workflow
-        assert 'test "$(asc version | cut -d \' \' -f 1)" = "$ASC_VERSION"' in workflow
-        assert "ASC_LINUX_AMD64_SHA256" in workflow
-        assert 'grep -F "  $asset" zsign_SHA256SUMS.txt' in workflow
-        assert '"version: ${ZSIGN_VERSION#v}"' in workflow
-        assert "ZSIGN_LINUX_MUSL_SHA256" in workflow
+        assert "uses: ./.github/actions/install-asc" in workflow
+        assert "uses: ./.github/actions/build-patched-zsign" in workflow
+        assert "ZSIGN_SOURCE_COMMIT" in workflow
+        assert "ZSIGN_SOURCE_SHA256" in workflow
 
 
 def test_asc_adapter_contract_matches_workflow_release() -> None:
@@ -68,9 +75,9 @@ def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
     assert 'sideloadedipa sign --run-id "$GITHUB_RUN_ID" --json' in production_job
     assert 'sideloadedipa verify --publish --run-id "$GITHUB_RUN_ID" --json' in production_job
     assert 'sideloadedipa publish --run-id "$GITHUB_RUN_ID" --json' in production_job
-    assert "if: ${{ success() && steps.package-publication.outcome == 'success' }}" in signing
+    assert "if: ${{ success() }}" in signing
     save_cache = signing.split("- name: Save cache", maxsplit=1)[1].split(
-        '- name: "Debug:', maxsplit=1
+        "- name: Notify webhook", maxsplit=1
     )[0]
     assert "always()" not in save_cache
 
@@ -86,12 +93,33 @@ def test_production_debug_step_does_not_inherit_job_level_secrets() -> None:
 
     assert "secrets." not in job_environment
     assert 'name: "Debug: Start SSH session"' in production_job
-    assert (
-        "APPLE_DEV_CERT_P12_ENCODED:"
-        not in production_job.split('name: "Debug: Start SSH session"', maxsplit=1)[1].split(
-            "- name: Notify webhook", maxsplit=1
-        )[0]
+    debug = production_job.split('name: "Debug: Start SSH session"', maxsplit=1)[1]
+    assert "APPLE_DEV_CERT_P12_ENCODED:" not in debug
+    assert production_job.index("- name: Notify webhook") < production_job.index(
+        '- name: "Debug: Start SSH session"'
     )
+
+
+def test_dispatch_mode_inputs_cannot_fall_through_to_production() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+    production_condition = signing.split("  sign-and-upload:", maxsplit=1)[1].split(
+        "    runs-on:", maxsplit=1
+    )[0]
+    guard = signing.split("  dispatch-input-guard:", maxsplit=1)[1].split(
+        "  sign-and-upload:", maxsplit=1
+    )[0]
+
+    for option in ("qualification_apply", "qualification_reset_names"):
+        assert f"inputs.{option} != true" in production_condition
+        assert f"inputs.{option} == true" in guard
+    assert "inputs.backend_qualification != true" in guard
+    assert "secrets." not in guard
+
+
+def test_every_checkout_disables_persisted_repository_credentials() -> None:
+    for workflow in (SIGN_WORKFLOW, PR_WORKFLOW):
+        text = workflow.read_text()
+        assert text.count("uses: actions/checkout@") == text.count("persist-credentials: false")
 
 
 def test_ssh_debug_long_lived_processes_drop_production_credentials() -> None:
@@ -132,6 +160,8 @@ def test_shadow_and_canary_are_non_publishing_and_retain_only_reports() -> None:
     assert "sideloadedipa sign --task LiveContainer" not in canary
     assert ".[0].verification.passed == true and .[0].publication == null" in canary
     assert "retention-days: 1" in canary
+    assert "livecontainer-device-canary" not in canary
+    assert "work/signed/LiveContainer.ipa" not in canary
 
 
 def test_non_production_jobs_scope_secrets_to_consuming_steps() -> None:
@@ -159,14 +189,17 @@ def test_non_production_jobs_scope_secrets_to_consuming_steps() -> None:
     assert "ASC_PRIVATE_KEY_B64:" not in debug
 
 
-def test_pr_workflow_is_fork_safe_and_exercises_file_manifests() -> None:
+def test_pr_workflow_is_fork_safe_and_validates_workflow_contracts() -> None:
     pull_request = PR_WORKFLOW.read_text()
 
     assert "permissions:\n  contents: read" in pull_request
     assert "secrets.ASC_" not in pull_request
     assert "secrets.APPLE_DEV_CERT" not in pull_request
-    assert "run_workflow_fixture.py" in pull_request
+    assert "run_workflow_fixture.py" not in pull_request
     assert "actionlint" in pull_request
+    assert 'Dir[".github/actions/**/action.yml"]' in pull_request
+    assert "uv run mypy scripts/" in pull_request
+    assert "continue-on-error: true\n        run: uv run mypy scripts/" not in pull_request
     assert pull_request.count("./.github/actions/ssh-debug") == 2
 
 

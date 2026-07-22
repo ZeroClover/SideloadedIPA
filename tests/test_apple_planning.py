@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from sideloadedipa.apple_planning import plan_apple_resources
+from sideloadedipa.apple.planning import plan_apple_resources
 from sideloadedipa.domain import (
     AppleResourceKind,
     AppleResourceRequirement,

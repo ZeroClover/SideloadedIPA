@@ -11,7 +11,7 @@ from typing import Protocol
 
 from sideloadedipa.domain import FrozenJsonObject, FrozenJsonValue, freeze_json
 from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode
-from sideloadedipa.subprocesses import (
+from sideloadedipa.util.subprocesses import (
     DEFAULT_ENV_ALLOWLIST,
     SubprocessResult,
     SubprocessRunner,

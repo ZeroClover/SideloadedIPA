@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from sideloadedipa.domain import BundleNode, BundleNodeKind
 from sideloadedipa.domain.identifiers import validate_bundle_identifier
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.util.atomics import file_sha256
 
 
 def _inventory_error(
@@ -48,11 +49,7 @@ def _required_string(document: Mapping[str, object], field: str, bundle_path: Pu
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return file_sha256(path)
 
 
 def _discover_profile_bundle(

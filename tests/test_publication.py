@@ -21,7 +21,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.publication import VerifiedPublicationService
+from sideloadedipa.pipeline.publication import VerifiedPublicationService
 from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)

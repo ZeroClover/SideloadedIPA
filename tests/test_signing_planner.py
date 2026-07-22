@@ -36,12 +36,11 @@ from sideloadedipa.domain import (
     reconcile_bundle_rules,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
-from sideloadedipa.signing_planner import (
+from sideloadedipa.signing.planner import (
     SigningPlanRequest,
     build_signing_plan,
-    canonical_signing_plan_json,
 )
+from sideloadedipa.signing.profile_storage import build_profile_manifest, profile_relative_path
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -213,7 +212,6 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
 
     plan = build_signing_plan(request)
     repeated = build_signing_plan(request)
-    document = json.loads(canonical_signing_plan_json(plan))
 
     assert plan == repeated
     assert plan.source_ipa_sha256 == graph.source_sha256
@@ -243,14 +241,6 @@ def test_joins_inventory_policy_profiles_entitlements_certificate_and_backend() 
         assert profile_free.profile_sha256 is None
         assert profile_free.expected_entitlements == ()
         assert profile_free.expected_entitlements_sha256 == normalize_entitlements({}).sha256
-    assert document["plan_sha256"] == plan.plan_sha256
-    without_digest = {key: value for key, value in document.items() if key != "plan_sha256"}
-    assert (
-        plan.plan_sha256
-        == hashlib.sha256(
-            json.dumps(without_digest, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-    )
 
 
 @pytest.mark.parametrize("mode", ["missing", "duplicate", "unused"])

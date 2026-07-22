@@ -1,5 +1,30 @@
 # Migration from fastlane (spaceship) to App Store Connect CLI
 
+## Current scripts-to-package migration
+
+The production signing path now lives entirely under `src/sideloadedipa/` and is
+invoked through `uv run sideloadedipa` or package-native `python -m
+sideloadedipa.tools.<name>` commands. The former `scripts/` delegators,
+fixture-only engine, legacy sync/reconcile modules, and root-level compatibility
+modules have been removed.
+
+The package is split by responsibility: `apple/` owns Apple command composition,
+`signing/` owns plans and execution, `cache/` owns fingerprint/reuse state,
+`pipeline/` owns durable stage sequencing, and `adapters/publication/` owns R2
+and icon I/O. Reusable workflow setup lives in `.github/actions/`.
+
+Historical sections below describe earlier migrations and names as they existed
+at that time; they are not current invocation instructions. Current local
+commands are:
+
+```bash
+uv run sideloadedipa inspect --run-id <id> --json
+uv run sideloadedipa plan --run-id <id> --json
+uv run sideloadedipa sync --run-id <id> --apply --json
+uv run sideloadedipa sign --run-id <id> --json
+uv run sideloadedipa verify --run-id <id> --json
+```
+
 ## Summary
 
 This project has been migrated from using fastlane's spaceship library to the [App Store Connect CLI](https://github.com/rorkai/App-Store-Connect-CLI) for provisioning profile management.

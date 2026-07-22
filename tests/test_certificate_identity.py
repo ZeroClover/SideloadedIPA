@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,15 +15,19 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
-from sideloadedipa.apple_state_probe import redacted_certificate_summary
-from sideloadedipa.certificate_identity import (
+import sideloadedipa.apple.state_probe as state_probe
+from sideloadedipa.apple.state_probe import (
+    certificate_identity_from_environment,
+    redacted_certificate_summary,
+)
+from sideloadedipa.domain import AppleCertificateState, AppleStateSnapshot
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
+from sideloadedipa.signing.certificate_identity import (
     certificate_requirement,
     load_p12_certificate_identity,
     load_p12_certificate_material,
     resolve_certificate_identity,
 )
-from sideloadedipa.domain import AppleCertificateState, AppleStateSnapshot
-from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 
 
 def make_p12(path: Path, password: str) -> tuple[bytes, datetime]:
@@ -192,3 +198,68 @@ def test_requires_timezone_aware_current_time(tmp_path: Path) -> None:
         resolve_certificate_identity(snapshot=snapshot(), identity=identity, now=datetime.now())
 
     assert caught.value.code is ErrorCode.DOMAIN_INVARIANT
+
+
+def test_certificate_probe_validates_environment_and_resolves_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("APPLE_DEV_CERT_P12_ENCODED", raising=False)
+    monkeypatch.delenv("APPLE_DEV_CERT_PASSWORD", raising=False)
+    assert certificate_identity_from_environment(snapshot()) is None
+
+    monkeypatch.setenv("APPLE_DEV_CERT_P12_ENCODED", "not-base64")
+    with pytest.raises(ConfigurationError) as missing_password:
+        certificate_identity_from_environment(snapshot())
+    assert missing_password.value.code is ErrorCode.CONFIG_MISSING
+
+    monkeypatch.setenv("APPLE_DEV_CERT_PASSWORD", "password")
+    with pytest.raises(ConfigurationError) as invalid_content:
+        certificate_identity_from_environment(snapshot())
+    assert invalid_content.value.code is ErrorCode.CONFIG_INVALID
+
+    path = tmp_path / "development.p12"
+    make_p12(path, "password")
+    identity = load_p12_certificate_identity(path, "password")
+    monkeypatch.setenv("APPLE_DEV_CERT_P12_ENCODED", base64.b64encode(path.read_bytes()).decode())
+
+    resolved = certificate_identity_from_environment(
+        snapshot(apple_certificate("CERT_ONE", identity.certificate_sha256))
+    )
+
+    assert resolved is not None
+    assert resolved.resource_id == "CERT_ONE"
+
+
+def test_state_probe_main_prints_only_redacted_state(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    current = snapshot(apple_certificate("CERT_ONE", "c" * 64))
+    identity = state_probe.CertificateIdentity(
+        resource_id="CERT_ONE",
+        team_id="TEAMID1234",
+        serial_number="1234ABCD",
+        public_key_sha256="a" * 64,
+        certificate_sha256="c" * 64,
+        expires_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+    )
+
+    class Collector:
+        def __init__(self, client: object) -> None:
+            assert client == "client"
+
+        def collect(self) -> AppleStateSnapshot:
+            return current
+
+    monkeypatch.setattr(state_probe, "AscClient", lambda: "client")
+    monkeypatch.setattr(state_probe, "AppleStateCollector", Collector)
+    monkeypatch.setattr(
+        state_probe,
+        "certificate_identity_from_environment",
+        lambda value: identity,
+    )
+
+    assert state_probe.main() == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["snapshot_sha256"] == "digest"
+    assert document["certificate_identity"]["resource_id"] == "CERT_ONE"
+    assert "private" not in json.dumps(document)

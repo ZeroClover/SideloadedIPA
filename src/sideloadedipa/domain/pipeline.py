@@ -32,16 +32,6 @@ class StageStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class StageState:
-    stage: PipelineStage
-    status: StageStatus
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    result_sha256: str | None = None
-    diagnostics: tuple[Diagnostic, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class StageManifest:
     schema_version: int
     task_name: str

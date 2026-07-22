@@ -14,6 +14,7 @@ from sideloadedipa.domain import (
     VerificationFinding,
     VerificationResult,
 )
+from sideloadedipa.util.atomics import file_sha256
 from sideloadedipa.verification.artifact import (
     SignedArtifactEntitlementEvidence,
     SignedEntitlementInspector,
@@ -127,5 +128,5 @@ class PackageVerifier:
             *self.checks.verify_signatures(plan, signed_ipa),
             *self.checks.verify_integrity(plan, self.source_ipa, signed_ipa),
         )
-        artifact_sha256 = hashlib.sha256(signed_ipa.read_bytes()).hexdigest()
+        artifact_sha256 = file_sha256(signed_ipa)
         return build_verification_result(plan, artifact_sha256, findings)

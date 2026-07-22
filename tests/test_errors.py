@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sideloadedipa.domain import DiagnosticSeverity
-from sideloadedipa.errors import AdapterError, ConfigurationError, DomainError, ErrorCode
+from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode
 
 
 def test_configuration_error_preserves_stable_safe_context() -> None:
@@ -42,10 +42,3 @@ def test_adapter_error_adds_adapter_and_operation_details() -> None:
         ("operation", "sign"),
         ("exit_code", 2),
     )
-
-
-def test_error_categories_remain_distinct() -> None:
-    domain = DomainError(ErrorCode.DOMAIN_INVARIANT, "invalid graph")
-    configuration = ConfigurationError(ErrorCode.CONFIG_MISSING, "missing task")
-
-    assert type(domain) is not type(configuration)

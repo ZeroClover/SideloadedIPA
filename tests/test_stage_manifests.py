@@ -16,7 +16,7 @@ from sideloadedipa.domain import (
     StageStatus,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.stage_manifests import (
+from sideloadedipa.pipeline.stage_manifests import (
     PIPELINE_STAGE_ORDER,
     STAGE_MANIFEST_SCHEMA_VERSION,
     canonical_stage_manifest_json,
@@ -231,5 +231,5 @@ def test_skip_rejects_out_of_order_and_tampered_predecessors() -> None:
 def test_canonical_serialization_rejects_content_tampering() -> None:
     source = _completed_source()
 
-    with pytest.raises(ValueError, match="digest"):
+    with pytest.raises(DomainError, match="digest"):
         canonical_stage_manifest_json(replace(source, result_sha256="0" * 64))

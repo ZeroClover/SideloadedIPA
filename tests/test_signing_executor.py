@@ -28,7 +28,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.signing_executor import execute_signing_plan, package_workspace_ipa
+from sideloadedipa.signing.executor import execute_signing_plan, package_workspace_ipa
 from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 

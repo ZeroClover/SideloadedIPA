@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-
-import pytest
 
 from sideloadedipa.domain import (
     BundleNodeKind,
@@ -18,10 +15,7 @@ from sideloadedipa.domain import (
     VerificationFinding,
 )
 from sideloadedipa.verification import (
-    VERIFICATION_REPORT_SCHEMA_VERSION,
     build_verification_result,
-    canonical_verification_report_json,
-    human_verification_report,
     required_verification_checks,
     verification_publication_gate,
 )
@@ -83,27 +77,12 @@ def _passing_findings(plan: SigningPlan) -> tuple[VerificationFinding, ...]:
     )
 
 
-def test_builds_stable_redacted_json_and_human_reports() -> None:
+def test_builds_verified_result_that_opens_publication_gate() -> None:
     plan = _plan()
     result = build_verification_result(plan, "9" * 64, _passing_findings(plan))
 
     assert result.passed
     assert verification_publication_gate(plan, result)
-    first = canonical_verification_report_json(plan, result)
-    assert first == canonical_verification_report_json(plan, result)
-    document = json.loads(first)
-    assert document["schema_version"] == VERIFICATION_REPORT_SCHEMA_VERSION
-    assert document["verified"] is True
-    assert document["publication_allowed"] is True
-    assert document["report_sha256"] == result.report_sha256
-    assert {item["node_path"] for item in document["findings"]} == {
-        node.source_path.as_posix() for node in plan.nodes
-    }
-    assert "PRIVATE" not in first.decode()
-
-    human = human_verification_report(plan, result)
-    assert human.startswith("VERIFIED: Example")
-    assert all(node.source_path.as_posix() in human for node in plan.nodes)
 
 
 def test_missing_required_check_fails_closed_and_is_reported() -> None:
@@ -128,9 +107,6 @@ def test_missing_required_check_fails_closed_and_is_reported() -> None:
     )
     assert not missing.passed
     assert missing.diagnostics[0].code == "verification.required_check_missing"
-    assert "FAIL required-check:signed-entitlements:*:der" in human_verification_report(
-        plan, result
-    )
 
 
 def test_failed_supplemental_finding_blocks_publication() -> None:
@@ -152,9 +128,6 @@ def test_failed_supplemental_finding_blocks_publication() -> None:
 
     assert not result.passed
     assert not verification_publication_gate(plan, result)
-    human = human_verification_report(plan, result)
-    assert "FAIL independent-oracle" in human
-    assert "ERROR verification.oracle: independent verifier disagreed" in human
 
 
 def test_duplicate_evidence_fails_closed() -> None:
@@ -177,28 +150,6 @@ def test_gate_does_not_trust_stored_boolean_or_report_digest() -> None:
     forged = replace(incomplete, passed=True)
 
     assert not verification_publication_gate(plan, forged)
-    with pytest.raises(ValueError, match="inconsistent"):
-        canonical_verification_report_json(plan, forged)
-
-    complete = build_verification_result(plan, "9" * 64, _passing_findings(plan))
-    with pytest.raises(ValueError, match="inconsistent"):
-        canonical_verification_report_json(plan, replace(complete, passed=False))
-    with pytest.raises(ValueError, match="inconsistent"):
-        canonical_verification_report_json(plan, replace(complete, report_sha256="0" * 64))
-
-
-def test_human_report_includes_failed_unplanned_node() -> None:
-    plan = _plan()
-    unknown = VerificationFinding(
-        PurePosixPath("Payload/Example.app/PlugIns/Unknown.appex"),
-        "unplanned-entitlement-evidence",
-        False,
-    )
-    result = build_verification_result(plan, "9" * 64, (*_passing_findings(plan), unknown))
-
-    human = human_verification_report(plan, result)
-    assert "Payload/Example.app/PlugIns/Unknown.appex: 0/1 checks passed" in human
-    assert "FAIL unplanned-entitlement-evidence" in human
 
 
 def test_artifact_checks_are_bound_to_root_bundle_even_when_plan_is_deepest_first() -> None:

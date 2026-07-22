@@ -40,6 +40,7 @@ bundle_id = "io.zeroclover.app.jhentai"
 repo_url = "https://github.com/jiangtian616/JHenTai"
 slug = "JHenTai"
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
+publication_enabled = true
 
 [[tasks]]
 task_name = "Eros FE"
@@ -51,6 +52,7 @@ slug = "fehviewer" # legacy download-page directory name
 # sitting beside it is an orphaned Flutter placeholder no longer referenced by
 # the asset catalog — using it would ship the stock Flutter logo.
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon.png"
+publication_enabled = true
 
 [[tasks]]
 task_name = "Asspp"
@@ -61,6 +63,7 @@ slug = "Asspp"
 # asspp_appstore.png is the macOS icon (pre-rounded + inset); asspp.png is the
 # iOS "universal" 1024x1024 entry, i.e. the square master this page wants.
 icon_path = "Asspp/App/Assets.xcassets/AppIcon.appiconset/asspp.png"
+publication_enabled = true
 
 [[tasks]]
 task_name = "PiliPlus"
@@ -69,6 +72,7 @@ bundle_id = "io.zeroclover.app.piliplus"
 repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
 slug = "PiliPlus"
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
+publication_enabled = true
 
 [[tasks]]
 task_name = "LiveContainer"
@@ -126,3 +130,4 @@ slug = "StikDebug"
 # only square master is a .icon bundle of SVG layers. Take the (square, 152x152)
 # icon out of the signed IPA instead.
 icon_path = "ipa:"
+publication_enabled = true

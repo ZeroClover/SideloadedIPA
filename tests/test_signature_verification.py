@@ -26,10 +26,15 @@ from sideloadedipa.domain import (
     SigningBackendIdentity,
     SigningNodePlan,
     SigningPlan,
+    VerificationFinding,
     normalize_entitlements,
 )
+from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.verification import required_verification_checks
 from sideloadedipa.verification import signatures as signature_module
 from sideloadedipa.verification import verify_signed_signatures
+from sideloadedipa.verification.artifact import SignedArtifactEntitlementEvidence
+from sideloadedipa.verification.service import PackageVerifier, VerificationChecks
 
 
 def certificate() -> tuple[rsa.RSAPrivateKey, x509.Certificate, str]:
@@ -319,6 +324,51 @@ def signed_ipa(
     return ipa
 
 
+def assembled_verifier(
+    plan: SigningPlan,
+    source_ipa: Path,
+    now: datetime,
+) -> PackageVerifier:
+    def inspect_entitlements(
+        selected: SigningPlan,
+        artifact: Path,
+        *,
+        inspector: object | None = None,
+    ) -> SignedArtifactEntitlementEvidence:
+        del inspector
+        return SignedArtifactEntitlementEvidence(
+            selected.plan_sha256,
+            file_sha256(artifact),
+            (),
+        )
+
+    def verify_remaining(*args: object, **kwargs: object) -> tuple[VerificationFinding, ...]:
+        del args, kwargs
+        signature_checks = {"code-signature", "nested-resource-seal"}
+        return tuple(
+            VerificationFinding(path, check.replace("*", "arm64"), True)
+            for path, check in required_verification_checks(plan)
+            if check not in signature_checks
+        )
+
+    def no_findings(*args: object, **kwargs: object) -> tuple[VerificationFinding, ...]:
+        del args, kwargs
+        return ()
+
+    return PackageVerifier(
+        source_ipa,
+        (),
+        now,
+        checks=VerificationChecks(
+            inspect_entitlements=inspect_entitlements,
+            verify_entitlements=verify_remaining,
+            verify_profiles=no_findings,
+            verify_signatures=verify_signed_signatures,
+            verify_integrity=no_findings,
+        ),
+    )
+
+
 def test_verifies_every_planned_executable_and_parent_seal(tmp_path: Path) -> None:
     key, cert, digest = certificate()
 
@@ -333,6 +383,28 @@ def test_verifies_every_planned_executable_and_parent_seal(tmp_path: Path) -> No
         (PurePosixPath("Payload/Fixture.app"), "code-signature", True),
         (PurePosixPath("Payload/Fixture.app"), "nested-resource-seal", True),
     ]
+
+
+def test_assembled_production_verifier_accepts_genuine_signatures_and_rejects_tamper(
+    tmp_path: Path,
+) -> None:
+    key, cert, digest = certificate()
+    plan = signing_plan(digest)
+    source = tmp_path / "source.ipa"
+    source.write_bytes(b"source evidence")
+    verifier = assembled_verifier(plan, source, datetime.now(timezone.utc))
+
+    genuine = signed_ipa(tmp_path, key, cert)
+    accepted = verifier.verify(plan, genuine)
+    assert accepted.passed is True
+
+    tampered = signed_ipa(tmp_path, key, cert, tamper_nested=True)
+    rejected = verifier.verify(plan, tampered)
+    assert rejected.passed is False
+    assert any(
+        finding.check in {"code-signature", "nested-resource-seal"} and not finding.passed
+        for finding in rejected.findings
+    )
 
 
 def test_nested_tamper_fails_both_child_signature_and_parent_seal(tmp_path: Path) -> None:

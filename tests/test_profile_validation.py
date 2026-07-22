@@ -14,10 +14,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from sideloadedipa.adapters.apple import MobileProvisionValidator
 from sideloadedipa.domain import ProfileType, ProfileValidationRequest, normalize_entitlements
 from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
-from sideloadedipa.profile_validation import (
+from sideloadedipa.signing.profile_validation import (
+    MobileProvisionValidator,
     decode_and_validate_provisioning_profile,
     decode_mobileprovision,
     validate_provisioning_profile,

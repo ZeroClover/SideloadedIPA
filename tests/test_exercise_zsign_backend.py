@@ -3,21 +3,188 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import plistlib
-import sys
+import struct
+import subprocess
+import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import Encoding, pkcs7, pkcs12
+from cryptography.x509.oid import NameOID
 
-from exercise_zsign_backend import (
+from sideloadedipa.tools.exercise_codesign_oracle import signing_order as oracle_signing_order
+from sideloadedipa.tools.exercise_zsign_backend import (
     TARGETS,
+    BackendExerciseError,
     configured_entitlements,
     evaluate_contract,
+    inspect_entitlements,
+    keychain_groups,
+    materialize_entitlements,
     profile_resource_seal_matches,
     redacted_output,
     signing_order,
     zsign_command,
 )
+
+
+def _unsigned_macho() -> bytes:
+    """Arm64 MH_EXECUTE with an entitlement slot and replaceable signature command."""
+
+    xml = plistlib.dumps({}, fmt=plistlib.FMT_XML, sort_keys=True)
+    entitlement_blob = struct.pack(">II", 0xFADE7171, len(xml) + 8) + xml
+    signature = b"".join(
+        (
+            struct.pack(">III", 0xFADE0CC0, 20 + len(entitlement_blob), 1),
+            struct.pack(">II", 5, 20),
+            entitlement_blob,
+        )
+    )
+    header = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, 88, 0, 0)
+    signature_offset = len(header) + 88
+    segment = struct.pack(
+        "<II16sQQQQIIII",
+        0x19,
+        72,
+        b"__LINKEDIT",
+        0,
+        len(signature),
+        signature_offset,
+        len(signature),
+        1,
+        1,
+        0,
+        0,
+    )
+    command = struct.pack("<IIII", 0x1D, 16, signature_offset, len(signature))
+    return header + segment + command + signature
+
+
+def _generated_signing_material(
+    root: Path,
+) -> tuple[Path, Path, x509.Certificate, rsa.RSAPrivateKey]:
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Fixture Issuing CA")])
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "zsign integration fixture"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "TEAMID1234"),
+        ]
+    )
+    now = datetime.now(timezone.utc)
+    ca_certificate = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(1)
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(ca_name)
+        .public_key(key.public_key())
+        .serial_number(2)
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    private_key = root / "private-key.p12"
+    certificate_path = root / "certificate.pem"
+    private_key.write_bytes(
+        pkcs12.serialize_key_and_certificates(
+            b"zsign integration fixture",
+            key,
+            certificate,
+            [ca_certificate],
+            serialization.NoEncryption(),
+        )
+    )
+    certificate_path.write_bytes(certificate.public_bytes(Encoding.PEM))
+    return private_key, certificate_path, certificate, key
+
+
+def _profile(
+    certificate: x509.Certificate,
+    key: rsa.RSAPrivateKey,
+    bundle_identifier: str,
+) -> tuple[bytes, dict[str, object]]:
+    entitlements: dict[str, object] = {
+        "application-identifier": f"TEAMID1234.{bundle_identifier}",
+        "com.apple.developer.team-identifier": "TEAMID1234",
+        "com.apple.security.application-groups": ["group.example"],
+        "get-task-allow": True,
+        "keychain-access-groups": ["TEAMID1234.*"],
+    }
+    if bundle_identifier.endswith(("livecontainer", "LiveProcess")):
+        entitlements.update(
+            {
+                "com.apple.developer.healthkit": True,
+                "com.apple.developer.healthkit.access": ["health-records"],
+                "com.apple.developer.healthkit.background-delivery": True,
+                "com.apple.developer.kernel.increased-memory-limit": True,
+            }
+        )
+    content = plistlib.dumps(
+        {
+            "UUID": f"fixture-{bundle_identifier}",
+            "Name": f"Fixture {bundle_identifier}",
+            "TeamIdentifier": ["TEAMID1234"],
+            "ApplicationIdentifierPrefix": ["TEAMID1234"],
+            "CreationDate": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "ExpirationDate": datetime(2027, 1, 1, tzinfo=timezone.utc),
+            "DeveloperCertificates": [certificate.public_bytes(Encoding.DER)],
+            "ProvisionedDevices": ["fixture-device"],
+            "Entitlements": entitlements,
+        },
+        fmt=plistlib.FMT_XML,
+        sort_keys=True,
+    )
+    signed = (
+        pkcs7.PKCS7SignatureBuilder()
+        .set_data(content)
+        .add_signer(certificate, key, hashes.SHA256())
+        .sign(Encoding.DER, [pkcs7.PKCS7Options.Binary])
+    )
+    return signed, entitlements
+
+
+def _fixture_ipa(path: Path) -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        for _, (bundle, executable, identifier) in TARGETS.items():
+            archive.writestr(
+                f"{bundle}/Info.plist",
+                plistlib.dumps(
+                    {
+                        "CFBundleIdentifier": identifier,
+                        "CFBundleExecutable": executable,
+                        "CFBundlePackageType": "APPL" if bundle.endswith(".app") else "XPC!",
+                    },
+                    sort_keys=True,
+                ),
+            )
+            archive.writestr(f"{bundle}/{executable}", _unsigned_macho())
+
+
+def profile_entitlements(bundle_identifier: str) -> dict:
+    return {
+        "application-identifier": f"TEAM.{bundle_identifier}",
+        "com.apple.security.application-groups": ["group.example"],
+        "get-task-allow": True,
+        "keychain-access-groups": [f"TEAM.{bundle_identifier}", "TEAM.*"],
+    }
 
 
 def entitlement_contract(keychain_groups: list[str]) -> dict[str, dict]:
@@ -40,6 +207,44 @@ def entitlement_contract(keychain_groups: list[str]) -> dict[str, dict]:
             }
         )
     return result
+
+
+def test_root_oracle_materializes_exact_128_authorized_groups() -> None:
+    bundle_identifier = "io.zeroclover.app.livecontainer"
+
+    result = materialize_entitlements(
+        "root", bundle_identifier, profile_entitlements(bundle_identifier)
+    )
+
+    assert result["keychain-access-groups"] == keychain_groups(
+        f"TEAM.{bundle_identifier}", bundle_identifier
+    )
+    assert len(result["keychain-access-groups"]) == 128
+    assert result["keychain-access-groups"][0] == "TEAM.com.kdt.livecontainer.shared"
+    assert result["keychain-access-groups"][-1].endswith(".127")
+
+
+def test_extension_oracle_preserves_profile_entitlements() -> None:
+    bundle_identifier = "io.zeroclover.app.livecontainer.ShareExtension"
+    source = profile_entitlements(bundle_identifier)
+
+    result = materialize_entitlements("share", bundle_identifier, source)
+
+    assert result == source
+    assert result is not source
+
+
+def test_oracle_rejects_unauthorized_keychain_groups() -> None:
+    bundle_identifier = "io.zeroclover.app.livecontainer.LiveProcess"
+    source = profile_entitlements(bundle_identifier)
+    source["keychain-access-groups"] = [f"TEAM.{bundle_identifier}"]
+
+    with pytest.raises(BackendExerciseError, match="does not authorize 128"):
+        materialize_entitlements("process", bundle_identifier, source)
+
+
+def test_oracle_signing_order_is_deterministic_and_root_last() -> None:
+    assert oracle_signing_order() == ["launch", "process", "share", "root"]
 
 
 def test_zsign_command_uses_four_profiles_without_global_entitlements(tmp_path: Path) -> None:
@@ -168,3 +373,68 @@ def test_canary_uses_profile_policy_for_launch_extension() -> None:
     }
 
     assert configured_entitlements(Path("configs/tasks.toml"), "launch", profile) == profile
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not os.environ.get("ZSIGN_BIN"), reason="set ZSIGN_BIN to patched zsign")
+def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: Path) -> None:
+    zsign = Path(os.environ["ZSIGN_BIN"])
+    assert (
+        subprocess.run(
+            [str(zsign), "-v"], check=True, capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+        == "version: 1.1.1+sideloadedipa.2"
+    )
+    private_key, certificate_path, certificate, key = _generated_signing_material(tmp_path)
+    profiles = tmp_path / "profiles"
+    entitlements = tmp_path / "entitlements"
+    profiles.mkdir()
+    entitlements.mkdir()
+    profile_bytes: dict[str, bytes] = {}
+    expected: dict[str, dict[str, object]] = {}
+    for role, (_, _, bundle_identifier) in TARGETS.items():
+        content, authorized = _profile(certificate, key, bundle_identifier)
+        profile_bytes[role] = content
+        expected[role] = materialize_entitlements(role, bundle_identifier, authorized)
+        (profiles / f"{role}.mobileprovision").write_bytes(content)
+        (entitlements / f"{role}.plist").write_bytes(
+            plistlib.dumps(expected[role], fmt=plistlib.FMT_XML, sort_keys=True)
+        )
+
+    fixture = tmp_path / "fixture.ipa"
+    signed = tmp_path / "signed.ipa"
+    _fixture_ipa(fixture)
+    result = subprocess.run(
+        zsign_command(
+            zsign,
+            private_key,
+            certificate_path,
+            profiles,
+            fixture,
+            signed,
+            entitlements,
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    extracted = tmp_path / "signed"
+    with zipfile.ZipFile(signed) as archive:
+        archive.extractall(extracted)
+    actual: dict[str, dict[str, object]] = {}
+    for role, (bundle, executable, _) in TARGETS.items():
+        bundle_path = extracted / bundle
+        assert (bundle_path / "embedded.mobileprovision").read_bytes() == profile_bytes[role]
+        assert profile_resource_seal_matches(bundle_path, profile_bytes[role])
+        actual[role] = inspect_entitlements(
+            zsign,
+            bundle_path / executable,
+            tmp_path / "debug" / role,
+        )
+        assert actual[role] == expected[role]
+    assert evaluate_contract(actual) == []
+    observed_order = signing_order(result.stdout + result.stderr)
+    assert set(observed_order) == set(TARGETS)
+    assert observed_order[-1] == "root"

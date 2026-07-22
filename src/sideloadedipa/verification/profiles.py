@@ -20,8 +20,9 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import ErrorCode, SideloadedIPAError
 from sideloadedipa.ipa.archive import extract_ipa_safely
-from sideloadedipa.profile_validation import decode_and_validate_provisioning_profile
-from sideloadedipa.workspace import task_workspace
+from sideloadedipa.signing.profile_validation import decode_and_validate_provisioning_profile
+from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.workspace import task_workspace
 
 
 class EmbeddedProfileValidator(Protocol):
@@ -43,7 +44,7 @@ class OpenSSLEmbeddedProfileValidator:
 
 
 def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 def _diagnostic(

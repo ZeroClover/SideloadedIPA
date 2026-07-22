@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import signal
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -12,11 +13,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import sideloadedipa.production_pipeline as production
+import sideloadedipa.pipeline.production as production
+import sideloadedipa.pipeline.publish_stage as publish_stage
+import sideloadedipa.pipeline.sign_stage as sign_stage
 from sideloadedipa.application import CommandName, CommandRequest, CommandResult, OutputFormat
-from sideloadedipa.cache_decisions import RebuildReason
-from sideloadedipa.cache_fingerprint import SigningCacheFingerprint
-from sideloadedipa.cancellation import SideEffectJournal
+from sideloadedipa.cache.decisions import RebuildReason
+from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
@@ -29,18 +31,20 @@ from sideloadedipa.domain import (
     TaskConfiguration,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError
-from sideloadedipa.inspection import InspectDependencies, ResolvedSource
 from sideloadedipa.ipa.metadata import IpaMetadata
-from sideloadedipa.package_commands import PackageCommandDependencies
-from sideloadedipa.preflight import PreflightResult
-from sideloadedipa.production_pipeline import (
+from sideloadedipa.pipeline.cancellation import SideEffectJournal
+from sideloadedipa.pipeline.environment import PipelineEnvironmentDependencies
+from sideloadedipa.pipeline.inspection import InspectDependencies, ResolvedSource
+from sideloadedipa.pipeline.production import (
     PreparedContext,
     ProductionPipeline,
     ProductionPipelineDependencies,
     SourceContext,
 )
+from sideloadedipa.signing.preflight import PreflightResult
 from sideloadedipa.sources import DownloadedSource
-from tests.test_signing_service import CopyBackend, request_for
+from tests.conftest import FixtureCopyBackend as CopyBackend
+from tests.conftest import package_request as request_for
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
 
@@ -81,7 +85,7 @@ def dependencies(tmp_path: Path) -> ProductionPipelineDependencies:
         "APPLE_DEV_CERT_PASSWORD": "secret",
     }
     return ProductionPipelineDependencies(
-        package=PackageCommandDependencies(
+        package=PipelineEnvironmentDependencies(
             output_root=tmp_path / "signed",
             cache_root=tmp_path / "cache",
             profile_root=tmp_path / "profiles",
@@ -119,6 +123,44 @@ def source_context(tmp_path: Path, task, graph: BundleGraph | None = None) -> So
         digest,
     )
     return SourceContext(task, resolved, downloaded, asset, bundle_graph)
+
+
+def test_optional_icon_absence_or_processing_failure_is_non_blocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    context = source_context(tmp_path, configured)
+
+    class Store:
+        def upload_icon(self, slug: str, content: bytes) -> str:
+            raise AssertionError("failed icon processing must not upload")
+
+    assert (
+        publish_stage._upload_icon(
+            task=replace(configured, icon_path=None),
+            source=context.source,
+            source_evidence=context.resolved.evidence,
+            artifact=context.downloaded.path,
+            store=Store(),  # type: ignore[arg-type]
+        )
+        is None
+    )
+
+    monkeypatch.setattr(
+        publish_stage,
+        "build_icon_png",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("invalid icon")),
+    )
+    assert (
+        publish_stage._upload_icon(
+            task=replace(configured, icon_path="icons/example.png"),
+            source=context.source,
+            source_evidence=context.resolved.evidence,
+            artifact=context.downloaded.path,
+            store=Store(),  # type: ignore[arg-type]
+        )
+        is None
+    )
 
 
 def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monkeypatch) -> None:
@@ -408,7 +450,7 @@ def test_default_stage_wrapper_records_created_resources_on_cancellation(
             return CommandResult()
 
         def sign(self, request):  # type: ignore[no-untyped-def]
-            raise KeyboardInterrupt
+            signal.raise_signal(signal.SIGTERM)
 
     monkeypatch.setattr(production, "ProductionPipeline", InterruptedPipeline)
     request = command(tmp_path, CommandName.SYNC, run_id="cancelled")
@@ -423,6 +465,34 @@ def test_default_stage_wrapper_records_created_resources_on_cancellation(
         {"kind": "profile", "resource_id": "PROFILE_NEW"}
     ]
     assert document["publication_committed"] is False
+
+
+def test_run_rejects_publication_disabled_task_before_signing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = replace(configuration.tasks[0], publication_enabled=False)
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda _path: replace(configuration, tasks=(task,)),
+    )
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    monkeypatch.setattr(
+        pipeline,
+        "inspect",
+        lambda _request: pytest.fail("disabled task reached production stages"),
+    )
+
+    with pytest.raises(ConfigurationError, match="not approved"):
+        pipeline.run(
+            command(
+                tmp_path,
+                CommandName.RUN,
+                task.task_name,
+                publish=True,
+            )
+        )
 
 
 def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypatch) -> None:
@@ -509,13 +579,13 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(
         production,
-        "_publication_runtime",
+        "publication_runtime",
         lambda configuration, environment: (PublicationStore(), Publisher()),
     )
     monkeypatch.setattr(
-        production, "read_ipa_metadata", lambda path: IpaMetadata("com.example.app", "1.0")
+        publish_stage, "read_ipa_metadata", lambda path: IpaMetadata("com.example.app", "1.0")
     )
-    monkeypatch.setattr(production, "build_icon_png", lambda *args, **kwargs: b"icon")
+    monkeypatch.setattr(publish_stage, "build_icon_png", lambda *args, **kwargs: b"icon")
 
     result = pipeline.publish(replace(request, command=CommandName.PUBLISH))
 
@@ -531,6 +601,11 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
 def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monkeypatch) -> None:
     pipeline = ProductionPipeline(dependencies(tmp_path))
     calls: list[tuple[str, bool, bool]] = []
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda _path: load_configuration(Path("configs/tasks.toml")),
+    )
 
     def handler(name: str):
         def execute(request):  # type: ignore[no-untyped-def]
@@ -559,40 +634,22 @@ def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monk
     assert calls[-2] == ("verify", True, True)
 
 
-def test_source_metadata_helpers_and_invalid_task_selection(tmp_path: Path, monkeypatch) -> None:
-    downloaded_path = tmp_path / "download.ipa"
-    downloaded_path.write_bytes(b"ipa")
-    downloaded = DownloadedSource(downloaded_path, 3, hashlib.sha256(b"ipa").hexdigest())
-
-    fallback = production._source_asset(
-        ResolvedSource("https://example.invalid/app.ipa", None, {}, None),
-        downloaded,
-    )
-    assert fallback.name == "download.ipa"
-    assert fallback.version == downloaded.sha256[:12]
-    assert fallback.published_at is None
-    assert production._published_at("invalid") is None
-    assert production._published_at(42) is None
-
+def test_run_rejects_unknown_task_before_stages(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     monkeypatch.setattr(
         production,
         "load_configuration",
         lambda path: TaskConfiguration((task,)),
     )
-    with pytest.raises(ConfigurationError):
-        production._selected_tasks(command(tmp_path, CommandName.INSPECT, "missing"))
-
     pipeline = ProductionPipeline(dependencies(tmp_path))
-    with pytest.raises(ConfigurationError):
-        pipeline._promote_cache(command(tmp_path, CommandName.VERIFY, run_id="unsigned"))
-    empty_request = command(tmp_path, CommandName.SIGN, run_id="missing-stage")
-    with pytest.raises(DomainError):
-        pipeline._require(
-            pipeline._store(empty_request),
-            task.task_name,
-            PipelineStage.RESOURCE_APPLY,
-        )
+    monkeypatch.setattr(
+        pipeline,
+        "inspect",
+        lambda _request: pytest.fail("unknown task reached production stages"),
+    )
+
+    with pytest.raises(ConfigurationError, match="selection is invalid"):
+        pipeline.run(command(tmp_path, CommandName.RUN, "missing", publish=True))
 
 
 def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, monkeypatch) -> None:
@@ -678,34 +735,12 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
         assert prepared[0].request is signing_request
         assert prepared[0].fingerprint.task_name == task.task_name
 
-    assert production._device_set_sha256(signing_request)
+    assert sign_stage.device_set_sha256(signing_request)
     livecontainer = next(
         value
         for value in load_configuration(Path("configs/tasks.toml")).tasks
         if value.task_name == "LiveContainer"
     )
-    template_digests = production._template_digests(livecontainer, Path.cwd())
+    template_digests = sign_stage.template_digests(livecontainer, Path.cwd())
     assert len(template_digests) == 2
     assert len({path for path, _ in template_digests}) == 1
-
-
-@pytest.mark.parametrize(
-    ("wrapper", "operation"),
-    (
-        (production.inspect_command, "inspect"),
-        (production.plan_command, "plan"),
-        (production.sync_command, "sync"),
-        (production.verify_command, "verify"),
-        (production.publish_command, "publish"),
-        (production.run_command, "run"),
-    ),
-)
-def test_default_command_wrappers_delegate(wrapper, operation, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    expected = CommandResult(payload=(("operation", operation),))
-    monkeypatch.setattr(
-        production,
-        "_execute_default",
-        lambda request, selected: expected if selected == operation else CommandResult(),
-    )
-
-    assert wrapper(command(tmp_path, CommandName(operation))) is expected

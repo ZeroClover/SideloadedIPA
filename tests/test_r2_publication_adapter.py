@@ -10,10 +10,10 @@ from typing import cast
 import pytest
 
 from sideloadedipa.adapters.publication import R2PublicationGateway
+from sideloadedipa.adapters.publication.r2_store import R2Store
 from sideloadedipa.domain import PublicationCandidate
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.legacy.r2_store import R2Store
-from tests.test_publication import candidate
+from tests.conftest import publication_candidate as candidate
 
 
 @dataclass

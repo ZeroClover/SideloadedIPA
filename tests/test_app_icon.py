@@ -3,7 +3,6 @@
 import io
 import plistlib
 import struct
-import sys
 import zipfile
 import zlib
 from pathlib import Path
@@ -11,10 +10,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-# Add scripts to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from app_icon import (
+from sideloadedipa.adapters.publication.icons import (
     ICON_SIZE,
     IPA_SCHEME,
     IconError,
@@ -310,6 +306,9 @@ class TestBuildIconPng:
             build_icon_png(IPA_SCHEME, None, ipa_path=None)
 
     def test_url_source_is_fetched_and_normalised(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("app_icon.fetch_bytes", lambda url, **kw: _webp((1024, 1024)))
+        monkeypatch.setattr(
+            "sideloadedipa.adapters.publication.icons.fetch_bytes",
+            lambda url, **kw: _webp((1024, 1024)),
+        )
         img = Image.open(io.BytesIO(build_icon_png("https://example.com/i.png", None)))
         assert img.format == "PNG" and img.size == (ICON_SIZE, ICON_SIZE)

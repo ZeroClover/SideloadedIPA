@@ -28,8 +28,8 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import AdapterError
 from sideloadedipa.ipa.archive import extract_ipa_safely
-from sideloadedipa.subprocesses import SubprocessRunner
-from sideloadedipa.workspace import task_workspace
+from sideloadedipa.util.subprocesses import SubprocessRunner
+from sideloadedipa.util.workspace import task_workspace
 
 _SUPERBLOB_MAGIC = 0xFADE0CC0
 _CODE_DIRECTORY_MAGIC = 0xFADE0C02

@@ -12,7 +12,7 @@ import pytest
 
 from sideloadedipa.domain import ProfileManifestEntry
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.profile_storage import (
+from sideloadedipa.signing.profile_storage import (
     build_profile_manifest,
     canonical_profile_manifest_json,
     load_profile_manifest,

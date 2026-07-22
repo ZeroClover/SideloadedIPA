@@ -13,9 +13,8 @@ from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa import LiefEntitlementInspector
 from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.ipa.entitlements import MachOEntitlementEvidence
-from sideloadedipa.workspace import task_workspace
-
-_COPY_BUFFER_BYTES = 1024 * 1024
+from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.workspace import task_workspace
 
 
 class SignedEntitlementInspector(Protocol):
@@ -49,14 +48,6 @@ class SignedArtifactEntitlementEvidence:
     plan_sha256: str
     artifact_sha256: str
     nodes: tuple[SignedNodeEntitlementEvidence, ...]
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while block := handle.read(_COPY_BUFFER_BYTES):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _representation(
@@ -136,13 +127,13 @@ def inspect_signed_entitlements(
                     SignedNodeEntitlementEvidence(
                         node.source_path,
                         node.executable_path,
-                        _sha256_file(executable),
+                        file_sha256(executable),
                         slices,
                     )
                 )
             return SignedArtifactEntitlementEvidence(
                 plan.plan_sha256,
-                _sha256_file(signed_ipa),
+                file_sha256(signed_ipa),
                 tuple(nodes),
             )
     finally:

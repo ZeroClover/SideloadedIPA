@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from sideloadedipa.cache_decisions import TaskCacheRecord, build_cache_index
-from sideloadedipa.cache_store import SigningCacheStore
+from sideloadedipa.cache.decisions import TaskCacheRecord, build_cache_index
+from sideloadedipa.cache.store import SigningCacheStore
 
 
 def test_cache_store_round_trips_digest_verified_index(tmp_path: Path) -> None:

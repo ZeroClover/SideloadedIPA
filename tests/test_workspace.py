@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sideloadedipa.workspace import task_workspace
+from sideloadedipa.util.workspace import task_workspace
 
 
 def test_workspace_paths_are_frozen_unique_and_cleaned(tmp_path: Path) -> None:

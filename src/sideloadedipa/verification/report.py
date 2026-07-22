@@ -15,8 +15,8 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
     VerificationResult,
-    thaw_json,
 )
+from sideloadedipa.util.atomics import canonical_json, diagnostic_document
 
 VERIFICATION_REPORT_SCHEMA_VERSION = 1
 
@@ -118,18 +118,6 @@ def _contract_finding(
     )
 
 
-def _diagnostic_document(diagnostic: Diagnostic) -> dict[str, object]:
-    return {
-        "code": diagnostic.code,
-        "severity": diagnostic.severity.value,
-        "message": diagnostic.message,
-        "task_name": diagnostic.task_name,
-        "bundle_id": diagnostic.bundle_id,
-        "remediation": diagnostic.remediation,
-        "details": {key: thaw_json(value) for key, value in diagnostic.details},
-    }
-
-
 def _finding_document(finding: VerificationFinding) -> dict[str, object]:
     return {
         "node_path": finding.node_path.as_posix(),
@@ -137,12 +125,8 @@ def _finding_document(finding: VerificationFinding) -> dict[str, object]:
         "passed": finding.passed,
         "expected_sha256": finding.expected_sha256,
         "actual_sha256": finding.actual_sha256,
-        "diagnostics": [_diagnostic_document(value) for value in finding.diagnostics],
+        "diagnostics": [diagnostic_document(value) for value in finding.diagnostics],
     }
-
-
-def _canonical_json(document: Mapping[str, object]) -> bytes:
-    return json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _report_document(plan: SigningPlan, result: VerificationResult) -> dict[str, object]:
@@ -164,7 +148,7 @@ def _report_document(plan: SigningPlan, result: VerificationResult) -> dict[str,
 def verification_report_sha256(plan: SigningPlan, result: VerificationResult) -> str:
     """Digest a canonical redacted report without its self-referential digest."""
 
-    return hashlib.sha256(_canonical_json(_report_document(plan, result))).hexdigest()
+    return hashlib.sha256(canonical_json(_report_document(plan, result))).hexdigest()
 
 
 def build_verification_result(
@@ -210,46 +194,3 @@ def verification_publication_gate(plan: SigningPlan, result: VerificationResult)
         and bool(raw_findings)
         and all(finding.passed for finding in raw_findings)
     )
-
-
-def canonical_verification_report_json(plan: SigningPlan, result: VerificationResult) -> bytes:
-    """Serialize a validated, schema-versioned, redacted verification report."""
-
-    if result.plan_sha256 != plan.plan_sha256:
-        raise ValueError("verification result references a different signing plan")
-    derived_gate = verification_publication_gate(plan, result)
-    expected_digest = verification_report_sha256(plan, result)
-    if result.passed != derived_gate or result.report_sha256 != expected_digest:
-        raise ValueError("verification result is inconsistent with its required checks or digest")
-    document = _report_document(plan, result)
-    document["report_sha256"] = result.report_sha256
-    return _canonical_json(document)
-
-
-def human_verification_report(plan: SigningPlan, result: VerificationResult) -> str:
-    """Render every bundle and finding without exposing private signing material."""
-
-    status = "VERIFIED" if verification_publication_gate(plan, result) else "FAILED"
-    lines = [
-        f"{status}: {plan.task_name}",
-        f"Artifact SHA-256: {result.artifact_sha256}",
-        f"Report SHA-256: {result.report_sha256}",
-    ]
-    planned_paths = [node.source_path for node in plan.nodes]
-    additional_paths = sorted(
-        {finding.node_path for finding in result.findings} - set(planned_paths),
-        key=lambda path: path.as_posix(),
-    )
-    for path in (*planned_paths, *additional_paths):
-        node_findings = tuple(finding for finding in result.findings if finding.node_path == path)
-        passed = sum(finding.passed for finding in node_findings)
-        lines.append(f"{path.as_posix()}: {passed}/{len(node_findings)} checks passed")
-        for finding in node_findings:
-            check_status = "PASS" if finding.passed else "FAIL"
-            lines.append(f"  {check_status} {finding.check}")
-            lines.extend(
-                f"    {diagnostic.severity.value.upper()} {diagnostic.code}: "
-                f"{diagnostic.message}"
-                for diagnostic in finding.diagnostics
-            )
-    return "\n".join(lines)

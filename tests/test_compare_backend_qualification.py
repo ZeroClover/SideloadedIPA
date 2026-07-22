@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import copy
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from compare_backend_qualification import ComparisonError, compare_summaries
-from exercise_zsign_backend import TARGETS
+from sideloadedipa.tools.compare_backend_qualification import ComparisonError, compare_summaries
+from sideloadedipa.tools.exercise_zsign_backend import TARGETS
 
 
 def qualification_summaries() -> tuple[dict, dict]:
@@ -83,6 +80,7 @@ def test_comparison_accepts_reviewed_backend_difference() -> None:
         "codesign_contract_pass": True,
         "linux_backend_variant": "upstream-profile-only",
         "linux_contract_pass": False,
+        "negative_control_pass": False,
         "profile_mapping_matches": True,
         "roles": ["launch", "process", "root", "share"],
         "root_last": True,
@@ -105,11 +103,22 @@ def test_comparison_accepts_per_profile_extension_contract() -> None:
     linux["violations"] = []
     linux["signed_entitlements"] = copy.deepcopy(macos["signed_entitlements"])
 
-    result = compare_summaries(linux, macos)
+    negative, _ = qualification_summaries()
+    result = compare_summaries(linux, macos, negative)
 
     assert result["backend_decision_required"] is False
     assert result["linux_backend_variant"] == "per-profile-entitlements-extension"
     assert result["linux_contract_pass"] is True
+    assert result["negative_control_pass"] is True
+
+
+def test_comparison_rejects_a_negative_control_that_passes() -> None:
+    linux, macos = qualification_summaries()
+    negative = copy.deepcopy(linux)
+    negative["contract_pass"] = True
+
+    with pytest.raises(ComparisonError, match="negative control unexpectedly"):
+        compare_summaries(linux, macos, negative)
 
 
 def test_comparison_rejects_codesign_without_exact_keychain_contract() -> None:

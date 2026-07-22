@@ -20,7 +20,7 @@ from sideloadedipa.domain import (
     Task,
     UnknownProfileBundlePolicy,
 )
-from sideloadedipa.preflight import execute_after_preflight, validate_signing_preflight
+from sideloadedipa.signing.preflight import execute_after_preflight, validate_signing_preflight
 
 
 def bundle(path: str, identifier: str) -> BundleNode:

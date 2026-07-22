@@ -74,6 +74,11 @@ gh workflow run sign-and-upload.yml \
   -f debug=false
 ```
 
+`qualification_apply` and `qualification_reset_names` belong only to
+`backend_qualification`. A credential-free dispatch guard rejects either option
+when qualification mode is not selected, before any credential-bearing job can
+start.
+
 The canary runs `sideloadedipa run --apply` without `--publish`, so inspect,
 Apple plan/apply, signing, and standalone verification share one production
 manifest chain. It uses the production LiveContainer policy and template, four
@@ -127,8 +132,10 @@ CI uploads these JSON files even after failure.
   operation identity. Do not blindly retry an ambiguous Apple create result;
   perform an exact lookup first.
 - On cancellation, remove temporary extracted/signing workspaces. The command
-  writes `work/reports/<run-id>-cancellation.json` with Apple resources already
-  created; leave those additive resources in place and reconcile them on retry.
+  writes `work/reports/<run-id>-cancellation.json` and the side-effect journal
+  records Apple resources already created. These files are evidence only: they
+  do not roll back, delete, or compensate Apple resources. Leave additive
+  resources in place, inspect them, and reconcile by exact identity on retry.
 - A failed sign, verify, upload, or registry update must leave the prior R2 object
   and registry entry active. Never delete the old object before registry success
   and revalidation. If compensating cleanup itself fails, the diagnostic lists

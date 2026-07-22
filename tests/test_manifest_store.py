@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,13 +10,14 @@ import pytest
 
 from sideloadedipa.domain import PipelineStage, StageStatus
 from sideloadedipa.errors import ConfigurationError
-from sideloadedipa.manifest_store import FileStageManifestStore
-from sideloadedipa.stage_manifests import (
+from sideloadedipa.pipeline.manifest_store import FileStageManifestStore
+from sideloadedipa.pipeline.stage_manifests import (
     canonical_stage_manifest_json,
     finish_stage,
     parse_stage_manifest_json,
     start_stage,
 )
+from sideloadedipa.util import atomics
 
 
 def succeeded_source(task_name: str = "Example"):
@@ -33,6 +32,22 @@ def succeeded_source(task_name: str = "Example"):
         status=StageStatus.SUCCEEDED,
         completed_at=datetime(2026, 7, 21, 0, 0, 1, tzinfo=timezone.utc),
         result_sha256="a" * 64,
+    )
+
+
+def chained_manifest(task_name: str, stage: PipelineStage, predecessor=None):  # type: ignore[no-untyped-def]
+    running = start_stage(
+        task_name=task_name,
+        stage=stage,
+        started_at=datetime(2026, 7, 22, tzinfo=timezone.utc),
+        input_sha256=predecessor.result_sha256 if predecessor else None,
+        predecessor=predecessor,
+    )
+    return finish_stage(
+        running,
+        status=StageStatus.SUCCEEDED,
+        completed_at=datetime(2026, 7, 22, tzinfo=timezone.utc),
+        result_sha256=stage.value.encode().hex().ljust(64, "0")[:64],
     )
 
 
@@ -106,29 +121,37 @@ def test_atomic_save_removes_temporary_file_on_replace_failure(
 ) -> None:
     store = FileStageManifestStore(tmp_path)
 
-    def fail_replace(source: Path, destination: Path) -> Path:
+    def fail_replace(source: Path, destination: Path) -> None:
         del source, destination
         raise OSError("fixture replace failure")
 
-    monkeypatch.setattr(Path, "replace", fail_replace)
+    monkeypatch.setattr(atomics.os, "replace", fail_replace)
     with pytest.raises(OSError):
         store.save(succeeded_source())
 
     assert list(tmp_path.rglob("*.json")) == []
 
 
-def test_workflow_fixture_reopens_complete_predecessor_chain(tmp_path: Path) -> None:
-    subprocess.run(
-        [sys.executable, "scripts/run_workflow_fixture.py", "--output", str(tmp_path)],
-        check=True,
-    )
+def test_store_isolates_run_and_task_and_loads_valid_chain(tmp_path: Path) -> None:
+    store = FileStageManifestStore(tmp_path, "run/123")
+    source = chained_manifest("Task / A", PipelineStage.SOURCE)
+    inventory = chained_manifest("Task / A", PipelineStage.INVENTORY, source)
 
-    summary = json.loads((tmp_path / "workflow-fixture-summary.json").read_text())
-    stages = summary["stages"]
-    assert [value["stage"] for value in stages] == [value.value for value in PipelineStage]
-    assert all(value["status"] == "succeeded" for value in stages)
-    assert stages[0]["predecessor_sha256"] is None
-    assert all(
-        current["predecessor_sha256"] == previous["manifest_sha256"]
-        for previous, current in zip(stages, stages[1:])
-    )
+    store.save(source)
+    source_path = store.path("Task / A", PipelineStage.SOURCE)
+    store.save(inventory)
+
+    assert source_path.is_relative_to(tmp_path)
+    assert store.load("Task / A", PipelineStage.SOURCE) == source
+    assert store.completed("Task / A") == (source, inventory)
+    assert FileStageManifestStore(tmp_path, "other").completed("Task / A") == ()
+
+
+def test_store_rejects_broken_predecessor_chain(tmp_path: Path) -> None:
+    store = FileStageManifestStore(tmp_path, "run")
+    source = chained_manifest("Task", PipelineStage.SOURCE)
+    inventory = chained_manifest("Task", PipelineStage.INVENTORY, source)
+    store.save(inventory)
+
+    with pytest.raises(ConfigurationError, match="predecessor chain"):
+        store.completed("Task")

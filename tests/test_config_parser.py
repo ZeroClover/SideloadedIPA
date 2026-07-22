@@ -48,6 +48,16 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.tasks[-1].icon_path == "ipa:"
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
+    assert all(task.publication_enabled for task in configuration.tasks)
+
+
+def test_every_production_task_declares_publication_enabled_explicitly() -> None:
+    import tomllib
+
+    document = tomllib.loads(Path("configs/tasks.toml").read_text())
+
+    assert document["tasks"]
+    assert all("publication_enabled" in task for task in document["tasks"])
 
 
 def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
@@ -79,7 +89,7 @@ def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
     )
 
 
-def test_preserves_legacy_defaults_and_r2_field_names() -> None:
+def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:
     configuration = parse_configuration(
         {
             "r2": {"key_prefix": "/signed/apps/", "apps_json_key": "registry/apps.json"},
@@ -91,6 +101,7 @@ def test_preserves_legacy_defaults_and_r2_field_names() -> None:
     assert task.slug == "Legacy_Name"
     assert task.source.kind is SourceKind.DIRECT_URL
     assert task.source.release_glob is None
+    assert task.publication_enabled is False
     assert configuration.r2 == R2Config(ipa_prefix="signed/apps", registry_key="registry/apps.json")
 
 
@@ -321,3 +332,9 @@ def test_reports_missing_and_malformed_files(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError) as malformed_error:
         load_configuration(malformed)
     assert malformed_error.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_example_configuration_parses_through_the_production_loader() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml.example"))
+
+    assert configuration.tasks

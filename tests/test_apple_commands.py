@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from sideloadedipa.adapters.apple import ProfileReconciliationResult
-from sideloadedipa.apple_commands import (
+from sideloadedipa.apple.commands import (
     AppleCommandDependencies,
     plan_command,
     sync_command,
@@ -36,7 +36,7 @@ from sideloadedipa.domain import (
     thaw_json,
 )
 from sideloadedipa.errors import ConfigurationError
-from sideloadedipa.profile_storage import profile_relative_path
+from sideloadedipa.signing.profile_storage import profile_relative_path
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 TEAM_ID = "TEAMID1234"

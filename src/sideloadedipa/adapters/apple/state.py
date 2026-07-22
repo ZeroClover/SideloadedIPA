@@ -248,14 +248,6 @@ def _snapshot_document(snapshot: AppleStateSnapshot) -> dict[str, object]:
     }
 
 
-def canonical_apple_snapshot_json(snapshot: AppleStateSnapshot) -> bytes:
-    """Serialize a redacted Apple state snapshot with its stable digest."""
-
-    document = _snapshot_document(snapshot)
-    document["snapshot_sha256"] = snapshot.snapshot_sha256
-    return json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
-
-
 def collect_profiles(client: AscStateReader) -> tuple[AppleProfileState, ...]:
     """Collect normalized iOS development profiles and their exact relationships."""
 

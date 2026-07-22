@@ -12,9 +12,8 @@ import pytest
 from sideloadedipa.adapters.apple import (
     AppleStateCollector,
     AscResponse,
-    canonical_apple_snapshot_json,
 )
-from sideloadedipa.apple_state_probe import redacted_summary
+from sideloadedipa.apple.state_probe import redacted_summary
 from sideloadedipa.domain import FrozenJsonObject, freeze_json
 from sideloadedipa.errors import AdapterError, ErrorCode
 
@@ -83,8 +82,6 @@ def test_collects_sorted_redacted_snapshot_from_one_read_session() -> None:
     client = FixtureClient(fixture())
 
     snapshot = AppleStateCollector(client).collect()
-    serialized = canonical_apple_snapshot_json(snapshot)
-    document = json.loads(serialized)
 
     assert [value.identifier for value in snapshot.bundle_ids] == [
         "io.example.app",
@@ -101,20 +98,6 @@ def test_collects_sorted_redacted_snapshot_from_one_read_session() -> None:
     assert snapshot.profiles[0].certificate_resource_ids == ("CERTIFICATE_ONE",)
     assert snapshot.profiles[0].device_resource_ids == ("DEVICE_ONE",)
     assert snapshot.profiles[0].profile_sha256 == hashlib.sha256(b"profile-fixture").hexdigest()
-    assert document["snapshot_sha256"] == snapshot.snapshot_sha256
-    assert (
-        snapshot.snapshot_sha256
-        == hashlib.sha256(
-            json.dumps(
-                {key: value for key, value in document.items() if key != "snapshot_sha256"},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest()
-    )
-    assert b"UDID_PRIVATE_FIXTURE" not in serialized
-    assert b"certificate-fixture" not in serialized
-    assert b"profile-fixture" not in serialized
     assert redacted_summary(snapshot) == {
         "schema_version": 1,
         "snapshot_sha256": snapshot.snapshot_sha256,

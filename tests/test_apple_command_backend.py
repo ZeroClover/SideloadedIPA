@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
-import sideloadedipa.apple_commands as commands
+import sideloadedipa.apple.backend as backend_module
+import sideloadedipa.apple.expected_entitlements as expected_module
 from sideloadedipa.adapters.apple import ProfileReconciliationResult, ProfileSyncRequest
-from sideloadedipa.apple_commands import AscAppleCommandBackend
-from sideloadedipa.apple_intents import BundleResourceIntent
+from sideloadedipa.apple.commands import AscAppleCommandBackend
+from sideloadedipa.apple.intents import BundleResourceIntent
 from sideloadedipa.domain import (
     AppleBundleIdentifierState,
     AppleDeviceState,
@@ -27,7 +29,7 @@ from sideloadedipa.domain import (
     thaw_json,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
-from sideloadedipa.profile_storage import profile_relative_path
+from sideloadedipa.signing.profile_storage import profile_relative_path
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -133,7 +135,7 @@ def test_builds_exact_profile_request_from_public_apple_identity(
             return expected_result
 
     concrete = backend()
-    monkeypatch.setattr(commands, "ProfileReconciler", RecordingReconciler)
+    monkeypatch.setattr(backend_module, "ProfileReconciler", RecordingReconciler)
 
     result = concrete.ensure_profile(
         task=task(),
@@ -206,3 +208,126 @@ def test_profile_request_fails_closed_without_prefix_devices_or_materialized_sou
             config_path=Path("configs/tasks.toml"),
         )
     assert preserve_source.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_backend_composes_and_delegates_apple_gateways(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = object()
+    calls: list[tuple[str, object]] = []
+
+    class Bundles:
+        def ensure(self, *, identifier: str, name: str) -> AppleBundleIdentifierState:
+            calls.append(("bundle", (identifier, name)))
+            return bundle()
+
+    class Capabilities:
+        def ensure(self, **values: object) -> None:
+            calls.append(("capability", values))
+
+    class Collector:
+        def __init__(self, value: object) -> None:
+            assert value is client
+
+        def collect(self) -> AppleStateSnapshot:
+            return snapshot()
+
+    monkeypatch.setattr(backend_module, "AscBundleIdGateway", lambda value: ("bundles", value))
+    monkeypatch.setattr(backend_module, "BundleIdReconciler", lambda value: Bundles())
+    monkeypatch.setattr(
+        backend_module, "AscCapabilityGateway", lambda value: ("capabilities", value)
+    )
+    monkeypatch.setattr(backend_module, "CapabilityReconciler", lambda value: Capabilities())
+    monkeypatch.setattr(backend_module, "AscProfileGateway", lambda value: ("profiles", value))
+    monkeypatch.setattr(backend_module, "AppleStateCollector", Collector)
+
+    concrete = backend_module.AscAppleCommandBackend(client)
+
+    assert concrete.collect() == snapshot()
+    assert concrete.ensure_bundle(intent()) == bundle()
+    concrete.ensure_capability(bundle=bundle(), capability_type="APP_GROUPS")
+    assert concrete.profiles == ("profiles", client)
+    assert calls == [
+        ("bundle", ("io.example.app", "Example")),
+        (
+            "capability",
+            {
+                "bundle_resource_id": "BUNDLE_ONE",
+                "bundle_id": "io.example.app",
+                "capability_type": "APP_GROUPS",
+            },
+        ),
+    ]
+
+
+def test_backend_requires_and_returns_environment_certificate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    concrete = backend()
+    monkeypatch.setattr(
+        backend_module, "certificate_identity_from_environment", lambda current: None
+    )
+
+    with pytest.raises(ConfigurationError) as missing:
+        concrete.resolve_certificate(snapshot())
+    assert missing.value.code is ErrorCode.CONFIG_MISSING
+
+    expected = certificate()
+    monkeypatch.setattr(
+        backend_module,
+        "certificate_identity_from_environment",
+        lambda current: expected,
+    )
+    assert concrete.resolve_certificate(snapshot()) is expected
+
+
+def test_expected_entitlement_inputs_fail_closed_and_resolve_repository_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(DomainError) as empty_prefix:
+        expected_module.application_identifier_prefix(bundle("."))
+    assert empty_prefix.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
+
+    missing_template = replace(
+        intent(),
+        entitlement_policy=EntitlementPolicy(EntitlementMode.TEMPLATE),
+    )
+    with pytest.raises(ConfigurationError) as missing:
+        expected_module.expected_entitlements(
+            task=task(),
+            intent=missing_template,
+            team_id="TEAMID1234",
+            app_identifier_prefix="PREFIX9876.",
+            config_path=Path("configs/tasks.toml"),
+        )
+    assert missing.value.code is ErrorCode.ENTITLEMENTS_TEMPLATE_MISSING
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    assert expected_module._repository_root(configs / "tasks.toml") == tmp_path
+    monkeypatch.chdir(tmp_path)
+    assert expected_module._repository_root(tmp_path / "custom.toml") == tmp_path
+
+    seen: dict[str, object] = {}
+
+    def load_template(root, template_path, context):  # type: ignore[no-untyped-def]
+        seen.update(root=root, template_path=template_path, context=context)
+        return {"application-identifier": "PREFIX9876.io.example.app"}
+
+    monkeypatch.setattr(expected_module, "load_entitlement_template", load_template)
+    template_intent = replace(
+        intent(),
+        entitlement_policy=EntitlementPolicy(
+            EntitlementMode.TEMPLATE,
+            PurePosixPath("templates/example.plist"),
+        ),
+    )
+    values = expected_module.expected_entitlements(
+        task=task(),
+        intent=template_intent,
+        team_id="TEAMID1234",
+        app_identifier_prefix="PREFIX9876.",
+        config_path=configs / "tasks.toml",
+    )
+
+    assert values == {"application-identifier": "PREFIX9876.io.example.app"}
+    assert seen["root"] == tmp_path
+    assert seen["template_path"] == PurePosixPath("templates/example.plist")

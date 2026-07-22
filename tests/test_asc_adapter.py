@@ -12,7 +12,7 @@ import pytest
 from sideloadedipa.adapters.apple import AscClient
 from sideloadedipa.domain import thaw_json
 from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode
-from sideloadedipa.subprocesses import SubprocessResult
+from sideloadedipa.util.subprocesses import SubprocessResult
 
 CONTRACT = Path(__file__).parent / "fixtures" / "asc" / "3.1.1-contract.json"
 

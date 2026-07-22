@@ -27,6 +27,12 @@ from sideloadedipa.domain.bundle import (
     BundleNodeKind,
     EntitlementSliceDigest,
 )
+from sideloadedipa.domain.capabilities import (
+    CAPABILITY_REGISTRY,
+    CapabilityAutomation,
+    CapabilityRule,
+    capability_rule,
+)
 from sideloadedipa.domain.common import (
     Diagnostic,
     DiagnosticSeverity,
@@ -70,7 +76,6 @@ from sideloadedipa.domain.pipeline import (
     PublicationResult,
     SourceAsset,
     StageManifest,
-    StageState,
     StageStatus,
     StoredArtifact,
     VerificationFinding,
@@ -109,6 +114,9 @@ __all__ = [
     "BundleNode",
     "BundleNodeKind",
     "BundleRule",
+    "CAPABILITY_REGISTRY",
+    "CapabilityAutomation",
+    "CapabilityRule",
     "CertificateIdentity",
     "CertificateMaterial",
     "Diagnostic",
@@ -149,7 +157,6 @@ __all__ = [
     "SourceConfig",
     "SourceAsset",
     "SourceKind",
-    "StageState",
     "StageManifest",
     "StageStatus",
     "StoredArtifact",
@@ -159,6 +166,7 @@ __all__ = [
     "VerificationFinding",
     "VerificationResult",
     "derive_identifier_mappings",
+    "capability_rule",
     "derive_target_bundle_id",
     "reconcile_bundle_rules",
     "materialize_entitlements",

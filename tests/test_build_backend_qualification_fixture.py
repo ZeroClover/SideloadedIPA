@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import plistlib
-import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from build_backend_qualification_fixture import (
+from sideloadedipa.tools.build_backend_qualification_fixture import (
     SOURCE_EXECUTABLES,
     TARGETS,
     build_fixture,

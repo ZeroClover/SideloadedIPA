@@ -6,7 +6,7 @@ from sideloadedipa.adapters.apple import (
     app_group_association_verified,
     app_group_requirement,
 )
-from sideloadedipa.apple_planning import plan_apple_resources
+from sideloadedipa.apple.planning import plan_apple_resources
 from sideloadedipa.domain import (
     AppleCapabilityState,
     AppleStateSnapshot,

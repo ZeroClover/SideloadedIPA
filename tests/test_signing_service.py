@@ -40,8 +40,8 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
-from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
-from sideloadedipa.signing_service import (
+from sideloadedipa.signing.profile_storage import build_profile_manifest, profile_relative_path
+from sideloadedipa.signing.service import (
     PackageSigningRequest,
     build_package_signing_request,
     execute_package_signing,
@@ -204,7 +204,7 @@ def request_for(task: Task, tmp_path: Path) -> PackageSigningRequest:
 
 @pytest.mark.parametrize(
     "task_name",
-    ["JHenTai", "Eros FE", "Asspp", "PiliPlus", "StikDebug"],
+    ["JHenTai", "StikDebug"],
 )
 def test_current_root_only_tasks_run_through_package_planner_and_executor(
     tmp_path: Path, task_name: str

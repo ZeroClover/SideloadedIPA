@@ -21,9 +21,8 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.signing_reports import (
+from sideloadedipa.signing.reports import (
     canonical_signing_report_json,
-    canonical_signing_result_json,
     signing_result_sha256,
 )
 
@@ -109,41 +108,6 @@ def fixture_result(plan: SigningPlan) -> SigningResult:
             "/private/source.ipa",
         ),
     )
-
-
-def test_result_json_is_canonical_digest_bound_and_redacted() -> None:
-    signing_plan = fixture_plan()
-    result = fixture_result(signing_plan)
-
-    encoded = canonical_signing_result_json(result)
-    repeated = canonical_signing_result_json(result)
-    document = json.loads(encoded)
-
-    assert encoded == repeated
-    assert document["result_sha256"] == signing_result_sha256(result)
-    assert document["output_name"] == "signed.ipa"
-    assert document["backend_argv_shape"] == [
-        "<redacted>",
-        "-k",
-        "<redacted>",
-        "-c",
-        "<redacted>",
-        "-m",
-        "<redacted>",
-        "-e",
-        "<redacted>",
-        "-o",
-        "<redacted>",
-        "<redacted>",
-    ]
-    for private_value in (
-        "/private",
-        "key.pem",
-        "certificate.pem",
-        "raw.mobileprovision",
-        "entitlements.plist",
-    ):
-        assert private_value.encode() not in encoded
 
 
 def test_report_joins_every_planned_node_to_backend_evidence() -> None:

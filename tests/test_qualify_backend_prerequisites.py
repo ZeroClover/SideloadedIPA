@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from qualify_backend_prerequisites import (
+from sideloadedipa.tools.qualify_backend_prerequisites import (
     ProfileEvidence,
     QualificationError,
     certificate_content,
@@ -60,7 +57,7 @@ def test_ensure_bundle_resources_creates_only_missing_ids(
             return {"data": {"id": "extension-id"}}
         return refreshed
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
 
     result = ensure_bundle_resources(
         existing,
@@ -94,7 +91,7 @@ def test_delete_legacy_bundle_ids_requires_exact_legacy_name(
         calls.append(args)
         return {}
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
 
     with pytest.raises(QualificationError, match="refusing to delete"):
         delete_legacy_bundle_ids(
@@ -121,7 +118,7 @@ def test_delete_legacy_bundle_ids_tolerates_already_recreated_resource(
         calls.append(args)
         return {}
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
     delete_legacy_bundle_ids(
         [
             {
@@ -146,7 +143,7 @@ def test_delete_legacy_bundle_ids_deletes_only_exact_legacy_resource(
         calls.append((args, allow_empty))
         return {}
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
     delete_legacy_bundle_ids(
         [
             {
@@ -171,7 +168,7 @@ def test_delete_legacy_profiles_matches_name_and_bundle(
         calls.append((args, allow_empty))
         return {}
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
     delete_legacy_profiles(
         [
             {
@@ -287,9 +284,9 @@ def test_ensure_profiles_creates_each_missing_profile(
             return {"data": {"id": "created"}}
         return refreshed
 
-    monkeypatch.setattr("qualify_backend_prerequisites.run_json", fake_run_json)
+    monkeypatch.setattr("sideloadedipa.tools.qualify_backend_prerequisites.run_json", fake_run_json)
     monkeypatch.setattr(
-        "qualify_backend_prerequisites.PROFILE_NAMES",
+        "sideloadedipa.tools.qualify_backend_prerequisites.PROFILE_NAMES",
         {"root": "Root Dev", "extension": "Extension Dev"},
     )
 

@@ -1,0 +1,33 @@
+name: Build qualification fixture
+description: Download the checksum-pinned source IPA and build the deterministic fixture
+inputs:
+  source-url:
+    description: Pinned source IPA URL
+    required: true
+  source-sha256:
+    description: Reviewed source IPA SHA-256
+    required: true
+outputs:
+  fixture:
+    description: Absolute path to qualification IPA
+    value: ${{ steps.build.outputs.fixture }}
+runs:
+  using: composite
+  steps:
+    - name: Build deterministic qualification IPA
+      id: build
+      shell: bash
+      env:
+        SOURCE_URL: ${{ inputs.source-url }}
+        SOURCE_SHA256: ${{ inputs.source-sha256 }}
+      run: |
+        set -euo pipefail
+        fixture_dir="$RUNNER_TEMP/backend-qualification/fixture"
+        mkdir -p "$fixture_dir"
+        curl --fail --location --silent --show-error \
+          --output "$fixture_dir/LiveContainer.ipa" "$SOURCE_URL"
+        uv run python -m sideloadedipa.tools.build_backend_qualification_fixture \
+          --source-ipa "$fixture_dir/LiveContainer.ipa" \
+          --output-ipa "$fixture_dir/qualification.ipa" \
+          --expected-source-sha256 "$SOURCE_SHA256"
+        echo "fixture=$fixture_dir/qualification.ipa" >> "$GITHUB_OUTPUT"

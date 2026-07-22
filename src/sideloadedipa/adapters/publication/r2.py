@@ -10,10 +10,10 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from sideloadedipa.adapters.publication.r2_store import R2Store
 from sideloadedipa.domain import PublicationCandidate, StoredArtifact
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.legacy.r2_store import R2Store
-from sideloadedipa.retrying import RetryOperation, RetryPolicy, retry_call
+from sideloadedipa.util.retrying import RetryOperation, RetryPolicy, retry_call
 
 
 def _transient_r2_error(error: Exception) -> bool:

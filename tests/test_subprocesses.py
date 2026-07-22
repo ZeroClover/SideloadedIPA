@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode
-from sideloadedipa.subprocesses import SubprocessRunner
+from sideloadedipa.util.subprocesses import SubprocessRunner
 
 
 def test_metacharacters_are_passed_as_one_literal_argument(tmp_path: Path) -> None:
@@ -83,6 +83,25 @@ def test_success_and_failure_output_can_use_distinct_bounds() -> None:
     result = runner.run([sys.executable, "-c", "print('x' * 400)"])
 
     assert len(result.stdout.encode()) == 401
+
+
+def test_output_capping_retains_head_and_tail() -> None:
+    runner = SubprocessRunner(max_output_bytes=20)
+
+    result = runner.run([sys.executable, "-c", "print('HEAD-' + 'x' * 40 + '-TAIL')"])
+
+    assert result.stdout.startswith("HEAD-")
+    assert result.stdout.endswith("-TAIL\n")
+    assert len(result.stdout.encode()) == 20
+
+
+def test_explicit_zero_timeout_is_not_replaced_by_default() -> None:
+    runner = SubprocessRunner(default_timeout_seconds=30)
+
+    with pytest.raises(AdapterError) as timeout:
+        runner.run([sys.executable, "-c", "pass"], timeout_seconds=0)
+
+    assert timeout.value.code is ErrorCode.ADAPTER_TIMEOUT
 
 
 def test_timeout_and_missing_executable_have_stable_codes() -> None:

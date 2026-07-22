@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from sideloadedipa.cancellation import (
+from sideloadedipa.errors import ConfigurationError
+from sideloadedipa.pipeline.cancellation import (
     SideEffectJournal,
     load_side_effect_journal,
     record_cancellation,
     write_side_effect_journal,
 )
-from sideloadedipa.errors import ConfigurationError
-from sideloadedipa.workspace import task_workspace
+from sideloadedipa.util.workspace import task_workspace
 
 
 def test_cancellation_removes_workspace_and_records_created_resources(tmp_path: Path) -> None:

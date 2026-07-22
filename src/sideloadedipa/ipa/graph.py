@@ -24,6 +24,7 @@ from sideloadedipa.domain import (
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.discovery import _discover_profile_bundle, discover_root_app
 from sideloadedipa.ipa.entitlements import LiefEntitlementInspector, MachOEntitlementEvidence
+from sideloadedipa.util.atomics import canonical_json, file_sha256
 
 _MACHO_MAGICS = {
     b"\xce\xfa\xed\xfe",
@@ -67,11 +68,7 @@ class LiefMachOProbe:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return file_sha256(path)
 
 
 def _error(message: str, path: PurePosixPath) -> DomainError:
@@ -242,22 +239,17 @@ def _graph_document(
     }
 
 
-def _canonical_json(document: Mapping[str, object]) -> bytes:
-    serialized = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
-    return serialized
-
-
 def canonical_graph_json(graph: BundleGraph) -> bytes:
     """Serialize one graph as schema-versioned canonical JSON."""
 
     document = _graph_document(graph.root_path, graph.nodes, graph.source_sha256)
     document["graph_sha256"] = graph.graph_sha256
-    return _canonical_json(document)
+    return canonical_json(document)
 
 
 def _graph_digest(root_path: PurePosixPath, nodes: list[BundleNode], source_sha256: str) -> str:
     return hashlib.sha256(
-        _canonical_json(_graph_document(root_path, nodes, source_sha256))
+        canonical_json(_graph_document(root_path, nodes, source_sha256))
     ).hexdigest()
 
 

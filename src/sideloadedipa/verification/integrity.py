@@ -18,18 +18,10 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.ipa.graph import MachOProbe, discover_bundle_structure
-from sideloadedipa.workspace import task_workspace
+from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.workspace import task_workspace
 
-_COPY_BUFFER_BYTES = 1024 * 1024
 _BUNDLE_KINDS = {BundleNodeKind.APP, BundleNodeKind.APP_EXTENSION, BundleNodeKind.FRAMEWORK}
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while block := handle.read(_COPY_BUFFER_BYTES):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _canonical_sha256(value: object) -> str:
@@ -135,7 +127,7 @@ def _protected_files(root: Path, nodes: tuple[BundleNode, ...]) -> dict[str, str
             continue
         relative = PurePosixPath(path.relative_to(root).as_posix())
         if not _mutable_path(relative, nodes):
-            result[relative.as_posix()] = _file_sha256(path)
+            result[relative.as_posix()] = file_sha256(path)
     return result
 
 
@@ -177,8 +169,8 @@ def verify_output_integrity(
             output_nodes = discover_bundle_structure(output_root, macho_probe=macho_probe)
             root = source_nodes[0].path
 
-            source_sha256 = _file_sha256(source_ipa)
-            output_sha256 = _file_sha256(signed_ipa)
+            source_sha256 = file_sha256(source_ipa)
+            output_sha256 = file_sha256(signed_ipa)
             findings = [
                 _finding(
                     plan,

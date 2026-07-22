@@ -8,7 +8,6 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from sideloadedipa.bundle_transform import rewrite_bundle_identifiers
 from sideloadedipa.domain import (
     BundleNodeKind,
     SigningBackendIdentity,
@@ -17,6 +16,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.signing.bundle_transform import rewrite_bundle_identifiers
 
 ROOT = PurePosixPath("Payload/App.app")
 SHARE = ROOT / "PlugIns/Share.appex"

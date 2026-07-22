@@ -9,7 +9,7 @@ import pytest
 
 from sideloadedipa.domain import BundleGraph, BundleNode, BundleNodeKind
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.signing_order import signing_order
+from sideloadedipa.signing.order import signing_order
 
 
 def node(

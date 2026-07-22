@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from sideloadedipa.cache_decisions import (
+from sideloadedipa.cache.decisions import (
     CACHE_INDEX_SCHEMA_VERSION,
     RebuildReason,
     TaskCacheRecord,
@@ -16,7 +16,7 @@ from sideloadedipa.cache_decisions import (
     parse_cache_index_json,
     select_rebuilds,
 )
-from sideloadedipa.cache_fingerprint import SigningCacheFingerprint
+from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 
 
 def fingerprint(task_name: str, digest: str, *, schema: int = 1) -> SigningCacheFingerprint:

@@ -27,7 +27,9 @@ characters: [Python subprocess security considerations](https://docs.python.org/
   so application-level redaction remains mandatory:
   [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use).
 - SSH debug is manual-dispatch only, public-key only, time-bounded by the job,
-  and must be cancelled immediately after diagnosis.
+  and must be cancelled immediately after diagnosis. Every checkout disables
+  persisted Git credentials so a debug shell cannot recover the repository token
+  from local Git configuration.
 
 ## CI artifacts and caches
 

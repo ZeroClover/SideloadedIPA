@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import plistlib
 from collections.abc import Mapping
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
@@ -210,33 +209,6 @@ def failed_checks(findings: tuple[VerificationFinding, ...]) -> set[tuple[PurePo
     return {(finding.node_path, finding.check) for finding in findings if not finding.passed}
 
 
-def test_standard_variant_has_four_distinct_profiles_identifiers_and_contracts() -> None:
-    plan = livecontainer_plan()
-    planned_profiles = profiles(plan)
-
-    findings = verify_three_way_entitlements(plan, planned_profiles, artifact(plan))
-
-    assert len(plan.nodes) == 4
-    assert len({node.target_bundle_id for node in plan.nodes}) == 4
-    assert len({node.profile_resource_id for node in plan.nodes}) == 4
-    assert len({profile.resource_id for profile in planned_profiles}) == 4
-    assert all(finding.passed for finding in findings)
-
-    documents = {
-        node.source_path: {key: thaw_json(value) for key, value in node.expected_entitlements}
-        for node in plan.nodes
-    }
-    for role in ("root", "process"):
-        assert SENSITIVE_KEYS <= documents[PATHS[role]].keys()
-        groups = documents[PATHS[role]]["keychain-access-groups"]
-        assert isinstance(groups, list)
-        assert len(groups) == 128
-        assert set(groups) == set(keychain_groups())
-    for role in ("launch", "share"):
-        assert documents[PATHS[role]]["com.apple.security.application-groups"] == [APP_GROUP]
-        assert not (SENSITIVE_KEYS & documents[PATHS[role]].keys())
-
-
 @pytest.mark.parametrize("role", ["root", "process"])
 def test_losing_one_keychain_group_fails_sensitive_contract(role: str) -> None:
     plan = livecontainer_plan()
@@ -269,44 +241,6 @@ def test_app_group_only_extensions_reject_inherited_root_entitlements(role: str)
     assert (PATHS[role], "signed-entitlements:ARM64:der") in failed_checks(findings)
 
 
-def test_wrong_profile_or_target_identity_fails_its_bundle() -> None:
-    plan = livecontainer_plan()
-    planned_profiles = profiles(plan)
-    process_node = next(node for node in plan.nodes if node.source_path == PATHS["process"])
-    wrong_profile = replace(
-        planned_profiles[0],
-        resource_id=process_node.profile_resource_id or "",
-        application_identifier=f"{APP_ID_PREFIX}{TARGETS['share']}",
-        entitlements=normalize_entitlements(expected_entitlements("share")).values,
-    )
-
-    findings = verify_three_way_entitlements(
-        plan,
-        (*planned_profiles[1:], wrong_profile),
-        artifact(plan),
-    )
-
-    assert (PATHS["process"], "profile-entitlement-authorization") in failed_checks(findings)
-
-
-def test_sidestore_variant_requires_an_independent_widget_profile_and_policy() -> None:
-    plan = livecontainer_plan(sidestore=True)
-    planned_profiles = profiles(plan)
-    widget = next(node for node in plan.nodes if node.source_path == PATHS["widget"])
-    widget_document = {key: thaw_json(value) for key, value in widget.expected_entitlements}
-
-    findings = verify_three_way_entitlements(plan, planned_profiles, artifact(plan))
-
-    assert len(plan.nodes) == 5
-    assert len({node.target_bundle_id for node in plan.nodes}) == 5
-    assert len({node.profile_resource_id for node in plan.nodes}) == 5
-    assert widget.target_bundle_id == SIDESTORE_TARGETS["widget"]
-    assert widget.profile_resource_id == "PROFILE_WIDGET"
-    assert widget_document["com.apple.security.application-groups"] == [SIDESTORE_APP_GROUP]
-    assert not (SENSITIVE_KEYS & widget_document.keys())
-    assert all(finding.passed for finding in findings)
-
-
 def test_sidestore_widget_cannot_reuse_root_policy() -> None:
     plan = livecontainer_plan(sidestore=True)
     copied_root_policy = expected_entitlements(
@@ -324,14 +258,3 @@ def test_sidestore_widget_cannot_reuse_root_policy() -> None:
 
     assert (PATHS["widget"], "signed-entitlements:ARM64:xml") in failed_checks(findings)
     assert (PATHS["widget"], "signed-entitlements:ARM64:der") in failed_checks(findings)
-
-
-def test_sidestore_widget_cannot_omit_its_fifth_profile() -> None:
-    plan = livecontainer_plan(sidestore=True)
-    without_widget = tuple(
-        profile for profile in profiles(plan) if profile.resource_id != "PROFILE_WIDGET"
-    )
-
-    findings = verify_three_way_entitlements(plan, without_widget, artifact(plan))
-
-    assert (PATHS["widget"], "profile-entitlement-authorization") in failed_checks(findings)

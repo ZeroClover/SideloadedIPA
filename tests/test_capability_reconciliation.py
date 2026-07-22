@@ -7,17 +7,17 @@ import pytest
 from sideloadedipa.adapters.apple import (
     AscCapabilityGateway,
     AscResponse,
-    CapabilityAutomation,
     CapabilityReconciler,
     capability_requirement,
-    capability_rule,
 )
-from sideloadedipa.apple_planning import plan_apple_resources
+from sideloadedipa.apple.planning import plan_apple_resources
 from sideloadedipa.domain import (
     AppleCapabilityState,
     AppleStateSnapshot,
+    CapabilityAutomation,
     FrozenJsonObject,
     OperationDisposition,
+    capability_rule,
     freeze_json,
 )
 from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode

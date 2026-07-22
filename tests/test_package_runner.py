@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import sideloadedipa.package_runner as runner
+import sideloadedipa.pipeline.package_runner as runner
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
@@ -22,7 +22,7 @@ from sideloadedipa.domain import (
     SigningBackendIdentity,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
+from sideloadedipa.signing.profile_storage import build_profile_manifest, profile_relative_path
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -71,9 +71,9 @@ def test_requires_source_entitlements_only_for_preserve_source_policy() -> None:
         signing=replace(livecontainer.signing, bundles=(preserve_rule,)),
     )
 
-    assert runner._source_entitlements_required(legacy) is False
-    assert runner._source_entitlements_required(livecontainer) is False
-    assert runner._source_entitlements_required(preserve_task) is True
+    assert runner.source_entitlements_required(legacy) is False
+    assert runner.source_entitlements_required(livecontainer) is False
+    assert runner.source_entitlements_required(preserve_task) is True
 
 
 def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -98,7 +98,7 @@ def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, mon
     assert runner.inspect_source_graph(source) is expected
 
 
-def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, monkeypatch) -> None:
+def test_wires_synced_inputs_to_one_prepared_package_request(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     stored_manifest = manifest("CERT_ONE")
     certificate = material(tmp_path)
@@ -142,11 +142,7 @@ def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, m
         calls["request"] = kwargs
         return request
 
-    result = object()
     monkeypatch.setattr(runner, "build_package_signing_request", build_request)
-    monkeypatch.setattr(
-        runner, "execute_package_signing", lambda value: result if value is request else None
-    )
 
     prepared = runner.prepare_package_signing(
         task=task,
@@ -168,21 +164,6 @@ def test_wires_synced_inputs_to_one_verified_package_execution(tmp_path: Path, m
     assert calls["request"]["graph"] is graph
     assert calls["request"]["backend_identity"] is backend_identity
 
-    actual = runner.run_package_signing(
-        task=task,
-        source_ipa=tmp_path / "source.ipa",
-        destination_ipa=tmp_path / "signed.ipa",
-        profile_root=tmp_path / "profiles",
-        p12_path=tmp_path / "certificate.p12",
-        p12_password="secret",
-        private_directory=tmp_path / "private-second",
-        zsign_executable=tmp_path / "zsign",
-        zsign_sha256="c" * 64,
-        repository_root=tmp_path,
-        now=NOW,
-    )
-    assert actual is result
-
 
 def test_rejects_mixed_certificate_manifest_before_private_key_load(
     tmp_path: Path, monkeypatch
@@ -195,7 +176,7 @@ def test_rejects_mixed_certificate_manifest_before_private_key_load(
     )
 
     with pytest.raises(DomainError) as caught:
-        runner.run_package_signing(
+        runner.prepare_package_signing(
             task=task,
             source_ipa=tmp_path / "source.ipa",
             destination_ipa=tmp_path / "signed.ipa",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import plistlib
 import tempfile
 from collections.abc import Callable
@@ -20,7 +19,8 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import AdapterError, ErrorCode
 from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
-from sideloadedipa.subprocesses import SubprocessRunner
+from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.subprocesses import SubprocessRunner
 
 EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.2"
 ZSIGN_CONTRACT_VERSION = "1"
@@ -34,7 +34,7 @@ NodeEvidenceCollector = Callable[[SigningPlan, Path], tuple[SigningNodeResult, .
 
 def _file_sha256(path: Path, *, operation: str) -> str:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return file_sha256(path)
     except OSError as error:
         raise AdapterError(
             ErrorCode.ADAPTER_UNAVAILABLE,

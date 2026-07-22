@@ -9,8 +9,8 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from sideloadedipa.cache_decisions import TaskCacheRecord
-from sideloadedipa.cache_reuse import CachePrerequisiteState, revalidate_cached_artifact
+from sideloadedipa.cache.decisions import TaskCacheRecord
+from sideloadedipa.cache.reuse import CachePrerequisiteState, revalidate_cached_artifact
 from sideloadedipa.domain import (
     BundleNodeKind,
     Diagnostic,

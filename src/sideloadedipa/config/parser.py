@@ -292,7 +292,7 @@ def _parse_task(value: object, index: int) -> Task:
         elif icon_path != "ipa:" and source.kind is not SourceKind.GITHUB_RELEASE:
             _fail("a repository-relative icon_path requires repo_url", "icon_path", task_name)
 
-    publication_enabled = raw.get("publication_enabled", True)
+    publication_enabled = raw.get("publication_enabled", False)
     if not isinstance(publication_enabled, bool):
         _fail("publication_enabled must be a boolean", "publication_enabled", task_name)
 

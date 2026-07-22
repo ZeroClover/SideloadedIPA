@@ -20,7 +20,7 @@ from sideloadedipa.application import (
 )
 from sideloadedipa.domain import thaw_json
 from sideloadedipa.errors import SideloadedIPAError
-from sideloadedipa.production_pipeline import (
+from sideloadedipa.pipeline.production import (
     inspect_command,
     plan_command,
     publish_command,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sideloadedipa.apple_intents import derive_bundle_resource_intents
+from sideloadedipa.apple.intents import derive_bundle_resource_intents
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import EntitlementMode
 from sideloadedipa.errors import ConfigurationError, ErrorCode

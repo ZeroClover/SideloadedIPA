@@ -79,7 +79,7 @@ class Task:
     slug: str
     icon_path: str | None = None
     signing: SigningPolicy | None = None
-    publication_enabled: bool = True
+    publication_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,8 +16,8 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.profile_storage import build_profile_manifest, profile_relative_path
-from sideloadedipa.signing_inputs import load_synced_profile, load_synced_profiles
+from sideloadedipa.signing.inputs import load_synced_profile, load_synced_profiles
+from sideloadedipa.signing.profile_storage import build_profile_manifest, profile_relative_path
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 EXPIRES = NOW + timedelta(days=90)

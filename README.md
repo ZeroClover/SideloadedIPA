@@ -1,6 +1,6 @@
 # IPA Signing via GitHub Actions
 
-This repository contains a GitHub Actions workflow and helper scripts to:
+This repository contains a typed Python package and GitHub Actions workflows to:
 
 - Automatically sync Development provisioning profiles with all registered devices via App Store Connect CLI (`asc`).
 - Read a TOML config of signing tasks.
@@ -13,11 +13,16 @@ This repository contains a GitHub Actions workflow and helper scripts to:
 
 ## File Structure
 
-- `.github/workflows/sign-and-upload.yml` — the workflow (manual, webhook, and scheduled triggers)
-- `scripts/sync_profiles_asc.py` — syncs provisioning profiles with all devices via App Store Connect CLI
-- `src/sideloadedipa/production_pipeline.py` — manifest-driven production inventory, Apple reconciliation, signing, verification, caching, and publication
-- `scripts/r2_store.py` — Cloudflare R2 storage wrapper (boto3): uploads, apps.json IO, stale-key cleanup
-- `src/sideloadedipa/cache_decisions.py` — complete-fingerprint selective rebuild decisions and digest-verified cache records
+- `.github/workflows/sign-and-upload.yml` — production, shadow, state-probe, and private qualification jobs
+- `.github/workflows/pr-checks.yml` — formatting, typing, coverage, real patched-zsign, workflow, and web checks
+- `.github/workflows/integration.yml` — scheduled checksum-pinned LiveContainer inventory checks
+- `.github/actions/` — reusable checksum-verified `asc`, patched-zsign, qualification-fixture, and SSH actions
+- `src/sideloadedipa/apple/` — Apple command backend, expected-entitlement planning, reporting, and command sequencing
+- `src/sideloadedipa/signing/` — signing plans, profile validation/storage, execution, and reports
+- `src/sideloadedipa/cache/` — complete fingerprints, rebuild decisions, reuse validation, and storage
+- `src/sideloadedipa/pipeline/` — manifest-driven production stages, source state, cache orchestration, verification, and publication
+- `src/sideloadedipa/adapters/publication/` — Cloudflare R2 and icon adapters
+- `src/sideloadedipa/tools/` — package-native qualification CLIs invoked with `python -m`
 - `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
 - `configs/signing/` — reviewed entitlement plist templates with typed placeholders
@@ -207,10 +212,13 @@ both pass.
 ## Triggers
 
 - **Scheduled**: Daily at 02:00 UTC (keeps cache fresh and auto-processes new releases)
+- **Scheduled integration**: Weekly checksum-pinned LiveContainer inventory verification
 - **Manual**: Workflow Dispatch inputs:
   - `debug` — Enable Cloudflare Tunnel for SSH debugging (default: `false`)
   - `force_rebuild` — Force full rebuild ignoring cache (default: `false`)
   - `package_shadow` — Run inventory and Apple planning without mutation
+  - `backend_qualification` — Run the private backend qualification only
+  - `qualification_apply` / `qualification_reset_names` — Qualification-only options; the credential-free dispatch guard rejects them unless `backend_qualification=true`
   - `multi_bundle_canary` — Run private Linux/macOS multi-bundle acceptance with publication disabled
 - **Webhook**: `repository_dispatch` with type `sign_ipas`
 
@@ -226,7 +234,7 @@ Example `repository_dispatch` payload:
 ## How It Works
 
 1. **Restore Cache**: Restores the digest-verified signing index and content-addressed signed artifacts from the last successful boundary
-2. **Install zsign**: Downloads [`zsign`](https://github.com/zhlynn/zsign)'s official prebuilt Linux binary (pinned via `ZSIGN_VERSION`, checksum-verified). The static `musl` build has no runtime dependencies, and `zsign` signs straight from the P12 — no Keychain involved
+2. **Build qualified zsign**: Downloads checksum-pinned upstream source, applies the reviewed per-profile-entitlements patch, builds version `1.1.1+sideloadedipa.2`, verifies it, and reuses a source/patch-keyed CI cache. The backend signs from extracted private key and certificate material without a Keychain
 3. **Inventory and aggregate preflight**: `sideloadedipa inspect` selects current assets, inventories every executable recursively, and validates all selected task policies before any Apple mutation
 4. **Plan Apple resources**: `sideloadedipa plan` performs a read-only reconciliation and records the canonical resource plan
 5. **Sync package profiles**: `sideloadedipa sync --apply` via the typed App Store Connect adapters:
@@ -259,8 +267,8 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 ## Requirements and Notes
 
 - **Runner**: `ubuntu-latest` — `zsign` signs via OpenSSL (not Apple's `codesign`/Security.framework), so the whole pipeline runs on Linux (≈10× cheaper than a macOS runner)
-- **Tools installed**: `zsign` (prebuilt static Linux binary), `asc` (App Store Connect CLI, prebuilt Linux binary) — all checksum-verified where downloaded; `boto3` comes from `uv.lock`
-- **Signing**: Uses [`zsign`](https://github.com/zhlynn/zsign) with the P12 certificate and synced profile (no Keychain / codesign identity required)
+- **Tools installed**: patched `zsign` (built from checksum-pinned source) and `asc` (checksum-verified release asset); `boto3` comes from `uv.lock`
+- **Signing**: Uses the qualified [`zsign`](https://github.com/zhlynn/zsign) extension with one ordered profile/entitlement pair per profile-bearing bundle (no Linux Keychain / codesign identity required)
 - **Publishing**: S3-compatible uploads to Cloudflare R2 (zero egress fees); the download page and `itms.plist` manifests are served by Vercel — no self-hosted server anywhere in the pipeline
 - **Bundle IDs**: Must be pre-registered in Apple Developer Portal
 - **GitHub Token**: Workflow automatically uses `GITHUB_TOKEN` for authenticated API access
