@@ -43,6 +43,13 @@ def application(handler: RecordingUseCase) -> Application:
     )
 
 
+@pytest.fixture(autouse=True)
+def isolate_github_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep parser-default assertions independent of the CI runner environment."""
+
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+
+
 @pytest.mark.parametrize("command", list(CommandName))
 def test_each_command_routes_to_injected_use_case(command: CommandName) -> None:
     handler = RecordingUseCase()
