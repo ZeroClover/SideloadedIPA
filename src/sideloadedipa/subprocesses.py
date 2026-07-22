@@ -53,10 +53,12 @@ class SubprocessRunner:
         allowed_environment: Iterable[str] = DEFAULT_ENV_ALLOWLIST,
         default_timeout_seconds: float = 120,
         max_output_bytes: int = 64 * 1024,
+        max_success_output_bytes: int | None = None,
     ) -> None:
         self.allowed_environment = frozenset(allowed_environment)
         self.default_timeout_seconds = default_timeout_seconds
         self.max_output_bytes = max_output_bytes
+        self.max_success_output_bytes = max_success_output_bytes or max_output_bytes
 
     def run(
         self,
@@ -127,7 +129,7 @@ class SubprocessRunner:
                 safe_details=(("argv", safe_argv), ("os_error", type(error).__name__)),
             ) from error
 
-        stdout = _bounded_text(completed.stdout, self.max_output_bytes, redactions)
+        stdout = _bounded_text(completed.stdout, self.max_success_output_bytes, redactions)
         stderr = _bounded_text(completed.stderr, self.max_output_bytes, redactions)
         duration = time.monotonic() - started
         if completed.returncode != 0:

@@ -77,6 +77,14 @@ def test_success_output_is_bounded_and_redacted() -> None:
     assert secret not in result.stdout
 
 
+def test_success_and_failure_output_can_use_distinct_bounds() -> None:
+    runner = SubprocessRunner(max_output_bytes=64, max_success_output_bytes=512)
+
+    result = runner.run([sys.executable, "-c", "print('x' * 400)"])
+
+    assert len(result.stdout.encode()) == 401
+
+
 def test_timeout_and_missing_executable_have_stable_codes() -> None:
     runner = SubprocessRunner(default_timeout_seconds=0.01)
 

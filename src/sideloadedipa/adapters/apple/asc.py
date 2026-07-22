@@ -18,6 +18,7 @@ from sideloadedipa.subprocesses import (
 )
 
 SUPPORTED_ASC_VERSION = "3.1.1"
+_ASC_MAX_SUCCESS_OUTPUT_BYTES = 16 * 1024 * 1024
 
 _ASC_CREDENTIAL_ENV = frozenset(
     {
@@ -128,6 +129,7 @@ class AscClient:
         self.runner = runner or SubprocessRunner(
             allowed_environment=_ASC_ENVIRONMENT,
             default_timeout_seconds=timeout_seconds,
+            max_success_output_bytes=_ASC_MAX_SUCCESS_OUTPUT_BYTES,
         )
         self.timeout_seconds = timeout_seconds
         self._identity: AscToolIdentity | None = None
