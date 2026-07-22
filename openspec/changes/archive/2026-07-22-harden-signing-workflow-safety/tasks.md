@@ -19,4 +19,4 @@
 
 - [x] 4.1 Update operator documentation for the non-publishing canary, debug cleanup boundary, nullable node timing, and cleanup diagnostics.
 - [x] 4.2 Run formatting, typing, full package coverage, workflow static checks, web tests/build, and strict OpenSpec validation.
-- [ ] 4.3 Run the credentialed manual multi-bundle canary in CI and retain its production run-report evidence; treat unavailable physical observation as complete with the last verified device acceptance.
+- [x] 4.3 Run the credentialed manual multi-bundle canary in CI and retain its production run-report evidence; treat unavailable physical observation as complete with the last verified device acceptance.

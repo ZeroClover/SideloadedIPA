@@ -5,7 +5,7 @@ Define the staged production workflow, canonical evidence chain, cache safety bo
 ## Requirements
 ### Requirement: Ordered staged workflow
 
-The system SHALL coordinate source resolution, safe inventory, configuration matching, Apple resource planning/apply, signing-plan validation, signing, output verification, and publication as explicit ordered stages.
+The system SHALL coordinate source resolution, safe inventory, configuration matching, Apple resource planning/apply, signing-plan validation, signing, output verification, and publication as explicit ordered stages in production and manually dispatched canaries.
 
 #### Scenario: Run a task successfully
 
@@ -15,9 +15,17 @@ The system SHALL coordinate source resolution, safe inventory, configuration mat
 
 #### Scenario: An early stage fails
 
-- **WHEN** source selection, inventory, configuration, or resource planning fails
-- **THEN** all later mutation stages SHALL be skipped
+- **WHEN** any production stage fails
+- **THEN** all later mutation and publication stages SHALL be skipped
+- **AND** production failure-injection tests SHALL prove that later adapters and side effects are not invoked
 - **AND** the final report SHALL identify the first blocking stage and all available validation findings
+
+#### Scenario: Operator runs a private multi-bundle canary
+
+- **WHEN** the operator manually enables the non-publishing canary
+- **THEN** the canary SHALL execute the production inspect, plan, apply, sign, and standalone verify chain under one run identity
+- **AND** SHALL validate the current production result and run-report schemas
+- **AND** SHALL NOT receive publication credentials or invoke publication
 
 ### Requirement: Read-only inspect and plan modes
 
@@ -94,7 +102,8 @@ The system SHALL emit concise human output and a schema-versioned redacted JSON 
 #### Scenario: Run report is complete
 
 - **WHEN** a run finishes
-- **THEN** the report SHALL include stage status/timing, source release and digest, graph and plan digests, bundle mappings, capability classifications, manual actions, Apple resource IDs, non-secret certificate/profile/tool fingerprints, verification results, cache decisions, and publication outcome
+- **THEN** the report SHALL include measured stage status/timing, source release and digest, graph and plan digests, bundle mappings, capability classifications, manual actions, Apple resource IDs, non-secret certificate/profile/tool fingerprints, verification results, cache decisions, and publication outcome
+- **AND** timing that cannot be observed at the represented granularity SHALL be null or omitted rather than reported as a fabricated zero
 
 #### Scenario: Secret appears in adapter output
 
@@ -135,19 +144,19 @@ The workflow SHALL install supported zsign and App Store Connect CLI releases fr
 
 ### Requirement: CLI and workflow migration compatibility
 
-The system SHALL retain current operational entry points through thin compatibility wrappers until all configured tasks pass parity acceptance on the package engine.
+The system SHALL retain an operational compatibility wrapper only while it has a supported caller or parity acceptance remains incomplete.
 
-#### Scenario: Existing workflow calls a legacy script path
+#### Scenario: Supported caller uses a legacy entry point
 
-- **WHEN** migration still supports `scripts/run_signing.py` or `scripts/sync_profiles_asc.py`
+- **WHEN** an operational caller still uses a legacy script path during migration
 - **THEN** the wrapper SHALL delegate to package use cases without duplicating business rules
 - **AND** SHALL preserve documented environment inputs and exit behavior or provide an explicit migration diagnostic
 
-#### Scenario: Parity is not yet accepted
+#### Scenario: Production parity is accepted
 
-- **WHEN** a legacy single-bundle task differs in source selection, output identity, cache, registry, or failure behavior under the new engine
-- **THEN** the legacy switch SHALL remain available for that task
-- **AND** wrapper removal SHALL be blocked
+- **WHEN** all configured tasks pass production parity and repository searches show no supported caller for a legacy selector
+- **THEN** that selector, its compatibility alias, and obsolete characterization contract SHALL be removed
+- **AND** production SHALL continue to use only package-owned cache decisions
 
 ### Requirement: Production acceptance for new multi-bundle tasks
 
@@ -223,10 +232,10 @@ The publication transaction SHALL remove newly uploaded immutable objects that a
 
 #### Scenario: Batch upload or registry promotion fails
 
-- **WHEN** one or more new objects were uploaded but the batch registry was not successfully promoted and revalidated
+- **WHEN** one or more new IPA or icon objects were uploaded but the batch registry was not successfully promoted and revalidated
 - **THEN** the previous registry SHALL remain or be restored
 - **AND** the gateway SHALL attempt deletion of only the unreferenced keys uploaded by that attempt
-- **AND** any cleanup failure SHALL report the remaining keys without masking the original publication failure
+- **AND** any cleanup failure SHALL report every remaining IPA and icon key without masking the original publication failure
 
 ### Requirement: Debug sessions use least-privilege credentials
 
@@ -236,4 +245,11 @@ An SSH debug step MUST NOT inherit production signing, Apple API, object-storage
 
 - **WHEN** the workflow starts the public-key-authenticated debug session
 - **THEN** production secrets SHALL be absent from the debug process environment
+- **AND** decoded private keys, certificates, profiles, and temporary keychains SHALL already be destroyed
 - **AND** the session SHALL retain its authentication, timeout, and audit controls
+
+#### Scenario: Non-production job consumes a credential
+
+- **WHEN** a shadow, probe, or qualification step requires an Apple or repository credential
+- **THEN** only that step SHALL receive the required credential
+- **AND** unrelated setup, reporting, artifact upload, cleanup, and debug steps SHALL NOT inherit it from job scope
