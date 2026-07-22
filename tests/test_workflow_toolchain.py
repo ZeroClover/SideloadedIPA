@@ -114,6 +114,28 @@ def test_dispatch_mode_inputs_cannot_fall_through_to_production() -> None:
         assert f"inputs.{option} == true" in guard
     assert "inputs.backend_qualification != true" in guard
     assert "secrets." not in guard
+    assert (
+        "if: ${{ github.event_name == 'workflow_dispatch' }}"
+        not in guard.split("    steps:", maxsplit=1)[0]
+    )
+
+    for job, following_job in (
+        ("sign-and-upload", "package-shadow"),
+        ("package-shadow", "apple-state-probe"),
+        ("apple-state-probe", "backend-qualification"),
+        ("backend-qualification", "backend-qualification-macos"),
+    ):
+        job_definition = signing.split(f"  {job}:", maxsplit=1)[1].split(
+            f"  {following_job}:", maxsplit=1
+        )[0]
+        assert "    needs: dispatch-input-guard" in job_definition
+
+    comparison = signing.split("  backend-qualification-comparison:", maxsplit=1)[1]
+    assert (
+        "needs: [dispatch-input-guard, backend-qualification, "
+        "backend-qualification-macos]" in comparison
+    )
+    assert "needs.dispatch-input-guard.result == 'success'" in comparison
 
 
 def test_every_checkout_disables_persisted_repository_credentials() -> None:

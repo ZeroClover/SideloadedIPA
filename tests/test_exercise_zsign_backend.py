@@ -6,10 +6,9 @@ import hashlib
 import os
 import plistlib
 import struct
-import subprocess
 import zipfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from cryptography import x509
@@ -18,6 +17,15 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import Encoding, pkcs7, pkcs12
 from cryptography.x509.oid import NameOID
 
+from sideloadedipa.adapters.signing.zsign import ZsignBackend
+from sideloadedipa.domain import (
+    BundleNodeKind,
+    CertificateIdentity,
+    CertificateMaterial,
+    SigningNodePlan,
+    SigningPlan,
+    normalize_entitlements,
+)
 from sideloadedipa.tools.exercise_codesign_oracle import signing_order as oracle_signing_order
 from sideloadedipa.tools.exercise_zsign_backend import (
     TARGETS,
@@ -171,6 +179,7 @@ def _fixture_ipa(path: Path) -> None:
                         "CFBundleIdentifier": identifier,
                         "CFBundleExecutable": executable,
                         "CFBundlePackageType": "APPL" if bundle.endswith(".app") else "XPC!",
+                        "CFBundleVersion": "1",
                     },
                     sort_keys=True,
                 ),
@@ -379,17 +388,9 @@ def test_canary_uses_profile_policy_for_launch_extension() -> None:
 @pytest.mark.skipif(not os.environ.get("ZSIGN_BIN"), reason="set ZSIGN_BIN to patched zsign")
 def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: Path) -> None:
     zsign = Path(os.environ["ZSIGN_BIN"])
-    assert (
-        subprocess.run(
-            [str(zsign), "-v"], check=True, capture_output=True, text=True, timeout=10
-        ).stdout.strip()
-        == "version: 1.1.1+sideloadedipa.2"
-    )
     private_key, certificate_path, certificate, key = _generated_signing_material(tmp_path)
     profiles = tmp_path / "profiles"
-    entitlements = tmp_path / "entitlements"
     profiles.mkdir()
-    entitlements.mkdir()
     profile_bytes: dict[str, bytes] = {}
     expected: dict[str, dict[str, object]] = {}
     for role, (_, _, bundle_identifier) in TARGETS.items():
@@ -397,28 +398,72 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         profile_bytes[role] = content
         expected[role] = materialize_entitlements(role, bundle_identifier, authorized)
         (profiles / f"{role}.mobileprovision").write_bytes(content)
-        (entitlements / f"{role}.plist").write_bytes(
-            plistlib.dumps(expected[role], fmt=plistlib.FMT_XML, sort_keys=True)
-        )
 
     fixture = tmp_path / "fixture.ipa"
     signed = tmp_path / "signed.ipa"
     _fixture_ipa(fixture)
-    result = subprocess.run(
-        zsign_command(
-            zsign,
-            private_key,
-            certificate_path,
-            profiles,
-            fixture,
-            signed,
-            entitlements,
-        ),
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=180,
+    adapter = ZsignBackend(
+        executable=zsign,
+        expected_executable_sha256=hashlib.sha256(zsign.read_bytes()).hexdigest(),
+        profile_root=profiles,
     )
+    identity = adapter.identity()
+    certificate_der = certificate.public_bytes(Encoding.DER)
+    certificate_sha256 = hashlib.sha256(certificate_der).hexdigest()
+    material = CertificateMaterial(
+        identity=CertificateIdentity(
+            resource_id="FIXTURE_CERTIFICATE",
+            team_id="TEAMID1234",
+            serial_number=format(certificate.serial_number, "X"),
+            public_key_sha256=hashlib.sha256(
+                certificate.public_key().public_bytes(
+                    Encoding.DER,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+            ).hexdigest(),
+            certificate_sha256=certificate_sha256,
+            expires_at=certificate.not_valid_after_utc,
+        ),
+        certificate_path=certificate_path,
+        private_key_path=private_key,
+    )
+    nodes = []
+    for order, role in enumerate(("launch", "process", "share", "root")):
+        bundle, executable, bundle_identifier = TARGETS[role]
+        entitlements = normalize_entitlements(expected[role])
+        profile = profile_bytes[role]
+        nodes.append(
+            SigningNodePlan(
+                source_path=PurePosixPath(bundle),
+                executable_path=PurePosixPath(bundle) / executable,
+                kind=(BundleNodeKind.APP if role == "root" else BundleNodeKind.APP_EXTENSION),
+                order=order,
+                target_bundle_id=bundle_identifier,
+                profile_resource_id=f"FIXTURE_{role.upper()}",
+                profile_path=PurePosixPath(f"{role}.mobileprovision"),
+                profile_sha256=hashlib.sha256(profile).hexdigest(),
+                expected_entitlements=entitlements.values,
+                expected_entitlements_sha256=entitlements.sha256,
+            )
+        )
+    plan = SigningPlan(
+        task_name="zsign-integration-fixture",
+        source_ipa_sha256=hashlib.sha256(fixture.read_bytes()).hexdigest(),
+        graph_sha256="0" * 64,
+        certificate_sha256=certificate_sha256,
+        backend=identity,
+        nodes=tuple(nodes),
+        plan_sha256="1" * 64,
+    )
+
+    result = adapter.sign(plan, fixture, signed, material)
+
+    assert result.backend == identity
+    assert result.backend_argv.count("-m") == len(TARGETS)
+    assert result.backend_argv.count("-e") == len(TARGETS)
+    for index, value in enumerate(result.backend_argv):
+        if value == "-m":
+            assert result.backend_argv[index + 2] == "-e"
 
     extracted = tmp_path / "signed"
     with zipfile.ZipFile(signed) as archive:
@@ -435,6 +480,6 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         )
         assert actual[role] == expected[role]
     assert evaluate_contract(actual) == []
-    observed_order = signing_order(result.stdout + result.stderr)
-    assert set(observed_order) == set(TARGETS)
-    assert observed_order[-1] == "root"
+    assert {node.source_path for node in result.nodes} == {
+        PurePosixPath(bundle) for bundle, _, _ in TARGETS.values()
+    }
