@@ -50,13 +50,13 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.publication == PublicationConfig()
 
 
-def test_production_livecontainer_is_exactly_scoped_and_non_publishing() -> None:
+def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
     configuration = load_configuration(Path("configs/tasks.toml"))
     task = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
 
     assert task.bundle_id == "io.zeroclover.app.livecontainer"
     assert task.source.release_glob == "LiveContainer.ipa"
-    assert task.publication_enabled is False
+    assert task.publication_enabled is True
     assert task.signing is not None
     assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
     assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.livecontainer",)

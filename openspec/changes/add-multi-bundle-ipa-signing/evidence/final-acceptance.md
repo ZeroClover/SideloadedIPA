@@ -1,9 +1,10 @@
 # Final automated acceptance matrix
 
 Initially recorded 2026-07-21 for implementation commit `fba98ac` and extended
-after production package-engine acceptance. The change remains unarchived
-because the time/device-dependent LiveContainer gates listed below are still
-open.
+after production package-engine acceptance. Registered-device acceptance passed
+on 2026-07-22 and the reviewed LiveContainer production flag is enabled. The
+change remains unarchived until the time-dependent production observations below
+are complete.
 
 ## Local matrix
 
@@ -58,10 +59,16 @@ After acceptance, the duplicate signing/publication scripts and per-task legacy
 engine switch were removed; rollback retains the prior verified registry and
 objects rather than invoking a second signing implementation.
 
+## Registered-device and publication gates
+
+On 2026-07-22, the operator confirmed that the exact final canary recorded in
+`livecontainer-readiness.md` passed the complete registered-device checklist.
+The standard LiveContainer task was consequently enabled for production through
+its reviewed `publication_enabled` configuration. SideStore remains out of
+production scope.
+
 ## Required before archive
 
-- 11.7: registered-device acceptance.
-- 11.8: a separate reviewed change enabling LiveContainer publication.
 - 11.9: one scheduled refresh and one real upstream-release transition.
 - 12.10: archive only after all preceding evidence is complete.
 
@@ -76,5 +83,6 @@ lockfile, OpenSpec strict validation, and diff checks passed.
 passed all four jobs. [Private canary run 29879583177](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29879583177)
 then passed the installable Linux canary, private artifact upload, independent
 macOS strict oracle, and cross-platform evidence comparison. This closes the
-automated 11.6 gate without changing the open device, publication, upstream
-transition, or archive gates above.
+automated 11.6 gate; the later operator confirmation and reviewed configuration
+close 11.7 and 11.8 without changing the upstream-transition or archive gates
+above.

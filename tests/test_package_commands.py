@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -134,6 +135,13 @@ def test_rejects_invalid_selection_or_private_inputs(
 def test_run_rejects_publication_disabled_task_before_signing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    configuration = commands.load_configuration(Path("configs/tasks.toml"))
+    livecontainer = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
+    disabled_configuration = replace(
+        configuration,
+        tasks=(replace(livecontainer, publication_enabled=False),),
+    )
+    monkeypatch.setattr(commands, "load_configuration", lambda _: disabled_configuration)
     monkeypatch.setattr(
         commands,
         "_sign_tasks",

@@ -85,11 +85,29 @@ Publication was disabled. The retained CI artifact expires after one day; the
 same verified IPA is available locally at `work/signed/LiveContainer.ipa` for
 the registered-device checklist.
 
+## Registered-device acceptance
+
+On 2026-07-22, the operator installed the final canary identified above on a
+registered physical device and confirmed that every reviewed device test passed:
+install and launch, Launch extension, Share extension, LiveProcess/JIT-less
+operation, shared App Group storage, approved HealthKit behavior, and the
+128-keychain-group diagnostic. No device identifier or other private device
+metadata is retained in this evidence.
+
+This confirmation applies to the exact standard `LiveContainer.ipa` source,
+four-bundle graph, signing policy, and signed IPA digests recorded above. It does
+not apply to `LiveContainer+SideStore.ipa` or a future acceptance-relevant source,
+graph, policy, or checklist change.
+
+## Production publication enablement
+
+After the automated and registered-device gates passed,
+`publication_enabled = true` was enabled for the standard LiveContainer task on
+the development branch. Production publication remains subject to the complete
+fresh profile, signing, verification, and atomic publication gates on every run.
+
 ## Remaining acceptance gates
 
-- Install and exercise the canary on a registered physical device.
-- Keep `publication_enabled = false` until the device checklist passes and a
-  separate reviewed configuration change enables it.
 - Observe a scheduled refresh and a real upstream release transition.
 - Keep `LiveContainer+SideStore.ipa` absent from production configuration until
   its fifth App ID/profile, widget policy, and device acceptance are completed.
