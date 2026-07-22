@@ -18,7 +18,7 @@ from sideloadedipa.domain import (
     thaw_json,
 )
 
-CACHE_FINGERPRINT_SCHEMA_VERSION = 1
+CACHE_FINGERPRINT_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)

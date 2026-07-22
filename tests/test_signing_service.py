@@ -29,6 +29,7 @@ from sideloadedipa.domain import (
     ProvisioningProfile,
     SigningBackendFeature,
     SigningBackendIdentity,
+    SigningNodeResult,
     SigningPlan,
     SigningPolicy,
     SigningResult,
@@ -91,12 +92,22 @@ class CopyBackend:
         del certificate
         self.called = True
         shutil.copy2(source, output)
+        output_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
         return SigningResult(
             plan.plan_sha256,
             PurePosixPath(output.name),
-            hashlib.sha256(output.read_bytes()).hexdigest(),
+            output_sha256,
             plan.backend,
-            (),
+            tuple(
+                SigningNodeResult(
+                    node.source_path,
+                    output_sha256,
+                    node.profile_sha256,
+                    node.expected_entitlements_sha256,
+                    0.0,
+                )
+                for node in plan.nodes
+            ),
             0.1,
         )
 

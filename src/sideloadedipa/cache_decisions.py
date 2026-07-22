@@ -9,7 +9,7 @@ from enum import StrEnum
 
 from sideloadedipa.cache_fingerprint import SigningCacheFingerprint
 
-CACHE_INDEX_SCHEMA_VERSION = 1
+CACHE_INDEX_SCHEMA_VERSION = 2
 
 
 class RebuildReason(StrEnum):
@@ -28,6 +28,7 @@ class TaskCacheRecord:
     fingerprint_sha256: str
     artifact_sha256: str
     verification_report_sha256: str
+    signing_report_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,7 @@ def _records_document(records: tuple[TaskCacheRecord, ...]) -> list[dict[str, ob
             "fingerprint_sha256": record.fingerprint_sha256,
             "artifact_sha256": record.artifact_sha256,
             "verification_report_sha256": record.verification_report_sha256,
+            "signing_report_sha256": record.signing_report_sha256,
         }
         for record in sorted(records, key=lambda value: value.task_name)
     ]
@@ -107,6 +109,7 @@ def parse_cache_index_json(payload: bytes) -> CacheIndex:
                 fingerprint_sha256=value["fingerprint_sha256"],
                 artifact_sha256=value["artifact_sha256"],
                 verification_report_sha256=value["verification_report_sha256"],
+                signing_report_sha256=value["signing_report_sha256"],
             )
             for value in records_document
             if isinstance(value, dict)
@@ -128,6 +131,7 @@ def parse_cache_index_json(payload: bytes) -> CacheIndex:
                 record.fingerprint_sha256,
                 record.artifact_sha256,
                 record.verification_report_sha256,
+                record.signing_report_sha256,
             )
         ) or any(not isinstance(record.fingerprint_schema_version, int) for record in records):
             raise TypeError

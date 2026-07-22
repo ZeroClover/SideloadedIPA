@@ -30,6 +30,7 @@ def record(value: SigningCacheFingerprint) -> TaskCacheRecord:
         value.sha256,
         value.task_name[0].lower() * 64,
         "f" * 64,
+        "e" * 64,
     )
 
 

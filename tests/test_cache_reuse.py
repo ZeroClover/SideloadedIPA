@@ -89,6 +89,7 @@ def cache_record(artifact: Path) -> TaskCacheRecord:
         "0" * 64,
         hashlib.sha256(artifact.read_bytes()).hexdigest(),
         verification.report_sha256,
+        "1" * 64,
     )
 
 

@@ -313,6 +313,10 @@ def test_second_run_cache_hit_reopens_artifact_without_resigning(
     pipeline.verify(replace(first, command=CommandName.VERIFY))
 
     assert dict(first_result.payload)["status"] == "passed"
+    first_signing_report = pipeline._signing_report_path(first, task.task_name).read_bytes()
+    signing_document = json.loads(first_signing_report)
+    assert signing_document["nodes"]
+    assert all(value["backend_evidence"] is not None for value in signing_document["nodes"])
     backend = signing_request.backend
     assert isinstance(backend, CopyBackend) and backend.called
     backend.called = False
@@ -328,11 +332,14 @@ def test_second_run_cache_hit_reopens_artifact_without_resigning(
     assert dict(second_result.payload)["status"] == "passed"
     assert backend.called is False
     assert signing_request.destination_ipa.exists()
+    assert (
+        pipeline._signing_report_path(second, task.task_name).read_bytes() == first_signing_report
+    )
     assert (tmp_path / "reports/second.json").is_file()
 
-    cached_artifact = pipeline._cache().artifact_path(task.task_name, fingerprint.sha256)
-    cached_artifact.chmod(0o644)
-    cached_artifact.write_bytes(b"tampered cache")
+    cached_report = pipeline._cache().signing_report_path(task.task_name, fingerprint.sha256)
+    cached_report.chmod(0o644)
+    cached_report.write_bytes(b"tampered report")
     signing_request.destination_ipa.unlink()
     third = replace(first, run_id="third")
     _prime_apply_stages(pipeline, third, context)
@@ -340,6 +347,19 @@ def test_second_run_cache_hit_reopens_artifact_without_resigning(
     pipeline.sign(third)
 
     assert pipeline._read_decisions(third)[0].reason is RebuildReason.CACHE_REJECTED
+    assert backend.called is True
+
+    backend.called = False
+    cached_artifact = pipeline._cache().artifact_path(task.task_name, fingerprint.sha256)
+    cached_artifact.chmod(0o644)
+    cached_artifact.write_bytes(b"tampered cache")
+    signing_request.destination_ipa.unlink()
+    fourth = replace(first, run_id="fourth")
+    _prime_apply_stages(pipeline, fourth, context)
+
+    pipeline.sign(fourth)
+
+    assert pipeline._read_decisions(fourth)[0].reason is RebuildReason.CACHE_REJECTED
     assert backend.called is True
 
 

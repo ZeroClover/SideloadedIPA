@@ -31,6 +31,10 @@ class SigningCacheStore:
         task_digest = hashlib.sha256(task_name.encode()).hexdigest()[:16]
         return self.root / "signed-artifacts" / task_digest / f"{fingerprint_sha256}.ipa"
 
+    def signing_report_path(self, task_name: str, fingerprint_sha256: str) -> Path:
+        artifact = self.artifact_path(task_name, fingerprint_sha256)
+        return artifact.with_suffix(".signing-report.json")
+
     def load(self) -> CacheIndex | None:
         if not self.index_path.exists():
             return None

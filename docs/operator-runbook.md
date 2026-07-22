@@ -112,7 +112,8 @@ The final redacted report is `work/reports/<run-id>.json`. It contains timings,
 source and graph provenance, bundle/profile mappings, capability decisions,
 non-secret tool and certificate fingerprints, cache decisions, verification,
 and publication outcomes. Per-stage manifests and cache decisions remain under
-`work/pipeline/<run-id>/`; CI uploads these JSON files even after failure.
+`work/pipeline/<run-id>/`; each task also retains a canonical signing report with
+actual per-node backend evidence. CI uploads these JSON files even after failure.
 
 ## Retry and rollback
 

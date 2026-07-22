@@ -50,6 +50,7 @@ from sideloadedipa.domain import (
     PipelineStage,
     PublicationCandidate,
     PublicationResult,
+    SigningPlan,
     SourceAsset,
     StageManifest,
     StageStatus,
@@ -78,7 +79,7 @@ from sideloadedipa.package_commands import (
 from sideloadedipa.package_runner import inspect_source_graph, prepare_package_signing
 from sideloadedipa.preflight import validate_signing_preflight
 from sideloadedipa.run_reports import RunReport, TaskRunEvidence, write_run_report
-from sideloadedipa.signing_reports import signing_result_sha256
+from sideloadedipa.signing_reports import canonical_signing_report_json
 from sideloadedipa.signing_service import (
     PackageSigningRequest,
     execute_package_signing,
@@ -241,6 +242,58 @@ def _atomic_copy(source: Path, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _restore_cached_signing_report(
+    *,
+    plan: SigningPlan,
+    record: TaskCacheRecord,
+    cached_path: Path,
+    retained_path: Path,
+) -> str:
+    try:
+        payload = cached_path.read_bytes()
+        report_sha256 = hashlib.sha256(payload).hexdigest()
+        document = json.loads(payload)
+        nodes = document["nodes"]
+        if (
+            report_sha256 != record.signing_report_sha256
+            or document["task_name"] != plan.task_name
+            or document["plan_sha256"] != plan.plan_sha256
+            or document["output_sha256"] != record.artifact_sha256
+            or not isinstance(nodes, list)
+            or {value.get("source_path") for value in nodes if isinstance(value, dict)}
+            != {value.source_path.as_posix() for value in plan.nodes}
+            or any(
+                not isinstance(value, dict) or not isinstance(value.get("backend_evidence"), dict)
+                for value in nodes
+            )
+        ):
+            raise TypeError
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise DomainError(
+            ErrorCode.CACHE_REUSE_INVALID,
+            "cached signing report is missing or inconsistent",
+            task_name=plan.task_name,
+            remediation="discard the cache hit and rebuild the task",
+        ) from error
+    _write_bytes_atomic(retained_path, payload)
+    return report_sha256
+
+
 def _write_source_selection(path: Path, resolved: ResolvedSource) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
@@ -315,6 +368,9 @@ class ProductionPipeline:
 
     def _source_selection_path(self, request: CommandRequest, task: Task) -> Path:
         return self._store(request).task_root(task.task_name) / "source-selection.json"
+
+    def _signing_report_path(self, request: CommandRequest, task_name: str) -> Path:
+        return self._store(request).task_root(task_name) / "signing-report.json"
 
     def _record_success(
         self,
@@ -716,6 +772,7 @@ class ProductionPipeline:
                 )
                 decision = decisions[index]
                 verification: VerificationResult
+                signing_report_sha256: str
                 if not decision.rebuild:
                     record = cached_records[task_name]
                     artifact = self._cache().artifact_path(task_name, value.fingerprint.sha256)
@@ -732,6 +789,14 @@ class ProductionPipeline:
                             refresh_threshold=_PROFILE_REFRESH_THRESHOLD,
                             verifier=value.request.verifier,
                         )
+                        signing_report_sha256 = _restore_cached_signing_report(
+                            plan=plan,
+                            record=record,
+                            cached_path=self._cache().signing_report_path(
+                                task_name, value.fingerprint.sha256
+                            ),
+                            retained_path=self._signing_report_path(request, task_name),
+                        )
                         _atomic_copy(artifact, value.request.destination_ipa)
                     except (OSError, SideloadedIPAError):
                         decision = RebuildDecision(
@@ -746,11 +811,33 @@ class ProductionPipeline:
                         verification = execution.execution.verification
                         artifact = self._cache().artifact_path(task_name, value.fingerprint.sha256)
                         _atomic_copy(value.request.destination_ipa, artifact)
+                        signing_report = canonical_signing_report_json(
+                            plan, execution.execution.signing
+                        )
+                        signing_report_sha256 = hashlib.sha256(signing_report).hexdigest()
+                        _write_bytes_atomic(
+                            self._cache().signing_report_path(task_name, value.fingerprint.sha256),
+                            signing_report,
+                        )
+                        _write_bytes_atomic(
+                            self._signing_report_path(request, task_name), signing_report
+                        )
                 else:
                     execution = execute_package_signing(value.request)
                     verification = execution.execution.verification
                     artifact = self._cache().artifact_path(task_name, value.fingerprint.sha256)
                     _atomic_copy(value.request.destination_ipa, artifact)
+                    signing_report = canonical_signing_report_json(
+                        plan, execution.execution.signing
+                    )
+                    signing_report_sha256 = hashlib.sha256(signing_report).hexdigest()
+                    _write_bytes_atomic(
+                        self._cache().signing_report_path(task_name, value.fingerprint.sha256),
+                        signing_report,
+                    )
+                    _write_bytes_atomic(
+                        self._signing_report_path(request, task_name), signing_report
+                    )
                 artifact_sha256 = _sha256_file(value.request.destination_ipa)
                 self._record_success(
                     store,
@@ -766,6 +853,7 @@ class ProductionPipeline:
                         value.fingerprint.sha256,
                         artifact_sha256,
                         verification.report_sha256,
+                        signing_report_sha256,
                     )
                 )
             decisions_tuple = tuple(decisions)
@@ -786,6 +874,11 @@ class ProductionPipeline:
                         "task_name": value.task_name,
                         "rebuild": value.rebuild,
                         "reason": value.reason.value,
+                        "signing_report_sha256": next(
+                            record.signing_report_sha256
+                            for record in pending_records
+                            if record.task_name == value.task_name
+                        ),
                     }
                     for value in decisions_tuple
                 ],
