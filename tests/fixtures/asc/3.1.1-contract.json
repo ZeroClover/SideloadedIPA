@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-21",
+  "upstream": {
+    "repository": "rorkai/App-Store-Connect-CLI",
+    "tag": "3.1.1",
+    "commit": "cf3457b313418457748dca26430c3a26c4b3a653",
+    "release_url": "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/3.1.1"
+  },
+  "tools": {
+    "linux_amd64_sha256": "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd",
+    "macos_arm64_sha256": "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef",
+    "version_output": "3.1.1 (commit: cf3457b, date: 2026-07-20T10:27:57Z)"
+  },
+  "list_contract": {
+    "argv": ["devices", "list", "--platform", "IOS", "--paginate", "--output", "json"],
+    "response": {
+      "data": [
+        {
+          "type": "devices",
+          "id": "DEVICE_REDACTED",
+          "attributes": {
+            "name": "Device Redacted",
+            "platform": "IOS",
+            "status": "ENABLED",
+            "deviceClass": "IPHONE",
+            "udid": "UDID_REDACTED"
+          }
+        }
+      ],
+      "links": {"self": "https://api.appstoreconnect.apple.com/v1/devices"},
+      "meta": {"paging": {"total": 1, "limit": 200}}
+    }
+  },
+  "exit_codes": [
+    {"exit_code": 2, "error_code": "config.invalid", "class": "usage"},
+    {"exit_code": 3, "error_code": "apple.authorization_failed", "class": "authentication-or-authorization"},
+    {"exit_code": 4, "error_code": "apple.resource_not_found", "class": "not-found"},
+    {"exit_code": 5, "error_code": "apple.resource_conflict", "class": "conflict"},
+    {"exit_code": 39, "error_code": "apple.rate_limited", "class": "http-429-after-cli-retries"},
+    {"exit_code": 63, "error_code": "adapter.unavailable", "class": "http-503-after-cli-retries"}
+  ],
+  "retry_contract": {
+    "methods": ["GET", "HEAD"],
+    "statuses": [408, 429, 500, 502, 503, 504],
+    "max_retries": 3,
+    "base_delay": "1s",
+    "max_delay": "10s",
+    "jitter": "plus-or-minus-25-percent",
+    "honors_retry_after": true
+  },
+  "redactions": [
+    "ASC_KEY_ID",
+    "ASC_ISSUER_ID",
+    "ASC_PRIVATE_KEY",
+    "ASC_PRIVATE_KEY_B64",
+    "ASC_PRIVATE_KEY_PATH"
+  ]
+}

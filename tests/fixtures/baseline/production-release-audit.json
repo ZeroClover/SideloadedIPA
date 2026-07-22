@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-07-21",
+  "effective_glob": "*.ipa",
+  "tasks": [
+    {
+      "task_name": "JHenTai",
+      "repository": "jiangtian616/JHenTai",
+      "tag": "v8.0.14+323",
+      "matches": ["JHenTai_8.0.14+323.ipa"]
+    },
+    {
+      "task_name": "Eros FE",
+      "repository": "erosTeam/eros_fe",
+      "tag": "v1.9.2+566",
+      "matches": ["Eros-FE_1.9.2+566.ipa"]
+    },
+    {
+      "task_name": "Asspp",
+      "repository": "Lakr233/Asspp",
+      "tag": "4.2.1",
+      "matches": ["Asspp.ipa"]
+    },
+    {
+      "task_name": "PiliPlus",
+      "repository": "bggRGjQaUbCoE/PiliPlus",
+      "tag": "2.1.0",
+      "matches": ["PiliPlus_ios_2.1.0+5109.ipa"]
+    },
+    {
+      "task_name": "StikDebug",
+      "repository": "StephenDev0/StikDebug",
+      "tag": "3.1.6",
+      "matches": ["StikDebug-3.1.6.ipa"]
+    }
+  ]
+}

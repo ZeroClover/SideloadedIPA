@@ -15,6 +15,36 @@ on:
         required: false
         default: false
         type: boolean
+      backend_qualification:
+        description: Run the private multi-bundle backend qualification probe only
+        required: false
+        default: false
+        type: boolean
+      apple_state_probe:
+        description: Run the read-only normalized Apple signing-state probe only
+        required: false
+        default: false
+        type: boolean
+      package_shadow:
+        description: Run read-only package inventory and Apple planning only
+        required: false
+        default: false
+        type: boolean
+      multi_bundle_canary:
+        description: Run the private non-publishing multi-bundle canary
+        required: false
+        default: false
+        type: boolean
+      qualification_apply:
+        description: Add missing qualification App IDs and profiles before the probe
+        required: false
+        default: false
+        type: boolean
+      qualification_reset_names:
+        description: Recreate agent-created qualification resources with standard names
+        required: false
+        default: false
+        type: boolean
   repository_dispatch:
     types: [sign_ipas]
 
@@ -27,49 +57,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  dispatch-input-guard:
+    name: Validate manual dispatch inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject qualification options without qualification mode
+        if: ${{ (inputs.qualification_apply == true || inputs.qualification_reset_names == true) && inputs.backend_qualification != true }}
+        shell: bash
+        run: |
+          echo "qualification_apply and qualification_reset_names require backend_qualification." >&2
+          exit 1
+
   sign-and-upload:
     name: Sign & Upload IPAs
+    needs: dispatch-input-guard
+    if: >-
+      ${{ github.event_name != 'workflow_dispatch' ||
+          (inputs.backend_qualification != true && inputs.apple_state_probe != true &&
+           inputs.package_shadow != true && inputs.multi_bundle_canary != true &&
+           inputs.qualification_apply != true && inputs.qualification_reset_names != true) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
-      # zsign release whose prebuilt Linux binary we download (https://github.com/zhlynn/zsign)
-      ZSIGN_VERSION: v1.0.4
-      # App Store Connect CLI release whose prebuilt Linux binary we download
-      ASC_VERSION: "2.4.0"
-      # Apple Developer credentials
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-      # App Store Connect API (env-based auth, no temp key file needed)
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-      ASC_BYPASS_KEYCHAIN: "1"
-      # Cloudflare R2 object storage (S3-compatible publishing target)
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+      ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
+      ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
       # Signing region pinned to the bucket's location hint (avoids picking up
       # an invalid region from ambient AWS config; "auto" also works)
       R2_REGION: apac
-      # Vercel on-demand revalidation hook (download-page / plist cache refresh)
-      VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
       # Hook URL: production default is the live domain; override with the repo
       # variable (e.g. https://sideloadedipa.vercel.app/api/revalidate) while
       # testing pre-cutover, then delete the variable at DNS switchover.
       VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
-      # GitHub Token for API access (authenticated rate limits)
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Enable verbose logging in scripts (used for GitHub API rate limit debug)
-      DEBUG: ${{ github.event.inputs.debug || 'false' }}
       # Force rebuild flag
       FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -79,149 +110,127 @@ jobs:
 
       - name: Restore cache
         id: cache-restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             work/cache
-          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
+          key: pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-${{ github.run_id }}
           restore-keys: |
-            ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-
-            ci-cache-v1-${{ github.ref_name }}-
-            ci-cache-v1-
+            pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-
+            pipeline-cache-v2-${{ runner.os }}-
 
-      - name: Preserve cached device list for comparison
+      - name: Preflight - install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
+
+      - name: Preflight - build cached qualified zsign
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
+
+      - name: Inventory and aggregate policy preflight
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p work/cache-old
-          if [ -f work/cache/device-list.json ]; then
-            cp work/cache/device-list.json work/cache-old/device-list.json
-            echo "Preserved cached device list for comparison"
-          else
-            echo "No cached device list found (first run)"
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sideloadedipa-reports"
+          uv run sideloadedipa inspect --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/01-inspect.json"
+
+      - name: Apple plan - read-only
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_BYPASS_KEYCHAIN: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run sideloadedipa plan --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/02-apple-plan.json"
+
+      - name: Apple apply - sync package profiles
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_BYPASS_KEYCHAIN: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run sideloadedipa sync --apply --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json"
+
+      - name: Sign selected tasks
+        id: package-signing
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${FORCE_REBUILD}" == "true" || "${FORCE_REBUILD}" == "1" ]]; then
+            args+=(--force-rebuild)
           fi
+          uv run sideloadedipa sign --run-id "$GITHUB_RUN_ID" --json "${args[@]}" \
+            > "$RUNNER_TEMP/sideloadedipa-reports/04-sign.json"
 
-      - name: Install dependencies
+      - name: Independently reopen and verify signed IPAs
+        id: package-verification
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # asc (App Store Connect CLI): official prebuilt Linux binary, checksum-verified.
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          asc --version
+          uv run sideloadedipa verify --publish --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/05-verify.json"
 
-      - name: Install zsign
+      - name: Publish verified batch
+        id: package-publication
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
         run: |
           set -euo pipefail
-          # zsign's official prebuilt Linux binary is fully static (musl) with no
-          # runtime deps. Download it plus checksums and verify SHA256 before use.
-          asset="zsign-linux-musl-static.tar.gz"
-          base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
-          curl -fLsS -o "$RUNNER_TEMP/SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asset" SHA256SUMS.txt | sha256sum -c -)
-          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
-          # The tarball contains a single static binary named "zsign-musl".
-          echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-musl" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/zsign-musl" -v
+          uv run sideloadedipa publish --run-id "$GITHUB_RUN_ID" --json \
+            > "$RUNNER_TEMP/sideloadedipa-reports/06-publish.json"
 
-      - name: Verify App Store Connect credentials
-        run: asc devices list --limit 1 --output json > /dev/null
-
-      - name: Check Entitlements Profile
-        id: check-entitlements
-        run: |
-          uv run python scripts/sync_profiles_asc.py check
-
-      - name: Check App Version
-        id: check-version
-        env:
-          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
-        run: |
-          uv run python scripts/check_changes.py
-
-      - name: Sync Entitlements Profile
-        if: ${{ steps.check-version.outputs.rebuild_all == 'true' || steps.check-version.outputs.rebuild_tasks != '[]' }}
-        env:
-          DEVICES_CHANGED: ${{ steps.check-entitlements.outputs.devices_changed }}
-          ALL_PROFILES_PRESENT: ${{ steps.check-entitlements.outputs.all_profiles_present }}
-          MISSING_PROFILES: ${{ steps.check-entitlements.outputs.missing_profiles }}
-          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
-          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
-        run: |
-          set -euo pipefail
-          echo "DEVICES_CHANGED=${DEVICES_CHANGED}"
-          echo "ALL_PROFILES_PRESENT=${ALL_PROFILES_PRESENT}"
-          echo "MISSING_PROFILES=${MISSING_PROFILES}"
-          echo "REBUILD_ALL=${REBUILD_ALL}"
-          echo "REBUILD_TASKS=${REBUILD_TASKS}"
-          if [[ "${DEVICES_CHANGED}" == "true" ]]; then
-            echo "Device list changed - regenerating all provisioning profiles"
-            uv run python scripts/sync_profiles_asc.py
-          else
-            echo "Device list unchanged - downloading existing profiles (create missing if needed)"
-            SKIP_PROFILE_REGENERATION=true uv run python scripts/sync_profiles_asc.py
-          fi
-
-      - name: Run signer
-        env:
-          REBUILD_ALL: ${{ steps.check-version.outputs.rebuild_all }}
-          REBUILD_TASKS: ${{ steps.check-version.outputs.rebuild_tasks }}
-        run: uv run python scripts/run_signing.py
+      - name: Upload redacted run report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: signing-run-report-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sideloadedipa-reports/*.json
+            work/reports/*.json
+            work/pipeline/**/*.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Save cache
-        if: always()
-        uses: actions/cache/save@v5
-        continue-on-error: true
+        if: ${{ success() }}
+        uses: actions/cache/save@v6.1.0
         with:
           path: |
             work/cache
-          key: ci-cache-v1-${{ github.ref_name }}-${{ hashFiles('configs/tasks.toml') }}-${{ github.run_id }}
-
-      - name: "Debug: Configure SSH public key for runner"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        env:
-          PUBKEY: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${PUBKEY:-}" ]]; then
-            echo "DEBUG_SSH_PUBLIC_KEY is required when debug is enabled." >&2
-            exit 1
-          fi
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          echo "$PUBKEY" > "$HOME/.ssh/authorized_keys"
-          chmod 600 "$HOME/.ssh/authorized_keys"
-
-      - name: "Debug: Start dropbear SSH server"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euxo pipefail
-          sudo apt-get install -y dropbear-bin
-          # One-shot, unprivileged dropbear: public-key only (-s disables password
-          # auth), bound to localhost:2222, with a throwaway host key. It forks to
-          # the background so the cloudflared step below can hold the job open.
-          mkdir -p "$RUNNER_TEMP/dropbear"
-          dropbearkey -t ed25519 -f "$RUNNER_TEMP/dropbear/host_key"
-          dropbear -p 127.0.0.1:2222 -r "$RUNNER_TEMP/dropbear/host_key" \
-            -s -g -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
-          echo "dropbear is listening on 127.0.0.1:2222 (login user: $(whoami))"
-
-      - name: "Debug: Install cloudflared"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euxo pipefail
-          curl -fLsS -o "$RUNNER_TEMP/cloudflared" \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
-          cloudflared --version
-
-      - name: "Debug: Run cloudflared tunnel"
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (github.event.inputs.debug == true || github.event.inputs.debug == 'true' || github.event.inputs.debug == '1') }}
-        run: |
-          set -euo pipefail
-          cloudflared --no-autoupdate --url "ssh://localhost:2222" 2>&1 | tee cloudflared.log
+          key: pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-${{ github.run_id }}
 
       - name: Notify webhook
         if: ${{ always() && (job.status == 'success' || job.status == 'failure') }}
@@ -238,3 +247,555 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$payload" \
             "$WEBHOOK_URL"
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
+  package-shadow:
+    name: Read-only package pipeline shadow
+    needs: dispatch-input-guard
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_shadow == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Preflight - checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Preflight - set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Preflight - install Python dependencies
+        run: uv sync --frozen
+
+      - name: Preflight - install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
+
+      - name: Inventory - inspect every current task without mutation
+        id: shadow-inventory
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          mkdir -p "$report_dir"
+          set +e
+          uv run sideloadedipa inspect --json > "$report_dir/inventory.json"
+          status=$?
+          set -e
+          if (( status > 1 )); then
+            exit "$status"
+          fi
+          jq empty "$report_dir/inventory.json"
+          printf '%s\n' "$status" > "$report_dir/inventory-exit-code.txt"
+
+      - name: Apple plan - read-only resource plan for every current task
+        id: shadow-apple-plan
+        shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          set +e
+          uv run sideloadedipa plan --json > "$report_dir/apple-plan.json"
+          status=$?
+          set -e
+          if (( status > 1 )); then
+            exit "$status"
+          fi
+          jq empty "$report_dir/apple-plan.json"
+          printf '%s\n' "$status" > "$report_dir/apple-plan-exit-code.txt"
+
+      - name: Apple apply, signing, verification, and publication - enforce shadow mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
+          jq -n \
+            --arg inventory_status "$(cat "$report_dir/inventory-exit-code.txt")" \
+            --arg plan_status "$(cat "$report_dir/apple-plan-exit-code.txt")" \
+            '{schema_version: 1, mode: "read-only-shadow", inventory_exit_code: ($inventory_status | tonumber), apple_plan_exit_code: ($plan_status | tonumber), apple_apply: "skipped", signing: "skipped", verification: "skipped", publication: "disabled"}' \
+            > "$report_dir/shadow-summary.json"
+          if env | cut -d= -f1 | grep -Eq '^(R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)$'; then
+            echo "R2 credentials must not be present in read-only shadow mode." >&2
+            exit 1
+          fi
+          if grep -ERq 'BEGIN PRIVATE KEY|ASC_PRIVATE_KEY|APPLE_DEV_CERT_PASSWORD' "$report_dir"; then
+            echo "A redacted shadow report contains a credential marker." >&2
+            exit 1
+          fi
+
+      - name: Upload redacted shadow plans and reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: package-shadow-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sideloadedipa-shadow/inventory.json
+            ${{ runner.temp }}/sideloadedipa-shadow/apple-plan.json
+            ${{ runner.temp }}/sideloadedipa-shadow/shadow-summary.json
+            ${{ runner.temp }}/sideloadedipa-shadow/fixture/workflow-fixture-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
+  apple-state-probe:
+    name: Probe normalized Apple signing state
+    needs: dispatch-input-guard
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.apple_state_probe == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
+
+      - name: Collect redacted read-only snapshot
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: uv run python -m sideloadedipa.apple.state_probe
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
+  backend-qualification:
+    name: Private non-publishing multi-bundle canary
+    needs: dispatch-input-guard
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+      ZSIGN_VERSION: "v1.1.1"
+      ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
+      ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
+      ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
+
+      - name: Install checksum-verified zsign
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          asset="zsign-linux-musl-static.tar.gz"
+          base="https://github.com/zhlynn/zsign/releases/download/${ZSIGN_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          curl -fLsS -o "$RUNNER_TEMP/zsign_SHA256SUMS.txt" "$base/SHA256SUMS.txt"
+          (cd "$RUNNER_TEMP" && grep -F "  $asset" zsign_SHA256SUMS.txt | sha256sum -c -)
+          printf '%s  %s\n' "$ZSIGN_LINUX_MUSL_SHA256" "$RUNNER_TEMP/$asset" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/backend-qualification/bin"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/backend-qualification/bin"
+          install -m 0755 "$RUNNER_TEMP/backend-qualification/bin/zsign-musl" \
+            "$RUNNER_TEMP/backend-qualification/zsign"
+          test "$("$RUNNER_TEMP/backend-qualification/zsign" -v)" \
+            = "version: ${ZSIGN_VERSION#v}"
+          printf 'zsign executable sha256: '
+          sha256sum "$RUNNER_TEMP/backend-qualification/zsign" | cut -d ' ' -f 1
+          printf 'zsign repository=zhlynn/zsign version=%s archive_sha256=%s\n' \
+            "$ZSIGN_VERSION" "$ZSIGN_LINUX_MUSL_SHA256"
+
+      - name: Preflight - build pinned per-profile-entitlement zsign extension
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
+
+      - name: Preflight - extract configured public signing certificate
+        shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          mkdir -p "$private_dir"
+          printf '%s' "$APPLE_DEV_CERT_P12_ENCODED" | base64 --decode > "$private_dir/certificate.p12"
+          openssl pkcs12 -legacy -in "$private_dir/certificate.p12" -nocerts -nodes \
+            -passin env:P12_PASSWORD -out "$private_dir/private-key.pem"
+          openssl pkcs12 -legacy -in "$private_dir/certificate.p12" -clcerts -nokeys \
+            -passin env:P12_PASSWORD -out "$private_dir/certificate.pem"
+          openssl x509 -in "$private_dir/certificate.pem" -outform DER \
+            -out "$private_dir/certificate.der"
+          printf 'configured certificate sha256: '
+          sha256sum "$private_dir/certificate.der" | cut -d ' ' -f 1
+
+      - name: Inventory - build pinned synthetic four-bundle fixture
+        uses: ./.github/actions/build-qualification-fixture
+        with:
+          source-url: https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa
+          source-sha256: b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6
+
+      - name: Apple plan and optional apply - reconcile private prerequisites
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          args=(
+            --certificate-der "$private_dir/certificate.der"
+            --private-dir "$private_dir/profiles"
+            --summary "$RUNNER_TEMP/backend-qualification/summary.json"
+          )
+          if [[ "${{ inputs.qualification_apply }}" == "true" ]]; then
+            args+=(--apply-bundle-ids --apply-profiles)
+          fi
+          if [[ "${{ inputs.qualification_reset_names }}" == "true" ]]; then
+            args+=(--reset-legacy-names)
+          fi
+          uv run python -m sideloadedipa.tools.qualify_backend_prerequisites "${args[@]}"
+
+      - name: Signing and verification - exercise upstream negative control
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          uv run python -m sideloadedipa.tools.exercise_zsign_backend \
+            --zsign "$RUNNER_TEMP/backend-qualification/zsign" \
+            --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
+            --private-key "$private_dir/private-key.pem" \
+            --certificate "$private_dir/certificate.pem" \
+            --profiles-dir "$private_dir/profiles" \
+            --output-dir "$private_dir/backend-exercise" \
+            --summary "$RUNNER_TEMP/backend-qualification/zsign-profile-only-summary.json"
+
+      - name: Signing and verification - exercise qualified backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          uv run python -m sideloadedipa.tools.exercise_zsign_backend \
+            --zsign "$ZSIGN_BIN" \
+            --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
+            --private-key "$private_dir/private-key.pem" \
+            --certificate "$private_dir/certificate.pem" \
+            --profiles-dir "$private_dir/profiles" \
+            --output-dir "$private_dir/backend-extension-exercise" \
+            --summary "$RUNNER_TEMP/backend-qualification/zsign-summary.json" \
+            --config configs/tasks.toml \
+            --per-profile-entitlements
+
+      - name: Production run - build and verify installable LiveContainer canary
+        if: ${{ inputs.multi_bundle_canary == true }}
+        shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/backend-qualification"
+          uv run sideloadedipa run --task LiveContainer --apply \
+            --run-id "$GITHUB_RUN_ID" --json > "$report_dir/livecontainer-run.json"
+          jq -e '.status == "passed" and (.report_path | type == "string")' \
+            "$report_dir/livecontainer-run.json" >/dev/null
+          run_report="work/reports/$GITHUB_RUN_ID.json"
+          jq -e \
+            '.tasks | length == 1 and .[0].task_name == "LiveContainer" and .[0].verification.passed == true and .[0].publication == null' \
+            "$run_report" >/dev/null
+          cp "$run_report" "$report_dir/livecontainer-run-report.json"
+
+      - name: Publication - enforce disabled canary state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env | cut -d= -f1 | grep -Eq '^(R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|R2_BUCKET)$'; then
+            echo "R2 publication credentials must not be present in the canary job." >&2
+            exit 1
+          fi
+          printf '%s\n' \
+            '{"mode":"private-canary","publication":"disabled","schema_version":1}' \
+            > "$RUNNER_TEMP/backend-qualification/publication-disabled.json"
+
+      - name: Upload redacted Linux qualification summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-linux
+          path: |
+            ${{ runner.temp }}/backend-qualification/zsign-profile-only-summary.json
+            ${{ runner.temp }}/backend-qualification/zsign-summary.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-run.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-run-report.json
+            ${{ runner.temp }}/backend-qualification/publication-disabled.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove private qualification material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
+          test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
+          rm -rf -- "$private_dir"
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
+  backend-qualification-macos:
+    name: Qualify with independent macOS codesign oracle
+    needs: backend-qualification
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      ASC_VERSION: "3.1.1"
+      ASC_MACOS_ARM64_SHA256: "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef"
+      ASC_BYPASS_KEYCHAIN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_macOS_arm64
+          sha256: ${{ env.ASC_MACOS_ARM64_SHA256 }}
+
+      - name: Import configured signing identity into an isolated keychain
+        shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          keychain="$RUNNER_TEMP/backend-qualification.keychain-db"
+          openssl_bin="$(brew --prefix openssl@3)/bin/openssl"
+          mkdir -p "$private_dir"
+          printf '%s' "$APPLE_DEV_CERT_P12_ENCODED" \
+            | "$openssl_bin" base64 -d -A -out "$private_dir/certificate.p12"
+          "$openssl_bin" pkcs12 -legacy -in "$private_dir/certificate.p12" -clcerts -nokeys \
+            -passin env:P12_PASSWORD -out "$private_dir/certificate.pem"
+          "$openssl_bin" x509 -in "$private_dir/certificate.pem" -outform DER \
+            -out "$private_dir/certificate.der"
+
+          keychain_password="$("$openssl_bin" rand -hex 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 1200 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$private_dir/certificate.p12" -k "$keychain" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+
+          identities="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -nE 's/^[[:space:]]*[0-9]+\) ([[:xdigit:]]{40}) .*/\1/p')"
+          identity_count="$(printf '%s\n' "$identities" \
+            | awk 'NF { count++ } END { print count + 0 }')"
+          if [[ "$identity_count" != "1" ]]; then
+            echo "Expected exactly one codesigning identity, found $identity_count." >&2
+            exit 1
+          fi
+          identity="$(printf '%s\n' "$identities" | head -n 1)"
+          echo "QUALIFICATION_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          printf 'configured certificate sha256: '
+          shasum -a 256 "$private_dir/certificate.der" | cut -d ' ' -f 1
+
+      - name: Build pinned synthetic four-bundle fixture
+        uses: ./.github/actions/build-qualification-fixture
+        with:
+          source-url: https://github.com/LiveContainer/LiveContainer/releases/download/3.8.0/LiveContainer.ipa
+          source-sha256: b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6
+
+      - name: Probe private Apple qualification prerequisites
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          uv run python -m sideloadedipa.tools.qualify_backend_prerequisites \
+            --certificate-der "$private_dir/certificate.der" \
+            --private-dir "$private_dir/profiles" \
+            --summary "$RUNNER_TEMP/backend-qualification/profile-summary.json"
+
+      - name: Verification - exercise independent codesign oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="$RUNNER_TEMP/backend-qualification/private"
+          uv run python -m sideloadedipa.tools.exercise_codesign_oracle \
+            --fixture-ipa "$RUNNER_TEMP/backend-qualification/fixture/qualification.ipa" \
+            --identity "$CODESIGN_IDENTITY" \
+            --keychain "$QUALIFICATION_KEYCHAIN" \
+            --profiles-dir "$private_dir/profiles" \
+            --output-dir "$private_dir/codesign-oracle" \
+            --summary "$RUNNER_TEMP/backend-qualification/codesign-summary.json"
+
+      - name: Upload redacted macOS qualification summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-macos
+          path: ${{ runner.temp }}/backend-qualification/codesign-summary.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove private macOS qualification material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
+          test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
+          rm -rf -- "$private_dir"
+          if [[ -n "${QUALIFICATION_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$QUALIFICATION_KEYCHAIN"
+          fi
+
+  backend-qualification-comparison:
+    name: Compare Linux and macOS backend evidence
+    needs: [dispatch-input-guard, backend-qualification, backend-qualification-macos]
+    if: ${{ always() && needs.dispatch-input-guard.result == 'success' && github.event_name == 'workflow_dispatch' && (inputs.backend_qualification == true || inputs.multi_bundle_canary == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Download Linux qualification summary
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: backend-qualification-linux
+          path: ${{ runner.temp }}/backend-comparison/linux
+
+      - name: Download macOS qualification summary
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: backend-qualification-macos
+          path: ${{ runner.temp }}/backend-comparison/macos
+
+      - name: Verification - compare Linux and macOS evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m sideloadedipa.tools.compare_backend_qualification \
+            --linux-summary "$RUNNER_TEMP/backend-comparison/linux/zsign-summary.json" \
+            --macos-summary "$RUNNER_TEMP/backend-comparison/macos/codesign-summary.json" \
+            --negative-control-summary "$RUNNER_TEMP/backend-comparison/linux/zsign-profile-only-summary.json" \
+            --summary "$RUNNER_TEMP/backend-comparison/comparison-summary.json"
+
+      - name: Upload redacted comparison summary
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: backend-qualification-comparison
+          path: ${{ runner.temp }}/backend-comparison/comparison-summary.json
+          if-no-files-found: error
+          retention-days: 7

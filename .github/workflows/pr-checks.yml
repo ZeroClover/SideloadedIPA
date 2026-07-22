@@ -2,21 +2,38 @@ name: PR Checks
 
 on:
   pull_request:
-    branches: [main, master]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: Keep the Python test runner available over SSH
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate-setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      # App Store Connect CLI release whose prebuilt Linux binary we download
-      ASC_VERSION: "2.4.0"
+      ASC_VERSION: "3.1.1"
+      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -24,38 +41,33 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Install asc (App Store Connect CLI)
-        run: |
-          set -euo pipefail
-          # Official prebuilt Linux binary, checksum-verified before use.
-          asc_bin="asc_${ASC_VERSION}_linux_amd64"
-          base="https://github.com/rudrankriyam/App-Store-Connect-CLI/releases/download/${ASC_VERSION}"
-          curl -fLsS -o "$RUNNER_TEMP/$asc_bin" "$base/$asc_bin"
-          curl -fLsS -o "$RUNNER_TEMP/asc_checksums.txt" "$base/asc_${ASC_VERSION}_checksums.txt"
-          (cd "$RUNNER_TEMP" && grep -F "$asc_bin" asc_checksums.txt | sha256sum -c -)
-          sudo install -m 0755 "$RUNNER_TEMP/$asc_bin" /usr/local/bin/asc
-          asc --version
-
-      - name: Validate ASC authentication
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-          ASC_BYPASS_KEYCHAIN: "1"
-        run: asc devices list --limit 1 --output json > /dev/null
+      - name: Install checksum-verified App Store Connect CLI
+        uses: ./.github/actions/install-asc
+        with:
+          version: ${{ env.ASC_VERSION }}
+          asset: asc_${{ env.ASC_VERSION }}_linux_amd64
+          sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
       - name: Validate config syntax
-        run: uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
+        run: |
+          uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
+          uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml.example', 'rb'))"
 
   python-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
+      ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -63,33 +75,97 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Run pytest
+      - name: Build cached patched zsign
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
+
+      - name: Run pytest with package coverage gate
         run: uv run pytest
 
       - name: Lint (black + isort)
         run: |
           uv run black --check scripts/
           uv run isort --check-only scripts/
+          uv run black --check src/sideloadedipa/
+          uv run isort --check-only src/sideloadedipa/
 
-      - name: Type check (mypy)
-        # Non-blocking: strict-mode debt predates this check (run_signing.py /
-        # sync_profiles_asc.py / check_changes.py). New/changed modules are
-        # mypy-clean; fix the legacy debt before making this blocking.
-        continue-on-error: true
+      - name: Type check new package
+        run: uv run mypy src/sideloadedipa
+
+      - name: Type check scripts
         run: uv run mypy scripts/
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
+
+  workflow-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install checksum-verified actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fLsS -o "$RUNNER_TEMP/$asset" "$base/$asset"
+          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$RUNNER_TEMP/$asset" \
+            | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+
+      - name: Validate workflow YAML and shell
+        shell: bash
+        run: '"$RUNNER_TEMP/actionlint" -no-color .github/workflows/*.yml'
+
+      - name: Validate composite action metadata
+        shell: bash
+        run: |
+          ruby -e 'require "yaml"; Dir[".github/actions/**/action.yml"].each { |path| doc = YAML.safe_load_file(path, aliases: true); abort("invalid composite action: #{path}") unless doc.is_a?(Hash) && doc.dig("runs", "using") == "composite" && doc.dig("runs", "steps").is_a?(Array) }'
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: "22"
           cache: npm

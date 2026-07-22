@@ -6,7 +6,7 @@ import { revalidateTag } from "next/cache";
  * The next page / plist request then re-reads apps.json — no redeploy needed.
  */
 export async function GET(request: Request) {
-  const secret = new URL(request.url).searchParams.get("secret");
+  const secret = request.headers.get("x-revalidate-secret");
   if (!secret || secret !== process.env.REVALIDATE_SECRET) {
     return Response.json({ message: "invalid secret" }, { status: 401 });
   }

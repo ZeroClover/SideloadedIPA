@@ -1,28 +1,43 @@
 """Tests for scripts/r2_store.py - Cloudflare R2 (S3-compatible) storage wrapper."""
 
 import hashlib
+import io
 import json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import boto3
 import pytest
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
+from botocore.stub import ANY, Stubber
 
-# Add scripts to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from r2_store import (
+from sideloadedipa.adapters.publication.r2_store import (
     ICON_CACHE_CONTROL,
     ICON_CONTENT_TYPE,
     IPA_CACHE_CONTROL,
     IPA_CONTENT_DISPOSITION,
     IPA_CONTENT_TYPE,
+    JSON_CACHE_CONTROL,
+    JSON_CONTENT_TYPE,
     R2Store,
     referenced_keys_from_apps,
 )
+from sideloadedipa.errors import ConfigurationError
 
 BASE_URL = "https://ipa.zeroclover.io"
+
+
+def _stubbed_store() -> tuple[R2Store, Stubber]:
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://acc123.r2.cloudflarestorage.com",
+        aws_access_key_id="akid",
+        aws_secret_access_key="secret",
+        region_name="auto",
+    )
+    stubber = Stubber(client)
+    return _store(client), stubber
 
 
 def _store(client: MagicMock | None = None) -> R2Store:
@@ -48,8 +63,9 @@ class TestFromEnv:
             "R2_PUBLIC_BASE_URL",
         ):
             monkeypatch.delenv(var, raising=False)
-        with pytest.raises(RuntimeError, match="R2_ACCOUNT_ID"):
+        with pytest.raises(ConfigurationError) as caught:
             R2Store.from_env()
+        assert "R2_ACCOUNT_ID" in dict(caught.value.safe_details)["variables"]
 
     def test_builds_client_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("R2_ACCOUNT_ID", "acc123")
@@ -58,7 +74,7 @@ class TestFromEnv:
         monkeypatch.setenv("R2_BUCKET", "bucket")
         monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://ipa.example.com/")
         monkeypatch.delenv("R2_REGION", raising=False)
-        with patch("r2_store.boto3.client") as mock_client:
+        with patch("sideloadedipa.adapters.publication.r2_store.boto3.client") as mock_client:
             store = R2Store.from_env()
         assert store.bucket == "bucket"
         # trailing slash stripped
@@ -81,7 +97,7 @@ class TestFromEnv:
         monkeypatch.setenv("R2_BUCKET", "bucket")
         monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://ipa.example.com")
         monkeypatch.setenv("R2_REGION", "apac")
-        with patch("r2_store.boto3.client") as mock_client:
+        with patch("sideloadedipa.adapters.publication.r2_store.boto3.client") as mock_client:
             R2Store.from_env()
         assert mock_client.call_args.kwargs["region_name"] == "apac"
 
@@ -352,3 +368,84 @@ class TestUploadIcon:
     def test_ipa_cache_control_has_no_transform_opt_out(self) -> None:
         """Only images are Polished — IPAs must not carry the directive needlessly."""
         assert "no-transform" not in IPA_CACHE_CONTROL
+
+
+class TestStubbedR2Contracts:
+    """Exercise the real botocore request layer without network access."""
+
+    def test_upload_confirmation_reads_back_exact_bytes(self, tmp_path: Path) -> None:
+        store, stubber = _stubbed_store()
+        artifact = tmp_path / "Example.ipa"
+        artifact.write_bytes(b"verified")
+        key = "apps/example/1.0/Example.ipa"
+        stubber.add_response(
+            "put_object",
+            {"ETag": '"fixture"'},
+            {
+                "Bucket": "zeroclover-ipa",
+                "Key": key,
+                "Body": ANY,
+                "ContentType": IPA_CONTENT_TYPE,
+                "ContentDisposition": IPA_CONTENT_DISPOSITION,
+                "CacheControl": IPA_CACHE_CONTROL,
+                "ChecksumAlgorithm": "CRC32",
+            },
+        )
+        stubber.add_response(
+            "get_object",
+            {"Body": StreamingBody(io.BytesIO(b"verified"), len(b"verified"))},
+            {"Bucket": "zeroclover-ipa", "Key": key},
+        )
+
+        with stubber:
+            assert store.upload_ipa(artifact, key) == f"{BASE_URL}/{key}"
+            assert store.download_bytes(key) == b"verified"
+        stubber.assert_no_pending_responses()
+
+    def test_registry_round_trip_uses_exact_document(self) -> None:
+        store, stubber = _stubbed_store()
+        document = {"updatedAt": None, "apps": [{"slug": "example"}]}
+        body = json.dumps(document, ensure_ascii=False, indent=2).encode() + b"\n"
+        stubber.add_response(
+            "put_object",
+            {"ETag": '"fixture"'},
+            {
+                "Bucket": "zeroclover-ipa",
+                "Key": "site/apps.json",
+                "Body": body,
+                "ContentType": JSON_CONTENT_TYPE,
+                "CacheControl": JSON_CACHE_CONTROL,
+            },
+        )
+        stubber.add_response(
+            "get_object",
+            {"Body": StreamingBody(io.BytesIO(body), len(body))},
+            {"Bucket": "zeroclover-ipa", "Key": "site/apps.json"},
+        )
+
+        with stubber:
+            store.upload_json("site/apps.json", document)
+            assert store.download_json("site/apps.json") == document
+        stubber.assert_no_pending_responses()
+
+    def test_stale_key_deletion_is_scoped_to_selected_slug(self) -> None:
+        store, stubber = _stubbed_store()
+        current = "apps/example/1.0/Example.ipa"
+        stale = "apps/example/0.9/Example.ipa"
+        stubber.add_response(
+            "list_objects_v2",
+            {"IsTruncated": False, "Contents": [{"Key": current}, {"Key": stale}]},
+            {"Bucket": "zeroclover-ipa", "Prefix": "apps/example/"},
+        )
+        stubber.add_response(
+            "delete_objects",
+            {"Deleted": [{"Key": stale}]},
+            {
+                "Bucket": "zeroclover-ipa",
+                "Delete": {"Objects": [{"Key": stale}]},
+            },
+        )
+
+        with stubber:
+            assert store.cleanup_stale(["example"], {current}) == [stale]
+        stubber.assert_no_pending_responses()

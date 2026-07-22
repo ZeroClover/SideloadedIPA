@@ -68,27 +68,32 @@ The system SHALL use authenticated GitHub API access to leverage GitHub Actions 
 
 ### Requirement: Asset Matching and Download
 
-The system SHALL locate and download IPA files from GitHub release assets using glob patterns.
+The system SHALL locate exactly one IPA file from GitHub release assets using the task's glob pattern and SHALL reject ambiguous source selection.
 
-#### Scenario: Match asset by glob pattern
+#### Scenario: Match exactly one asset by glob pattern
 
-- **WHEN** a release has multiple assets
-- **THEN** the system SHALL filter assets by the `release_glob` pattern using fnmatch
-- **AND** the system SHALL select the first matching asset
-- **AND** if no assets match, the system SHALL fail with an error
+- **WHEN** the system evaluates a release for a GitHub-backed task
+- **THEN** it SHALL filter all release assets by the `release_glob` pattern using fnmatch
+- **AND** when exactly one asset matches, it SHALL select that asset and record its asset ID, name, URL, size, and available digest as source evidence
 
-#### Scenario: Download matched asset
+#### Scenario: No asset matches
 
-- **WHEN** a matching asset is found
-- **THEN** the system SHALL download the asset from the `browser_download_url`
-- **AND** the system SHALL verify the download completed successfully
-- **AND** the system SHALL use the downloaded file for signing
+- **WHEN** no release asset matches the `release_glob` pattern
+- **THEN** source selection SHALL fail before download or signing
+- **AND** the diagnostic SHALL include the pattern and available asset names
 
-#### Scenario: Multiple matching assets
+#### Scenario: Multiple assets match
 
-- **WHEN** multiple assets match the glob pattern
-- **THEN** the system SHALL use the first matching asset in the asset list
-- **AND** the system SHALL log a warning listing all matched assets
+- **WHEN** multiple release assets match the `release_glob` pattern
+- **THEN** source selection SHALL fail instead of selecting the first match
+- **AND** the diagnostic SHALL list every matching asset name and require a more specific selector
+
+#### Scenario: Download the unambiguous matched asset
+
+- **WHEN** exactly one matching asset has been selected
+- **THEN** the system SHALL download that asset from its `browser_download_url`
+- **AND** the system SHALL verify that the download completed successfully
+- **AND** the system SHALL use only that downloaded file for signing
 
 ### Requirement: Version Comparison
 

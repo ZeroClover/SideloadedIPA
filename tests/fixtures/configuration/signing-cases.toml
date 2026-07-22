@@ -1,0 +1,104 @@
+[[tasks]]
+task_name = "root-only"
+app_name = "Root Only"
+bundle_id = "io.example.root-only"
+ipa_url = "https://example.com/RootOnly.ipa"
+
+[[tasks]]
+task_name = "multiple-extensions"
+app_name = "LiveContainer"
+bundle_id = "io.zeroclover.app.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
+
+[tasks.signing]
+id_strategy = "preserve-source-suffix"
+unknown_profile_bundles = "error"
+profile_type = "IOS_APP_DEVELOPMENT"
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.livecontainer"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.zeroclover.app.livecontainer"
+role = "root"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
+entitlement_mode = "profile"
+allowed_entitlement_drops = ["com.apple.developer.usernotifications.filtering"]
+drop_rationale = "The development profile does not authorize notification filtering."
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
+entitlement_mode = "preserve-source"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks]]
+task_name = "non-descendant"
+app_name = "Non Descendant"
+bundle_id = "io.example.non-descendant"
+ipa_url = "https://example.com/NonDescendant.ipa"
+
+[tasks.signing]
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.upstream.root"
+role = "root"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "net.unrelated.widget"
+target_bundle_id = "io.example.non-descendant.widget"
+
+[[tasks]]
+task_name = "duplicate-source-ids"
+app_name = "Duplicate IDs"
+bundle_id = "io.example.duplicate"
+ipa_url = "https://example.com/Duplicate.ipa"
+
+[tasks.signing]
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.upstream.duplicate"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "COM.UPSTREAM.DUPLICATE"
+
+[[tasks]]
+task_name = "sidestore-widget"
+app_name = "LiveContainer SideStore"
+bundle_id = "io.zeroclover.app.livecontainer.sidestore"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer+SideStore.ipa"
+
+[tasks.signing]
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.livecontainer.sidestore"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+role = "root"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveWidget"
+target_bundle_id = "io.zeroclover.app.livecontainer.sidestore.LiveWidget"
+required_capabilities = ["APP_GROUPS"]

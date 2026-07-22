@@ -1,0 +1,116 @@
+{
+  "bundle_ids": {
+    "data": [
+      {
+        "type": "bundleIds",
+        "id": "BUNDLE_CHILD",
+        "attributes": {
+          "name": "Child",
+          "identifier": "io.example.app.child",
+          "platform": "IOS",
+          "seedId": "TEAM_REDACTED"
+        }
+      },
+      {
+        "type": "bundleIds",
+        "id": "BUNDLE_ROOT",
+        "attributes": {
+          "name": "Root",
+          "identifier": "io.example.app",
+          "platform": "IOS"
+        }
+      }
+    ]
+  },
+  "capabilities": {
+    "BUNDLE_CHILD": {"data": null},
+    "BUNDLE_ROOT": {
+      "data": [
+        {
+          "type": "bundleIdCapabilities",
+          "id": "CAPABILITY_GROUPS",
+          "attributes": {
+            "capabilityType": "APP_GROUPS",
+            "settings": [
+              {
+                "key": "APP_GROUPS",
+                "options": [{"key": "GROUP_REDACTED", "enabled": true}]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "certificates": {
+    "data": [
+      {
+        "type": "certificates",
+        "id": "CERTIFICATE_ONE",
+        "attributes": {
+          "name": "Development",
+          "certificateType": "DEVELOPMENT",
+          "displayName": "Development Certificate",
+          "serialNumber": "SERIAL_REDACTED",
+          "platform": "IOS",
+          "expirationDate": "2027-07-21T00:00:00Z",
+          "certificateContent": "Y2VydGlmaWNhdGUtZml4dHVyZQ=="
+        }
+      }
+    ]
+  },
+  "devices": {
+    "data": [
+      {
+        "type": "devices",
+        "id": "DEVICE_ONE",
+        "attributes": {
+          "name": "Phone Redacted",
+          "platform": "IOS",
+          "status": "ENABLED",
+          "deviceClass": "IPHONE",
+          "udid": "UDID_PRIVATE_FIXTURE"
+        }
+      }
+    ]
+  },
+  "profiles": {
+    "data": [
+      {
+        "type": "profiles",
+        "id": "PROFILE_ONE",
+        "attributes": {
+          "name": "Root Development",
+          "profileType": "IOS_APP_DEVELOPMENT"
+        }
+      }
+    ]
+  },
+  "profile_details": {
+    "PROFILE_ONE": {
+      "data": {
+        "type": "profiles",
+        "id": "PROFILE_ONE",
+        "attributes": {
+          "name": "Root Development",
+          "platform": "IOS",
+          "profileType": "IOS_APP_DEVELOPMENT",
+          "profileState": "ACTIVE",
+          "profileContent": "cHJvZmlsZS1maXh0dXJl",
+          "uuid": "UUID_REDACTED",
+          "createdDate": "2026-07-21T00:00:00Z",
+          "expirationDate": "2027-07-21T00:00:00Z"
+        }
+      }
+    }
+  },
+  "profile_links": {
+    "PROFILE_ONE": {
+      "bundle_id": {"data": {"type": "bundleIds", "id": "BUNDLE_ROOT"}},
+      "certificates": {
+        "data": [{"type": "certificates", "id": "CERTIFICATE_ONE"}]
+      },
+      "devices": {"data": [{"type": "devices", "id": "DEVICE_ONE"}]}
+    }
+  }
+}
