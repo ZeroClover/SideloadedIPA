@@ -103,3 +103,30 @@ Redacted rerun summary SHA-256 values:
 - comparison summary: `a3a3cae9d59e7979f1584b0285d09c7f9db53957d0eb43c4bac48bd5a1bf85a1`.
 
 Only the redacted summaries were retained. The signed IPA, development profiles, P12, private key, and temporary macOS keychain were deleted on their respective runners.
+
+## Final profile-seal qualification
+
+[Installable canary run 29879583177](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29879583177)
+at commit `bfc50de` qualified revision `1.1.1+sideloadedipa.2`. The revision keeps
+the accepted per-profile entitlement pairing and moves the selected profile write
+before each bundle's `CodeResources` generation. Its Linux executable SHA-256 was
+`42ef48d3ce61712fa1f14a85d805c05c6cc17bdc1ccbcb7abf5ac2f72776bd70`.
+
+The backend contract proved `profile_matches_input: true` and
+`profile_resource_seal_matches: true` for root, LiveProcess, Launch, and Share.
+The installable production-policy IPA then passed the independent Linux
+Mach-O/CMS, certificate, identifier, profile, entitlement, graph, package, and
+nested-resource-seal checks. The separate macOS oracle recorded the same four
+profile digests and profile resource seals, passed per-bundle strict verification
+and root deep strict verification, and the final comparison passed without
+ignoring the added field.
+
+Final evidence SHA-256 values:
+
+- extended Linux summary: `bdd43fe76af00acdd59318fa2ca8624c9aaf063a541680badd7519689f535c27`;
+- macOS codesign summary: `69c16e35017a7ea448348f2cf0534f76429e7877906542067ce26f361e92bd37`;
+- comparison summary: `a3a3cae9d59e7979f1584b0285d09c7f9db53957d0eb43c4bac48bd5a1bf85a1`;
+- installable LiveContainer IPA: `287750f58b112a7e6512bbe29898e3102f14cc045e6dc7a65aa57f90a02ca106`.
+
+Publication remained disabled and the CI cleanup removed raw profiles, the P12,
+private key, and temporary macOS keychain.

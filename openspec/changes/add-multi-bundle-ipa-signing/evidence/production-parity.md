@@ -5,8 +5,9 @@ Recorded from the development branch
 
 ## Accepted production run
 
-[Sign & Upload run 29876354164](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29876354164)
-completed successfully at commit `b6fff17`. The workflow installed the
+[Sign & Upload run 29877347948](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29877347948)
+completed successfully at commit `b21ab06`, after the legacy engine switch and
+duplicate implementations were removed. The workflow installed the
 checksum-pinned toolchain, synchronized the five single-bundle production
 profiles, ran `sideloadedipa run --publish`, independently reopened and verified
 every signed IPA, published the batch, revalidated the registry, and saved the
@@ -14,14 +15,14 @@ cache only after the signer succeeded.
 
 | Task | Version | Artifact SHA-256 prefix | Verification report SHA-256 prefix | Published object |
 | --- | --- | --- | --- | --- |
-| JHenTai | 8.0.14 | `b3e1f846` | `7b38292b` | `apps/JHenTai/8.0.14/b3e1f8460c0d-JHenTai.ipa` |
-| Eros FE | 1.9.2 | `1858b009` | `3785745b` | `apps/fehviewer/1.9.2/1858b009cfb6-Eros_FE.ipa` |
-| Asspp | 4.2.0 | `b8dfd555` | `ed4c0979` | `apps/Asspp/4.2.0/b8dfd5553d8f-Asspp.ipa` |
-| PiliPlus | 2.1.0 | `41b472b9` | `a9efde60` | `apps/PiliPlus/2.1.0/41b472b91183-PiliPlus.ipa` |
-| StikDebug | 3.1.6 | `32aa2fc3` | `867699b8` | `apps/StikDebug/3.1.6/32aa2fc32ac5-StikDebug.ipa` |
+| JHenTai | 8.0.14 | `cc4bafc0` | `d8f9de8e` | `apps/JHenTai/8.0.14/cc4bafc0521d-JHenTai.ipa` |
+| Eros FE | 1.9.2 | `ca4f54aa` | `9384a4a5` | `apps/fehviewer/1.9.2/ca4f54aa0bd3-Eros_FE.ipa` |
+| Asspp | 4.2.0 | `2b946061` | `acfe4ed7` | `apps/Asspp/4.2.0/2b9460618d6b-Asspp.ipa` |
+| PiliPlus | 2.1.0 | `c0b2a296` | `974ca61b` | `apps/PiliPlus/2.1.0/c0b2a2965b90-PiliPlus.ipa` |
+| StikDebug | 3.1.6 | `377bfc36` | `b15604ec` | `apps/StikDebug/3.1.6/377bfc3645d3-StikDebug.ipa` |
 
 The five task results committed one registry document with SHA-256
-`a02e2f44bab13f977c593893f702975116ea23d927f48256023d093c83fc09e0`.
+`37d8c84bdf267dec9ce38503ea4e2487d763e65e90cab7738478e0010088fa15`.
 Only after registry publication and revalidation succeeded did cleanup remove
 the replaced unhashed IPA objects and two obsolete icon objects.
 

@@ -65,6 +65,26 @@ template before signing. Results:
 The downloaded retained reports were scanned for private-key, P12, raw profile,
 and credential markers; none were present.
 
+## Final installable canary
+
+[Run 29879583177](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29879583177)
+at commit `bfc50de` produced the final private device canary after hardening the
+production verifier. All four synchronized profiles matched their inputs and
+their bundle-local SHA-256 `CodeResources` entries on both Linux and the
+independent macOS oracle. Linux installable-artifact verification, macOS strict
+nested verification, and the cross-platform comparison all passed.
+
+The IPA SHA-256 is
+`287750f58b112a7e6512bbe29898e3102f14cc045e6dc7a65aa57f90a02ca106`.
+Its source, plan, graph, and verification-report SHA-256 values are respectively
+`b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6`,
+`9e7dd2caf9c0d126e139f85d8e7096ead26043180979ac7cba833dbe0c52e53e`,
+`d79adcf653cba4eee8fe499c91d4d4296f1f09bf4fcc89a8a4c1c8cbd1a0fe31`,
+and `68714d6eb865aebcda1bd331b17b042d730378512b3336246f07f89284113073`.
+Publication was disabled. The retained CI artifact expires after one day; the
+same verified IPA is available locally at `work/signed/LiveContainer.ipa` for
+the registered-device checklist.
+
 ## Remaining acceptance gates
 
 - Install and exercise the canary on a registered physical device.
