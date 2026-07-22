@@ -21,6 +21,7 @@ from sideloadedipa.legacy.exercise_zsign_backend import (
     entitlement_evidence,
     evaluate_contract,
     materialize_entitlements,
+    profile_resource_seal_matches,
     sha256_bytes,
 )
 
@@ -172,9 +173,14 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
         profiles[role] = {
             "embedded_profile_sha256": sha256_file(embedded_profile),
             "profile_matches_input": sha256_file(embedded_profile) == profile_hashes[role],
+            "profile_resource_seal_matches": profile_resource_seal_matches(
+                bundle, embedded_profile.read_bytes()
+            ),
         }
         if not profiles[role]["profile_matches_input"]:
             raise CodesignOracleError(f"{role} embedded profile differs from its input")
+        if not profiles[role]["profile_resource_seal_matches"]:
+            raise CodesignOracleError(f"{role} embedded profile has no matching resource seal")
         codesign_evidence[role] = inspect_codesign_entitlements(bundle, entitlements[role])
 
     violations = evaluate_contract(entitlements)

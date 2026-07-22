@@ -14,6 +14,7 @@ from sideloadedipa.legacy.exercise_zsign_backend import TARGETS
 EXPECTED_LINUX_VIOLATIONS = {
     "root does not contain the exact 128 keychain groups",
     "process does not contain the exact 128 keychain groups",
+    *(f"{role} embedded profile is not covered by its SHA-256 resource seal" for role in TARGETS),
 }
 
 
@@ -98,6 +99,8 @@ def compare_summaries(linux: Mapping[str, Any], macos: Mapping[str, Any]) -> dic
     for role in TARGETS:
         if linux_profiles.get(role) != macos_profiles.get(role):
             raise ComparisonError(f"{role} profile evidence differs between runners")
+        if macos_profiles[role].get("profile_resource_seal_matches") is not True:
+            raise ComparisonError(f"{role} profile resource seal is invalid")
         evidence = codesign_evidence.get(role)
         if not isinstance(evidence, dict):
             raise ComparisonError(f"{role} has no codesign XML/DER evidence")

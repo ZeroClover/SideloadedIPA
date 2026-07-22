@@ -19,6 +19,7 @@ def qualification_summaries() -> tuple[dict, dict]:
         role: {
             "embedded_profile_sha256": role * 64,
             "profile_matches_input": True,
+            "profile_resource_seal_matches": True,
         }
         for role in TARGETS
     }
@@ -53,6 +54,10 @@ def qualification_summaries() -> tuple[dict, dict]:
         "violations": [
             "root does not contain the exact 128 keychain groups",
             "process does not contain the exact 128 keychain groups",
+            *(
+                f"{role} embedded profile is not covered by its SHA-256 resource seal"
+                for role in TARGETS
+            ),
         ],
     }
     macos = {
@@ -120,4 +125,13 @@ def test_comparison_rejects_profile_mapping_difference() -> None:
     macos["profiles"]["share"]["embedded_profile_sha256"] = "different"
 
     with pytest.raises(ComparisonError, match="share profile evidence differs"):
+        compare_summaries(linux, macos)
+
+
+def test_comparison_rejects_missing_profile_resource_seal() -> None:
+    linux, macos = qualification_summaries()
+    linux["profiles"]["share"]["profile_resource_seal_matches"] = False
+    macos["profiles"]["share"]["profile_resource_seal_matches"] = False
+
+    with pytest.raises(ComparisonError, match="share profile resource seal is invalid"):
         compare_summaries(linux, macos)
