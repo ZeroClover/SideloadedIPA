@@ -171,7 +171,7 @@ def valid_request() -> SigningPlanRequest:
     )
     backend = SigningBackendIdentity(
         "zsign",
-        "1.1.1+sideloadedipa.1",
+        "1.1.1+sideloadedipa.2",
         "e" * 64,
         "1",
         (

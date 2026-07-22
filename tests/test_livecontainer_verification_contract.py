@@ -148,7 +148,7 @@ def livecontainer_plan(*, sidestore: bool = False) -> SigningPlan:
         "a" * 64,
         "b" * 64,
         "c" * 64,
-        SigningBackendIdentity("zsign", "1.1.1+sideloadedipa.1", "d" * 64, "1"),
+        SigningBackendIdentity("zsign", "1.1.1+sideloadedipa.2", "d" * 64, "1"),
         tuple(nodes),
         "e" * 64,
     )

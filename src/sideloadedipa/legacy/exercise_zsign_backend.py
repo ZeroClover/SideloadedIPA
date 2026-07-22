@@ -51,6 +51,21 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def profile_resource_seal_matches(bundle: Path, profile: bytes) -> bool:
+    document = plistlib.loads((bundle / "_CodeSignature" / "CodeResources").read_bytes())
+    if not isinstance(document, Mapping):
+        return False
+    entries = document.get("files2")
+    if not isinstance(entries, Mapping):
+        return False
+    entry = entries.get("embedded.mobileprovision")
+    return (
+        isinstance(entry, Mapping)
+        and isinstance(entry.get("hash2"), bytes)
+        and entry["hash2"] == hashlib.sha256(profile).digest()
+    )
+
+
 def zsign_command(
     zsign: Path,
     private_key: Path,
@@ -394,24 +409,31 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
 
     entitlements: dict[str, dict[str, Any]] = {}
     profiles: dict[str, dict[str, Any]] = {}
+    resource_violations: list[str] = []
     for role, (bundle_path, executable, _) in TARGETS.items():
         bundle = extracted / bundle_path
         signed_profile = (bundle / "embedded.mobileprovision").read_bytes()
         expected_profile = (args.profiles_dir / f"{role}.mobileprovision").read_bytes()
         profile_matches = signed_profile == expected_profile
+        profile_sealed = profile_resource_seal_matches(bundle, signed_profile)
         profiles[role] = {
             "embedded_profile_sha256": sha256_bytes(signed_profile),
             "profile_matches_input": profile_matches,
+            "profile_resource_seal_matches": profile_sealed,
         }
         if not profile_matches:
             raise BackendExerciseError(f"{role} embedded profile does not match its input")
+        if not profile_sealed:
+            resource_violations.append(
+                f"{role} embedded profile is not covered by its SHA-256 resource seal"
+            )
         entitlements[role] = inspect_entitlements(
             args.zsign,
             bundle / executable,
             args.output_dir / "debug" / role,
         )
 
-    violations = evaluate_contract(entitlements)
+    violations = [*evaluate_contract(entitlements), *resource_violations]
     return {
         "backend": "zsign",
         "backend_variant": (

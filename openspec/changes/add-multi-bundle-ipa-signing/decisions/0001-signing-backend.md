@@ -8,7 +8,7 @@
 
 The production workflow already runs on Linux. Upstream zsign v1.1.1 supports repeated `-m` profile arguments, but its CLI passes one global `-e` entitlement file to every signing asset. Private qualification proved that profile-only signing maps all four profiles correctly but gives root and LiveProcess only the two profile-default Keychain Groups instead of the required exact 128 local values.
 
-The zsign v1.1.1 implementation already stores the provisioning profile and entitlement document together in each `ZSignAsset`, selects that asset by the bundle's application identifier, and signs child bundles before the root. The missing capability is limited to CLI construction: every repeated profile is initialized with the same final `-e` path.
+The zsign v1.1.1 implementation already stores the provisioning profile and entitlement document together in each `ZSignAsset`, selects that asset by the bundle's application identifier, and signs child bundles before the root. Its CLI initializes every repeated profile with the same final `-e` path. It also writes an extension's selected `embedded.mobileprovision` only after generating that extension's `CodeResources`, leaving the installed profile outside the SHA-256 resource envelope.
 
 An independent `macos-15` oracle proved that separate entitlement documents are authorized by the real profiles and that the resulting XML entitlements, DER entitlement slots, embedded profiles, nested signatures, and root-last sealing are valid.
 
@@ -21,11 +21,12 @@ The backend supply chain SHALL:
 - download source commit `d6e929c97b5b564c2cc1f82afe226a44da7149a0`, the commit tagged `v1.1.1`, from the canonical `zhlynn/zsign` repository;
 - require source archive SHA-256 `d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670` before extraction;
 - apply `patches/zsign/v1.1.1-per-profile-entitlements.patch` without fuzz and fail if it no longer applies;
-- build and require version `1.1.1+sideloadedipa.1`, recording the actual executable SHA-256 in every result;
+- build and require version `1.1.1+sideloadedipa.2`, recording the actual executable SHA-256 in every result;
 - preserve one `-e` as the legacy global entitlement behavior, pair repeated `-e` values with repeated `-m` values by argument order, and reject repeated count mismatches before signing;
+- write each selected profile before generating that bundle's `CodeResources`, and require the backend contract to verify its exact `files2` SHA-256 entry;
 - pass every planned profile and entitlement document as an adjacent `-m PROFILE -e ENTITLEMENTS` pair in deterministic plan order.
 
-The patch changes only CLI collection, validation, and construction of existing `ZSignAsset` values. It does not change Mach-O signature generation, profile selection, bundle traversal, or CodeResources sealing.
+The patch changes CLI collection, validation, construction of existing `ZSignAsset` values, and the timing of the existing profile write. It does not change Mach-O signature generation, profile selection, or bundle traversal. The timing change intentionally makes `CodeResources` cover the final profile bytes instead of preserving zsign's invalid post-envelope write.
 
 ## Mandatory contract
 
@@ -51,7 +52,7 @@ Keeping Linux also avoids moving the existing download, cache, R2, registry, and
 
 ## Consequences
 
-- The `SigningBackend` interface remains replaceable, but its first adapter is explicitly `zsign 1.1.1+sideloadedipa.1`, not unmodified upstream zsign.
+- The `SigningBackend` interface remains replaceable, but its first adapter is explicitly `zsign 1.1.1+sideloadedipa.2`, not unmodified upstream zsign.
 - The repository owns a small third-party patch and must requalify it whenever zsign, the compiler image, OpenSSL, or signature verification behavior changes.
 - Production may cache a built binary only under a key containing the source commit, source SHA-256, patch SHA-256, build inputs, target platform, and backend contract version. Cache hits still require version and executable-hash evidence.
 - When a later stable upstream zsign release supports distinct per-bundle entitlements, the patch SHALL be removed only after that unmodified release passes the same contract and macOS oracle.

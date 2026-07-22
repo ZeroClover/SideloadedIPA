@@ -414,13 +414,18 @@ def _verify_resource_seal(bundle: Path, executable: Path) -> str:
     entries = document["files2"]
     actual_files = _resource_files(bundle, executable)
     if set(entries) != set(actual_files):
-        raise ValueError("CodeResources file inventory does not match the bundle")
+        unsealed = sorted(set(actual_files) - set(entries))
+        absent = sorted(set(entries) - set(actual_files))
+        raise ValueError(
+            "CodeResources file inventory does not match the bundle "
+            f"(unsealed={unsealed[:3]!r}, absent={absent[:3]!r})"
+        )
     for relative, path in actual_files.items():
         entry = entries[relative]
         if not isinstance(entry, Mapping) or not isinstance(entry.get("hash2"), bytes):
-            raise ValueError("CodeResources entry has no SHA-256 seal")
+            raise ValueError(f"CodeResources entry has no SHA-256 seal: {relative}")
         if entry["hash2"] != hashlib.sha256(path.read_bytes()).digest():
-            raise ValueError("CodeResources entry hash does not match bundle content")
+            raise ValueError(f"CodeResources entry hash does not match bundle content: {relative}")
     return hashlib.sha256(resource_path.read_bytes()).hexdigest()
 
 

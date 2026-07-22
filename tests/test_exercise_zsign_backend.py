@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import plistlib
 import sys
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from exercise_zsign_backend import (
     TARGETS,
     configured_entitlements,
     evaluate_contract,
+    profile_resource_seal_matches,
     redacted_output,
     signing_order,
     zsign_command,
@@ -87,6 +90,18 @@ def test_backend_output_is_bounded_and_redacted() -> None:
 
     assert "secret" not in result
     assert len(result) == 2000
+
+
+def test_profile_resource_seal_requires_matching_sha256_entry(tmp_path: Path) -> None:
+    bundle = tmp_path / "Fixture.app"
+    signature = bundle / "_CodeSignature"
+    signature.mkdir(parents=True)
+    profile = b"profile"
+    document = {"files2": {"embedded.mobileprovision": {"hash2": hashlib.sha256(profile).digest()}}}
+    (signature / "CodeResources").write_bytes(plistlib.dumps(document))
+
+    assert profile_resource_seal_matches(bundle, profile)
+    assert not profile_resource_seal_matches(bundle, b"changed")
 
 
 def test_signing_order_is_parsed_from_backend_evidence() -> None:

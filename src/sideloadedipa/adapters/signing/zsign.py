@@ -19,7 +19,7 @@ from sideloadedipa.domain import (
 from sideloadedipa.errors import AdapterError, ErrorCode
 from sideloadedipa.subprocesses import SubprocessRunner
 
-EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.1"
+EXPECTED_ZSIGN_VERSION = "1.1.1+sideloadedipa.2"
 ZSIGN_CONTRACT_VERSION = "1"
 _FEATURES = (
     SigningBackendFeature.PER_PROFILE_ENTITLEMENTS,

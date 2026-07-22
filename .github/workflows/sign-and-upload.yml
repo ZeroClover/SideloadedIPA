@@ -184,9 +184,9 @@ jobs:
           git -C "$source_dir" apply --unidiff-zero \
             "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
           make -C "$source_dir/build/linux" clean
-          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.1 -j"$(nproc)"
+          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.2 -j"$(nproc)"
           install -m 0755 "$source_dir/bin/zsign" "$RUNNER_TEMP/zsign-package"
-          test "$("$RUNNER_TEMP/zsign-package" -v)" = "version: 1.1.1+sideloadedipa.1"
+          test "$("$RUNNER_TEMP/zsign-package" -v)" = "version: 1.1.1+sideloadedipa.2"
           zsign_sha256="$(sha256sum "$RUNNER_TEMP/zsign-package" | cut -d ' ' -f 1)"
           echo "ZSIGN_BIN=$RUNNER_TEMP/zsign-package" >> "$GITHUB_ENV"
           echo "ZSIGN_SHA256=$zsign_sha256" >> "$GITHUB_ENV"
@@ -564,11 +564,11 @@ jobs:
           git -C "$source_dir" apply --unidiff-zero \
             "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
           make -C "$source_dir/build/linux" clean
-          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.1 -j"$(nproc)"
+          make -C "$source_dir/build/linux" VERSION=1.1.1+sideloadedipa.2 -j"$(nproc)"
           install -m 0755 "$source_dir/bin/zsign" \
             "$RUNNER_TEMP/backend-qualification/zsign-per-profile"
           test "$("$RUNNER_TEMP/backend-qualification/zsign-per-profile" -v)" \
-            = "version: 1.1.1+sideloadedipa.1"
+            = "version: 1.1.1+sideloadedipa.2"
           help_output="$("$RUNNER_TEMP/backend-qualification/zsign-per-profile" -h || true)"
           grep -F "Repeat to pair with repeated -m profiles." <<< "$help_output"
           printf 'extended zsign executable sha256: '
