@@ -106,6 +106,31 @@ After the automated and registered-device gates passed,
 the development branch. Production publication remains subject to the complete
 fresh profile, signing, verification, and atomic publication gates on every run.
 
+[Production run 29882807965](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29882807965)
+used enablement commit `7349d8d` and force-rebuilt the six-task atomic batch.
+LiveContainer profile synchronization, signing, verification, upload, registry
+mutation, revalidation, cache save, and notification all passed. The redacted
+run report recorded:
+
+- source SHA-256
+  `b6fea95e30083382e29ffef88fa1aaa40b5069e1112e5307d490dab04648bba6`;
+- unchanged four-bundle graph SHA-256
+  `d79adcf653cba4eee8fe499c91d4d4296f1f09bf4fcc89a8a4c1c8cbd1a0fe31`;
+- plan SHA-256
+  `9e7dd2caf9c0d126e139f85d8e7096ead26043180979ac7cba833dbe0c52e53e`;
+- published artifact SHA-256
+  `9e86bfe4739d42371a27beab49c427d77cc4a79178cdf2370c1b5e197d63204a`;
+- verification-report SHA-256
+  `926d22b29347b7cfbc7b698d4a4b5bc1c5d4a52f40aeb143cb351a961abf6722`;
+- immutable object
+  `apps/LiveContainer/3.8.0/9e86bfe4739d-LiveContainer.ipa` and registry SHA-256
+  `f8b44ec1116a9efa11073185d0e9090258c74dfc394c970951949cb44d2c5ab2`.
+
+An independent public read returned HTTP 200 for the immutable object and the
+live `site/apps.json` entry identified `io.zeroclover.app.livecontainer`, version
+3.8.0, and the same object URL. The SideStore asset was not selected or
+published.
+
 ## Remaining acceptance gates
 
 - Observe a scheduled refresh and a real upstream release transition.

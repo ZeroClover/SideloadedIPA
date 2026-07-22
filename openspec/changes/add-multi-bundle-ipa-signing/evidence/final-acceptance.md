@@ -67,6 +67,16 @@ The standard LiveContainer task was consequently enabled for production through
 its reviewed `publication_enabled` configuration. SideStore remains out of
 production scope.
 
+[PR Checks run 29882806411](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29882806411)
+passed all four jobs for enablement commit `7349d8d`.
+[Sign & Upload run 29882807965](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29882807965)
+then passed the forced six-task production batch. Its redacted report marked
+LiveContainer 3.8.0 published at the content-addressed object
+`apps/LiveContainer/3.8.0/9e86bfe4739d-LiveContainer.ipa`, with artifact SHA-256
+`9e86bfe4739d42371a27beab49c427d77cc4a79178cdf2370c1b5e197d63204a`.
+The public object returned HTTP 200 and the live registry referenced the same
+URL and target bundle ID.
+
 ## Required before archive
 
 - 11.9: one scheduled refresh and one real upstream-release transition.
