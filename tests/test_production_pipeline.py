@@ -495,6 +495,53 @@ def test_run_rejects_publication_disabled_task_before_signing(
         )
 
 
+def test_default_production_selection_ignores_publication_disabled_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    enabled = configuration.tasks[0]
+    disabled = replace(configuration.tasks[1], publication_enabled=False)
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda _path: replace(configuration, tasks=(enabled, disabled)),
+    )
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    selected: list[tuple[str, ...]] = []
+
+    def inspect_contexts(request):  # type: ignore[no-untyped-def]
+        selected.append(request.task_names)
+        return ()
+
+    monkeypatch.setattr(pipeline, "_inspect_contexts", inspect_contexts)
+
+    result = pipeline.inspect(command(tmp_path, CommandName.INSPECT))
+
+    assert dict(result.payload)["status"] == "passed"
+    assert selected == [(enabled.task_name,)]
+
+
+def test_default_production_selection_rejects_an_empty_publication_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    disabled = tuple(replace(task, publication_enabled=False) for task in configuration.tasks)
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda _path: replace(configuration, tasks=disabled),
+    )
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    monkeypatch.setattr(
+        pipeline,
+        "_inspect_contexts",
+        lambda _request: pytest.fail("empty production selection reached inspection"),
+    )
+
+    with pytest.raises(ConfigurationError, match="no publication-enabled tasks"):
+        pipeline.inspect(command(tmp_path, CommandName.INSPECT))
+
+
 def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     signing_request = request_for(task, tmp_path)
@@ -632,6 +679,40 @@ def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monk
     assert dict(pipeline.run(published).payload)["stage"] == "publish"
     assert [name for name, _, _ in calls][-2:] == ["verify", "publish"]
     assert calls[-2] == ("verify", True, True)
+
+
+def test_run_defaults_every_stage_to_publication_enabled_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    enabled = configuration.tasks[0]
+    disabled = replace(configuration.tasks[1], publication_enabled=False)
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda _path: replace(configuration, tasks=(enabled, disabled)),
+    )
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    def handler(name: str):
+        def execute(request):  # type: ignore[no-untyped-def]
+            calls.append((name, request.task_names))
+            return CommandResult(payload=(("stage", name),))
+
+        return execute
+
+    for name in ("inspect", "plan", "sync", "sign", "verify", "publish"):
+        monkeypatch.setattr(pipeline, name, handler(name))
+
+    request = replace(
+        command(tmp_path, CommandName.RUN),
+        apply=True,
+        publish=True,
+    )
+    assert dict(pipeline.run(request).payload)["stage"] == "publish"
+    assert [name for name, _ in calls] == ["inspect", "plan", "sync", "sign", "verify", "publish"]
+    assert {task_names for _, task_names in calls} == {(enabled.task_name,)}
 
 
 def test_run_rejects_unknown_task_before_stages(tmp_path: Path, monkeypatch) -> None:

@@ -155,6 +155,22 @@ class ProductionPipeline:
         self.dependencies = dependencies
         self.journal = journal
 
+    def _default_production_request(self, request: CommandRequest) -> CommandRequest:
+        if request.task_names:
+            return request
+        task_names = tuple(
+            task.task_name
+            for task in load_configuration(request.config_path).tasks
+            if task.publication_enabled
+        )
+        if not task_names:
+            raise ConfigurationError(
+                ErrorCode.CONFIG_INVALID,
+                "production selection has no publication-enabled tasks",
+                remediation="explicitly enable at least one production task or select a canary task",
+            )
+        return replace(request, task_names=task_names)
+
     def _store(self, request: CommandRequest) -> FileStageManifestStore:
         return FileStageManifestStore(self.dependencies.manifest_root, request.run_id)
 
@@ -448,6 +464,7 @@ class ProductionPipeline:
         return tuple(contexts)
 
     def inspect(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         contexts = self._inspect_contexts(request)
         return _result(
             "inspect",
@@ -466,6 +483,7 @@ class ProductionPipeline:
         )
 
     def plan(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         contexts = self._inspect_contexts(request)
         store = self._store(request)
         apple_request = replace(
@@ -498,6 +516,7 @@ class ProductionPipeline:
         return result
 
     def sync(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         contexts = self._inspect_contexts(request)
         store = self._store(request)
         for context in contexts:
@@ -626,6 +645,7 @@ class ProductionPipeline:
             ) from error
 
     def sign(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         self._require_signing_environment()
         contexts = self._inspect_contexts(request)
         store = self._store(request)
@@ -854,6 +874,7 @@ class ProductionPipeline:
         return path
 
     def verify(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         self._require_signing_environment()
         contexts = self._inspect_contexts(request)
         store = self._store(request)
@@ -911,6 +932,7 @@ class ProductionPipeline:
         )
 
     def publish(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         self._require_signing_environment()
         contexts = self._inspect_contexts(request)
         store = self._store(request)
@@ -990,6 +1012,7 @@ class ProductionPipeline:
         )
 
     def run(self, request: CommandRequest) -> CommandResult:
+        request = self._default_production_request(request)
         if request.publish:
             disabled = tuple(
                 task.task_name

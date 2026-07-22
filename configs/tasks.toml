@@ -121,6 +121,36 @@ required_capabilities = ["APP_GROUPS"]
 entitlement_mode = "profile"
 
 [[tasks]]
+task_name = "Reynard"
+app_name = "Reynard Browser"
+bundle_id = "io.zeroclover.app.reynard"
+repo_url = "https://github.com/minh-ton/reynard-browser"
+release_glob = "Reynard.ipa"
+slug = "Reynard"
+icon_path = "browser/Reynard/Resources/Assets.xcassets/AppIcon.appiconset/icon.png"
+publication_enabled = true
+
+[tasks.signing]
+id_strategy = "preserve-source-suffix"
+unknown_profile_bundles = "error"
+profile_type = "IOS_APP_DEVELOPMENT"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard"
+target_bundle_id = "io.zeroclover.app.reynard"
+role = "root"
+required_capabilities = ["INCREASED_MEMORY_LIMIT"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard.Helper"
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard.OpenIn"
+entitlement_mode = "profile"
+
+[[tasks]]
 task_name = "StikDebug"
 app_name = "StikDebug"
 bundle_id = "io.zeroclover.app.stikdebug"

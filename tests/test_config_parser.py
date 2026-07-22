@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from sideloadedipa.apple.intents import derive_bundle_resource_intents
 from sideloadedipa.config import load_configuration, parse_configuration
 from sideloadedipa.domain import (
     BatchPublicationPolicy,
@@ -40,6 +41,7 @@ def test_loads_current_production_configuration() -> None:
         "Asspp",
         "PiliPlus",
         "LiveContainer",
+        "Reynard",
         "StikDebug",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
@@ -87,6 +89,40 @@ def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
     assert all(
         rule.entitlement_policy.mode is EntitlementMode.PROFILE for rule in task.signing.bundles[2:]
     )
+
+
+def test_production_reynard_is_exactly_scoped_and_publishing() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "Reynard")
+
+    assert task.app_name == "Reynard Browser"
+    assert task.bundle_id == "io.zeroclover.app.reynard"
+    assert task.source.release_glob == "Reynard.ipa"
+    assert task.icon_path == "browser/Reynard/Resources/Assets.xcassets/AppIcon.appiconset/icon.png"
+    assert task.publication_enabled is True
+    assert task.signing is not None
+    assert task.signing.app_groups == ()
+    assert task.signing.manual_app_group_associations == ()
+    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
+        "com.minh-ton.Reynard",
+        "com.minh-ton.Reynard.Helper",
+        "com.minh-ton.Reynard.OpenIn",
+    ]
+    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
+    assert task.signing.bundles[0].role == "root"
+    assert task.signing.bundles[0].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
+    assert all(
+        rule.entitlement_policy.mode is EntitlementMode.PROFILE for rule in task.signing.bundles
+    )
+    intents = {intent.source_bundle_id: intent for intent in derive_bundle_resource_intents(task)}
+    assert {
+        source_bundle_id: intent.target_bundle_id for source_bundle_id, intent in intents.items()
+    } == {
+        "com.minh-ton.Reynard": "io.zeroclover.app.reynard",
+        "com.minh-ton.Reynard.Helper": "io.zeroclover.app.reynard.Helper",
+        "com.minh-ton.Reynard.OpenIn": "io.zeroclover.app.reynard.OpenIn",
+    }
+    assert intents["com.minh-ton.Reynard"].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
 
 
 def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:
