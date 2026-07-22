@@ -39,6 +39,7 @@ runs:
         set -euo pipefail
         source_dir="$RUNNER_TEMP/sideloadedipa-zsign/source"
         archive="$RUNNER_TEMP/sideloadedipa-zsign/source.tar.gz"
+        mkdir -p "$source_dir" "$RUNNER_TEMP/sideloadedipa-zsign/bin"
         if [[ "$RUNNER_OS" == "Linux" ]]; then
           sudo apt-get update
           sudo apt-get install --yes g++ libssl-dev pkg-config
@@ -54,7 +55,6 @@ runs:
         else
           printf '%s  %s\n' "$ZSIGN_SOURCE_SHA256" "$archive" | shasum -a 256 -c -
         fi
-        mkdir -p "$source_dir" "$RUNNER_TEMP/sideloadedipa-zsign/bin"
         tar -xzf "$archive" --strip-components=1 -C "$source_dir"
         git -C "$source_dir" apply --check --unidiff-zero \
           "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
