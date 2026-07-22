@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       debug:
-        description: Keep the Python test runner available over SSH
+        description: Keep the validation runner available over SSH
         required: false
         default: false
         type: boolean
@@ -19,26 +19,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate-setup:
+  validation:
+    name: Validate repository
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     env:
       ASC_VERSION: "3.1.1"
       ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
-
+      ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
+      ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install Python dependencies
+      - name: Install locked Python dependencies
         run: uv sync --frozen
 
       - name: Install checksum-verified App Store Connect CLI
@@ -48,84 +52,30 @@ jobs:
           asset: asc_${{ env.ASC_VERSION }}_linux_amd64
           sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
-      - name: Validate config syntax
-        run: |
-          uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml', 'rb'))"
-          uv run python -c "import tomllib; tomllib.load(open('configs/tasks.toml.example', 'rb'))"
-
-  python-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
-      ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install Python dependencies
-        run: uv sync --frozen
-
       - name: Build cached patched zsign
+        id: patched-zsign
         uses: ./.github/actions/build-patched-zsign
         with:
           source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
           source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
 
       - name: Run pytest with package coverage gate
+        env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
         run: uv run pytest
 
-      - name: Lint (black + isort)
+      - name: Check Python formatting and import order
         run: |
-          uv run black --check scripts/
-          uv run isort --check-only scripts/
-          uv run black --check src/sideloadedipa/
-          uv run isort --check-only src/sideloadedipa/
+          uv run black --check scripts/ src/sideloadedipa/
+          uv run isort --check-only scripts/ src/sideloadedipa/
 
-      - name: Type check new package
-        run: uv run mypy src/sideloadedipa
-
-      - name: Type check scripts
-        run: uv run mypy scripts/
-
-      - name: "Debug: Start SSH session"
-        if: ${{ always() && inputs.debug == true }}
-        uses: ./.github/actions/ssh-debug
-        with:
-          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
-
-  workflow-validation:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      ACTIONLINT_VERSION: "1.7.12"
-      ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python with uv
-        uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install Python dependencies
-        run: uv sync --frozen
+      - name: Run strict Python type checks
+        run: |
+          uv run mypy src/sideloadedipa
+          uv run mypy scripts/
 
       - name: Install checksum-verified actionlint
-        shell: bash
         run: |
           set -euo pipefail
           asset="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -136,46 +86,33 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -version
 
-      - name: Validate workflow YAML and shell
-        shell: bash
+      - name: Validate workflow syntax, expressions, and shell
         run: '"$RUNNER_TEMP/actionlint" -no-color .github/workflows/*.yml'
 
-      - name: Validate composite action metadata
-        shell: bash
-        run: |
-          ruby -e 'require "yaml"; Dir[".github/actions/**/action.yml"].each { |path| doc = YAML.safe_load_file(path, aliases: true); abort("invalid composite action: #{path}") unless doc.is_a?(Hash) && doc.dig("runs", "using") == "composite" && doc.dig("runs", "steps").is_a?(Array) }'
-
-      - name: "Debug: Start SSH session"
-        if: ${{ always() && inputs.debug == true }}
-        uses: ./.github/actions/ssh-debug
-        with:
-          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
-
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: web
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
+      - name: Audit workflows and composite actions
+        run: uv run zizmor --strict-collection --min-severity high .
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Install dependencies
+      - name: Install locked web dependencies
+        working-directory: web
         run: npm ci
 
       - name: Check plist golden files
+        working-directory: web
         run: npm run test
 
-      - name: Build
+      - name: Build web application
+        working-directory: web
         run: npm run build
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.debug == true }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}

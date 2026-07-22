@@ -23,7 +23,7 @@ runs:
   steps:
     - name: Restore patched zsign cache
       id: cache
-      uses: actions/cache@v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/sideloadedipa-zsign/bin
         key: patched-zsign-${{ runner.os }}-${{ runner.arch }}-${{ inputs.source-commit }}-${{ hashFiles('patches/zsign/**') }}
@@ -80,5 +80,3 @@ runs:
         fi
         echo "executable=$executable" >> "$GITHUB_OUTPUT"
         echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
-        echo "ZSIGN_BIN=$executable" >> "$GITHUB_ENV"
-        echo "ZSIGN_SHA256=$sha256" >> "$GITHUB_ENV"

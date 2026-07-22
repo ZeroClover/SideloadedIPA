@@ -18,9 +18,9 @@ characters: [Python subprocess security considerations](https://docs.python.org/
 
 - Store the P12, P12 password, App Store Connect key, R2 credentials, revalidation
   secret, and optional debug public key only as GitHub Actions secrets.
-- Inject signing and Apple credentials only into jobs that require them. The
-  read-only shadow omits R2 credentials; the canary omits every publication
-  credential.
+- Inject signing, Apple, and publication credentials only into the production
+  steps that consume them; setup, reporting, cache, notification, and debug do
+  not receive them at job scope.
 - Never print secret values, private paths, raw profile payloads, P12 bytes, or
   private keys. Structured reports contain stable resource IDs and hashes only.
 - GitHub warns that automatic masking is not guaranteed for transformed values,
@@ -33,8 +33,8 @@ characters: [Python subprocess security considerations](https://docs.python.org/
 
 ## CI artifacts and caches
 
-Retain run reports for 7 days, shadow reports for 3 days, and canary comparison
-reports for 1 day. These artifacts exclude IPAs and private material. GitHub
+Retain production run reports for 7 days. These artifacts exclude IPAs and
+private material. GitHub
 supports per-artifact retention and deletes artifacts with their workflow run:
 [workflow artifact retention](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/remove-workflow-artifacts#setting-the-retention-period-for-an-artifact).
 
@@ -61,10 +61,12 @@ and [profile guidance](https://developer.apple.com/help/account/provisioning-pro
   uv documents that frozen sync treats the lockfile as the source of truth:
   [locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/).
 - zsign, its reviewed extension source, App Store Connect CLI, actionlint, and
-  cloudflared are version-pinned and checksum-verified before use.
-- GitHub Actions are pinned to reviewed stable major/minor tags in the workflow
-  and checked by PR workflow tests. Review release notes and published checksums
-  before every update.
+  cloudflared are version-pinned and checksum-verified before use. Zizmor is
+  version-pinned through `uv.lock`.
+- GitHub Actions are pinned to immutable commit digests with readable release
+  comments. PR CI uses actionlint for Workflow semantics and zizmor for Workflow,
+  composite-action, and security analysis. Review release notes and digests before
+  every update.
 
 ## Rotation
 
@@ -73,8 +75,8 @@ revalidation secret, debug key, or P12 immediately. For planned rotation:
 
 1. Add the replacement with least privilege and leave the current credential
    active.
-2. Run credential verification, read-only planning, and a non-publishing canary.
-3. Replace the GitHub secret and confirm a new run uses the expected public
-   certificate/resource fingerprint.
+2. Run credential verification and read-only planning.
+3. Replace the GitHub secret and run the verified production workflow, confirming
+   it uses the expected public certificate/resource fingerprint.
 4. Revoke the old credential only after the new path passes. A certificate change
    requires replacement profiles and invalidates related signing caches.

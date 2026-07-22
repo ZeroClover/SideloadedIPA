@@ -13,10 +13,9 @@ This repository contains a typed Python package and GitHub Actions workflows to:
 
 ## File Structure
 
-- `.github/workflows/sign-and-upload.yml` — production, shadow, state-probe, and private qualification jobs
-- `.github/workflows/pr-checks.yml` — formatting, typing, coverage, real patched-zsign, workflow, and web checks
-- `.github/workflows/integration.yml` — scheduled checksum-pinned LiveContainer inventory checks
-- `.github/actions/` — reusable checksum-verified `asc`, patched-zsign, qualification-fixture, and SSH actions
+- `.github/workflows/sign-and-upload.yml` — scheduled, manual, and webhook production publication
+- `.github/workflows/pr-checks.yml` — one debuggable job for Python, real patched-zsign, Actions, and web checks
+- `.github/actions/` — reusable checksum-verified `asc`, patched-zsign, and SSH actions
 - `src/sideloadedipa/apple/` — Apple command backend, expected-entitlement planning, reporting, and command sequencing
 - `src/sideloadedipa/signing/` — signing plans, profile validation/storage, execution, and reports
 - `src/sideloadedipa/cache/` — complete fingerprints, rebuild decisions, reuse validation, and storage
@@ -26,7 +25,7 @@ This repository contains a typed Python package and GitHub Actions workflows to:
 - `configs/tasks.toml` — TOML config defining signing tasks (and the optional `[r2]` object-layout settings)
 - `configs/tasks.toml.example` — example configuration file
 - `configs/signing/` — reviewed entitlement plist templates with typed placeholders
-- `docs/operator-runbook.md` — inspect, Apple reconciliation, canary, rollback, and device acceptance
+- `docs/operator-runbook.md` — inspect, Apple reconciliation, production testing, rollback, and device verification
 - `docs/security.md` — archive, credential, CI, dependency, and rotation controls
 - `docs/troubleshooting.md` — fail-closed diagnostics for source, profile, entitlement, and signature failures
 - `.env.example` — example environment variables
@@ -204,22 +203,17 @@ explicit list and rationale.
 
 The standard `LiveContainer.ipa` has four profile-bearing bundles. The
 `LiveContainer+SideStore.ipa` variant adds `LiveWidget` and requires a separate
-fifth App ID, profile, widget policy, App Group review, and device acceptance;
-it is not a substitute asset for the standard task. Keep a new multi-bundle task
-at `publication_enabled = false` until automated canary and device acceptance
-both pass.
+fifth App ID, profile, widget policy, and App Group review; it is not a substitute
+asset for the standard task. After reviewing the task configuration, explicitly
+set `publication_enabled = true` and use the normal verified production path for
+end-to-end publication and ITMS installation testing.
 
 ## Triggers
 
 - **Scheduled**: Daily at 02:00 UTC (keeps cache fresh and auto-processes new releases)
-- **Scheduled integration**: Weekly checksum-pinned LiveContainer inventory verification
 - **Manual**: Workflow Dispatch inputs:
   - `debug` — Enable Cloudflare Tunnel for SSH debugging (default: `false`)
   - `force_rebuild` — Force full rebuild ignoring cache (default: `false`)
-  - `package_shadow` — Run inventory and Apple planning without mutation
-  - `backend_qualification` — Run the private backend qualification only
-  - `qualification_apply` / `qualification_reset_names` — Qualification-only options; the credential-free dispatch guard rejects them unless `backend_qualification=true`
-  - `multi_bundle_canary` — Run private Linux/macOS multi-bundle acceptance with publication disabled
 - **Webhook**: `repository_dispatch` with type `sign_ipas`
 
 Example `repository_dispatch` payload:
@@ -278,7 +272,8 @@ The workflow uses GitHub Actions cache to minimize unnecessary work:
 
 ### Debug Mode (Cloudflare Tunnel)
 
-If `debug` is enabled for a manual run (workflow_dispatch), the workflow will:
+If `debug` is enabled for a manually dispatched production or PR validation run,
+the workflow will:
 
 - Write the provided `DEBUG_SSH_PUBLIC_KEY` to `~runner/.ssh/authorized_keys`.
 - Start a throwaway [`dropbear`](https://matt.ucc.asn.au/dropbear/dropbear.html) SSH server on `127.0.0.1:2222` — public-key auth only (password auth disabled), with a per-run host key.

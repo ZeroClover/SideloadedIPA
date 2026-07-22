@@ -65,28 +65,23 @@ revision.
 
 ## Signing, verification, and publication
 
-Run a private, non-publishing LiveContainer canary through workflow dispatch:
+For a reviewed new task, set `publication_enabled = true` in `configs/tasks.toml`
+and exercise the complete production path through workflow dispatch:
 
 ```bash
 gh workflow run sign-and-upload.yml \
   --ref <reviewed-branch> \
-  -f multi_bundle_canary=true \
+  -f force_rebuild=true \
   -f debug=false
 ```
 
-`qualification_apply` and `qualification_reset_names` belong only to
-`backend_qualification`. A credential-free dispatch guard rejects either option
-when qualification mode is not selected, before any credential-bearing job can
-start.
-
-The canary runs `sideloadedipa run --apply` without `--publish`, so inspect,
-Apple plan/apply, signing, and standalone verification share one production
-manifest chain. It uses the production LiveContainer policy and template, four
-real profiles, the checksum-qualified backend, and an independent macOS oracle.
-It has no R2 credentials and retains the redacted command result and production
-run report. For interactive device handoff, add `-f debug=true`; decoded P12,
-private-key, certificate, profile, and keychain material is destroyed before the
-workflow's SSH step keeps that runner alive.
+The workflow runs inventory, Apple plan/apply, signing, independent verification,
+R2 upload, atomic registry promotion, revalidation, and stale cleanup. This tests
+the public ITMS installation path instead of a private non-publishing substitute.
+If any gate fails, the new task is not advertised and existing registry entries
+remain protected. For interactive diagnosis after a failure, use `-f debug=true`;
+the terminal SSH step retains the actual runner environment while its long-lived
+processes exclude production credentials.
 
 The production job exposes the remaining boundaries explicitly:
 
@@ -141,10 +136,10 @@ CI uploads these JSON files even after failure.
   and revalidation. If compensating cleanup itself fails, the diagnostic lists
   every remaining IPA and icon key that was newly uploaded by that attempt.
 - Roll back a task by restoring its last reviewed configuration and the last
-  verified registry document. Keep `publication_enabled = false` for a new
-  multi-bundle task until a fresh automated canary and physical-device checklist
-  pass. Do not reuse manifests across run IDs or manually mark a failed cache
-  record successful.
+  verified registry document. A new task becomes public only when its explicitly
+  enabled production run passes every verification and publication boundary. Do
+  not reuse manifests across run IDs or manually mark a failed cache record
+  successful.
 
 ## Profile refresh and cleanup
 
@@ -158,10 +153,10 @@ Apple notes that capability changes invalidate affected profiles and documents
 App Group assignment as an additional capability step:
 [enable app capabilities](https://developer.apple.com/help/account/identifiers/enable-app-capabilities/).
 
-## Device acceptance
+## Device verification
 
-For LiveContainer, record all of the following against the exact source SHA and
-policy commit before enabling publication:
+After the verified production run publishes LiveContainer to the ITMS service,
+test all of the following against the exact source SHA and policy commit:
 
 - installation and normal launch;
 - Launch extension;
@@ -171,5 +166,5 @@ policy commit before enabling publication:
 - approved HealthKit behavior;
 - diagnostic confirmation of all 128 signed Keychain Groups.
 
-Any source asset, bundle graph, identifier mapping, entitlement policy, profile,
-or acceptance-contract change makes the prior device record stale.
+Any source asset, bundle graph, identifier mapping, entitlement policy, or profile
+change should be retested through the newly published ITMS entry.
