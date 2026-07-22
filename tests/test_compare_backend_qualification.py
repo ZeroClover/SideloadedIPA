@@ -54,6 +54,7 @@ def qualification_summaries() -> tuple[dict, dict]:
             *(
                 f"{role} embedded profile is not covered by its SHA-256 resource seal"
                 for role in TARGETS
+                if role != "root"
             ),
         ],
     }

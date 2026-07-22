@@ -14,7 +14,11 @@ from sideloadedipa.tools.exercise_zsign_backend import TARGETS
 EXPECTED_LINUX_VIOLATIONS = {
     "root does not contain the exact 128 keychain groups",
     "process does not contain the exact 128 keychain groups",
-    *(f"{role} embedded profile is not covered by its SHA-256 resource seal" for role in TARGETS),
+    *(
+        f"{role} embedded profile is not covered by its SHA-256 resource seal"
+        for role in TARGETS
+        if role != "root"
+    ),
 }
 
 
