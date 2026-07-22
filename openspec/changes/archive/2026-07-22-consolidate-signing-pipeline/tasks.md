@@ -52,4 +52,4 @@
 
 - [x] 7.1 Reconcile README (file structure, zsign description, triggers, secrets), MIGRATION.md (scripts-to-package section), the stale pr-checks comment, and the operator runbook (journal is evidence-only; new dispatch guard).
 - [x] 7.2 Run formatting, strict typing, full coverage suite, workflow static checks, web tests/build, and `openspec validate consolidate-signing-pipeline --strict`.
-- [ ] 7.3 Execute one credentialed non-publishing canary and one scheduled integration run; retain their reports as acceptance evidence.
+- [x] 7.3 Execute one credentialed non-publishing canary and one scheduled integration run; retain their reports as acceptance evidence.

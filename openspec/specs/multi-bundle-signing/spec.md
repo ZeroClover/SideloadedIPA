@@ -48,6 +48,13 @@ The system SHALL use a version-verified backend that can apply the plan's distin
 - **WHEN** the executable version or checksum does not match the configured supported release
 - **THEN** signing SHALL fail before the certificate or source IPA is used
 
+#### Scenario: Backend contract is exercised by automated tests
+
+- **WHEN** pull-request CI runs the Python test suite with a built patched backend available
+- **THEN** at least one automated test SHALL execute the real pinned patched backend binary against a deterministic multi-bundle fixture
+- **AND** SHALL prove per-bundle profile and entitlement selection from post-sign evidence
+- **AND** fake-backend argument conventions SHALL NOT be the only executable proof of the backend CLI contract
+
 ### Requirement: Deepest-first recursive signing
 
 The system SHALL sign nested code from deepest to shallowest and SHALL sign the root application last.

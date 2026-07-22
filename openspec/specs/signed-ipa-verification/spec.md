@@ -146,3 +146,10 @@ The system SHALL emit schema-versioned per-bundle verification findings and SHAL
 - **WHEN** verification completes
 - **THEN** human-readable and redacted JSON summaries SHALL identify every bundle and failed contract
 - **AND** raw private profiles, certificate material, and secrets SHALL be excluded
+
+#### Scenario: Assembled composition uses the production verifier
+
+- **WHEN** automated tests exercise the sign-then-verify composition
+- **THEN** at least one test SHALL run the production verifier against genuine signature evidence produced within the test
+- **AND** a companion negative test SHALL prove an unsigned or tampered artifact is not marked verified and is not promoted
+- **AND** always-passing verifier stand-ins SHALL NOT be the only automated coverage of the composition

@@ -27,6 +27,13 @@ The system SHALL coordinate source resolution, safe inventory, configuration mat
 - **AND** SHALL validate the current production result and run-report schemas
 - **AND** SHALL NOT receive publication credentials or invoke publication
 
+#### Scenario: Mode-scoped dispatch input lacks its owning mode
+
+- **WHEN** a manual dispatch sets a mode-scoped input, such as a qualification apply or reset option, without enabling the mode that owns it
+- **THEN** the workflow SHALL fail before any job that receives credentials or performs mutations starts
+- **AND** SHALL NOT route the dispatch into the production publish path
+- **AND** static workflow tests SHALL assert the production job condition excludes such dispatches
+
 ### Requirement: Read-only inspect and plan modes
 
 The system SHALL expose inspect and plan operations that can produce bundle, entitlement, identifier, capability, profile, and manual-action reports without signing or mutating remote state.
@@ -158,6 +165,18 @@ The system SHALL retain an operational compatibility wrapper only while it has a
 - **THEN** that selector, its compatibility alias, and obsolete characterization contract SHALL be removed
 - **AND** production SHALL continue to use only package-owned cache decisions
 
+#### Scenario: Migration debt reaches its end state
+
+- **WHEN** repository searches show no supported caller for a remaining legacy delegator, superseded command layer, fixture-only orchestration engine, or unused protocol seam
+- **THEN** those modules, their delegator scripts, and the tests that exist only to keep them covered SHALL be removed together
+- **AND** production SHALL execute through exactly one package-owned orchestration engine
+
+#### Scenario: Production code depends on an exempt module
+
+- **WHEN** production orchestration, signing, or publication imports a module excluded from strict typing or the coverage gate
+- **THEN** that module SHALL be promoted into a gated package location
+- **AND** the typing and coverage exemptions SHALL be removed with the promotion
+
 ### Requirement: Production acceptance for new multi-bundle tasks
 
 The system SHALL keep a newly enabled multi-bundle task non-publishing until automated verification and the task's reviewed registered-device acceptance contract both pass for the selected source asset.
@@ -165,7 +184,8 @@ The system SHALL keep a newly enabled multi-bundle task non-publishing until aut
 #### Scenario: Automated canary passes but device acceptance is absent
 
 - **WHEN** a new multi-bundle task passes inventory, resource, signing, and verification gates but has no current physical-device acceptance record
-- **THEN** the canary artifact MAY be retained privately for testing
+- **THEN** redacted qualification evidence and run reports MAY be retained for review
+- **AND** signed artifacts embedding registered-device provisioning material SHALL NOT be uploaded to shared CI artifact storage
 - **AND** production registry publication SHALL remain disabled
 
 #### Scenario: Complete physical-device acceptance
@@ -222,7 +242,7 @@ Production execution SHALL retain canonical stage manifests, one schema-versione
 
 #### Scenario: Production run is cancelled
 
-- **WHEN** execution is interrupted after local or remote side effects begin
+- **WHEN** execution is interrupted after local or remote side effects begin, including interruption by the POSIX termination signal that CI cancellation delivers
 - **THEN** temporary work SHALL be cleaned where safe
 - **AND** created Apple resource identities, publication commit state, and unresolved cleanup actions SHALL be recorded without secrets
 
@@ -246,6 +266,7 @@ An SSH debug step MUST NOT inherit production signing, Apple API, object-storage
 - **WHEN** the workflow starts the public-key-authenticated debug session
 - **THEN** production secrets SHALL be absent from the debug process environment
 - **AND** decoded private keys, certificates, profiles, and temporary keychains SHALL already be destroyed
+- **AND** the checked-out repository SHALL NOT retain an ambient repository token readable during the session
 - **AND** the session SHALL retain its authentication, timeout, and audit controls
 
 #### Scenario: Non-production job consumes a credential
@@ -253,3 +274,19 @@ An SSH debug step MUST NOT inherit production signing, Apple API, object-storage
 - **WHEN** a shadow, probe, or qualification step requires an Apple or repository credential
 - **THEN** only that step SHALL receive the required credential
 - **AND** unrelated setup, reporting, artifact upload, cleanup, and debug steps SHALL NOT inherit it from job scope
+
+### Requirement: Secret-safe credential transport
+
+Credentials SHALL be transported only through channels that do not persist them in third-party request logs, URLs, or retained artifacts, and SHALL avoid process-argument exposure wherever the invoked tool supports an environment or file channel.
+
+#### Scenario: Service endpoint requires a shared secret
+
+- **WHEN** the workflow calls an external endpoint that authenticates with a shared secret, such as publication revalidation
+- **THEN** the secret SHALL be sent in a request header or body over TLS
+- **AND** SHALL NOT appear in the request URL
+
+#### Scenario: Tool requires a private-material password
+
+- **WHEN** a command-line tool needs a certificate or key password
+- **THEN** the password SHALL be supplied through an environment or file channel when the tool supports one
+- **AND** process-argument exposure SHALL be limited to ephemeral values generated for that run or to documented platform tools with no alternative channel
