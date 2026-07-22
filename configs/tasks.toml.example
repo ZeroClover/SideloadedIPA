@@ -115,6 +115,7 @@ bundle_id = "io.example.livecontainer"
 repo_url = "https://github.com/LiveContainer/LiveContainer"
 release_glob = "LiveContainer.ipa"
 slug = "LiveContainer"
+icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
 publication_enabled = false
 
 [tasks.signing]

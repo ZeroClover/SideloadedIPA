@@ -56,6 +56,7 @@ def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
 
     assert task.bundle_id == "io.zeroclover.app.livecontainer"
     assert task.source.release_glob == "LiveContainer.ipa"
+    assert task.icon_path == "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
     assert task.publication_enabled is True
     assert task.signing is not None
     assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
