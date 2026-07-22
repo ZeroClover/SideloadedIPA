@@ -252,6 +252,7 @@ def test_collects_actual_evidence_for_every_planned_node(tmp_path: Path, monkeyp
     evidence = collect_signed_node_evidence(signing_plan, output)
 
     assert len(evidence) == len(signing_plan.nodes)
+    assert all(node.duration_seconds is None for node in evidence)
     assert evidence[-1].signed_executable_sha256 == str(signing_plan.nodes[-1].order + 1) * 64
     assert (
         evidence[-1].signed_entitlements_sha256

@@ -122,7 +122,7 @@ class R2PublicationGateway:
             raise DomainError(
                 ErrorCode.PUBLICATION_FAILED,
                 "Vercel revalidation did not complete",
-                remediation="retain the committed registry and retry revalidation before cleanup",
+                remediation="allow the publication transaction to restore the previous registry before retrying",
             )
 
     def object_key_from_url(self, url: str) -> str | None:

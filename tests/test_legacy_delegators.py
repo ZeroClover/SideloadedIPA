@@ -10,7 +10,6 @@ from pathlib import Path
 LEGACY_MODULES = (
     "app_icon",
     "build_backend_qualification_fixture",
-    "check_changes",
     "compare_backend_qualification",
     "exercise_codesign_oracle",
     "exercise_zsign_backend",

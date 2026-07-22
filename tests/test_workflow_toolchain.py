@@ -127,7 +127,36 @@ def test_shadow_and_canary_are_non_publishing_and_retain_only_reports() -> None:
     assert "Publication - enforce disabled canary state" in canary
     assert "R2_ACCESS_KEY_ID:" not in canary
     assert "publication-disabled.json" in canary
+    assert "sideloadedipa run --task LiveContainer --apply" in canary
+    assert "sideloadedipa sync --task LiveContainer" not in canary
+    assert "sideloadedipa sign --task LiveContainer" not in canary
+    assert ".[0].verification.passed == true and .[0].publication == null" in canary
     assert "retention-days: 1" in canary
+
+
+def test_non_production_jobs_scope_secrets_to_consuming_steps() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+    boundaries = (
+        ("package-shadow", "apple-state-probe"),
+        ("apple-state-probe", "backend-qualification"),
+        ("backend-qualification", "backend-qualification-macos"),
+        ("backend-qualification-macos", "backend-qualification-comparison"),
+    )
+
+    for job, following_job in boundaries:
+        body = signing.split(f"  {job}:", maxsplit=1)[1].split(f"  {following_job}:", maxsplit=1)[0]
+        job_environment = body.split("    env:", maxsplit=1)[1].split("    steps:", maxsplit=1)[0]
+        assert "secrets." not in job_environment
+
+    canary = signing.split("  backend-qualification:", maxsplit=1)[1].split(
+        "  backend-qualification-macos:", maxsplit=1
+    )[0]
+    cleanup_position = canary.index("- name: Remove private qualification material")
+    debug_position = canary.index('- name: "Debug: Start SSH session"')
+    assert cleanup_position < debug_position
+    debug = canary[debug_position:]
+    assert "APPLE_DEV_CERT_P12_ENCODED:" not in debug
+    assert "ASC_PRIVATE_KEY_B64:" not in debug
 
 
 def test_pr_workflow_is_fork_safe_and_exercises_file_manifests() -> None:

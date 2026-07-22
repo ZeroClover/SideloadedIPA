@@ -121,19 +121,18 @@ def _referenced_keys(
     return frozenset(result)
 
 
-def _discard_unreferenced_uploads(
+def _unreferenced_upload_keys(
     gateway: VerifiedPublicationGateway,
     previous_registry: Mapping[str, object] | None,
     artifacts: Sequence[StoredArtifact],
     additional_keys: Sequence[str] = (),
-) -> None:
+) -> tuple[str, ...]:
     previous_keys = _referenced_keys(gateway, previous_registry or {})
-    uploaded = tuple(
+    return tuple(
         key
         for key in dict.fromkeys((*(artifact.key for artifact in artifacts), *additional_keys))
         if key not in previous_keys
     )
-    gateway.delete_uploaded(uploaded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,32 +180,34 @@ class VerifiedPublicationService:
             try:
                 artifact = self.gateway.upload_artifact(candidate)
             except Exception as error:
+                unreferenced_keys = _unreferenced_upload_keys(
+                    self.gateway, current, artifacts, new_icon_keys
+                )
                 try:
-                    _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+                    self.gateway.delete_uploaded(unreferenced_keys)
                 except Exception as cleanup_error:
                     raise DomainError(
                         ErrorCode.PUBLICATION_FAILED,
                         "immutable artifact upload failed and compensating cleanup was incomplete",
                         task_name=candidate.task_name,
                         remediation="delete the reported unreferenced upload keys before retrying",
-                        safe_details=(
-                            ("unreferenced_keys", tuple(value.key for value in artifacts)),
-                        ),
+                        safe_details=(("unreferenced_keys", unreferenced_keys),),
                     ) from cleanup_error
                 raise _publication_error(candidate, "immutable artifact upload failed") from error
             if artifact.sha256 != candidate.artifact_sha256:
                 artifacts.append(artifact)
+                unreferenced_keys = _unreferenced_upload_keys(
+                    self.gateway, current, artifacts, new_icon_keys
+                )
                 try:
-                    _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+                    self.gateway.delete_uploaded(unreferenced_keys)
                 except Exception as cleanup_error:
                     raise DomainError(
                         ErrorCode.PUBLICATION_FAILED,
                         "uploaded artifact digest differed and compensating cleanup was incomplete",
                         task_name=candidate.task_name,
                         remediation="delete the reported unreferenced upload keys before retrying",
-                        safe_details=(
-                            ("unreferenced_keys", tuple(value.key for value in artifacts)),
-                        ),
+                        safe_details=(("unreferenced_keys", unreferenced_keys),),
                     ) from cleanup_error
                 raise _publication_error(candidate, "uploaded artifact digest was not confirmed")
             artifacts.append(artifact)
@@ -224,14 +225,17 @@ class VerifiedPublicationService:
                     "registry publication and rollback both failed",
                     remediation="restore the previous registry snapshot before another publication",
                 ) from rollback_error
+            unreferenced_keys = _unreferenced_upload_keys(
+                self.gateway, current, artifacts, new_icon_keys
+            )
             try:
-                _discard_unreferenced_uploads(self.gateway, current, artifacts, new_icon_keys)
+                self.gateway.delete_uploaded(unreferenced_keys)
             except Exception as cleanup_error:
                 raise DomainError(
                     ErrorCode.PUBLICATION_FAILED,
                     "registry publication failed and compensating upload cleanup was incomplete",
                     remediation="delete the reported unreferenced upload keys before retrying",
-                    safe_details=(("unreferenced_keys", tuple(value.key for value in artifacts)),),
+                    safe_details=(("unreferenced_keys", unreferenced_keys),),
                 ) from cleanup_error
             if isinstance(error, DomainError):
                 raise

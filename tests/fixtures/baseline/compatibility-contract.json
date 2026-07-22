@@ -32,18 +32,6 @@
       "6": "GitHub authentication missing"
     }
   },
-  "check_changes": {
-    "environment": [
-      "CONFIG_TOML",
-      "FORCE_REBUILD",
-      "DEVICES_CHANGED",
-      "GITHUB_TOKEN",
-      "GITHUB_OUTPUT",
-      "DEBUG"
-    ],
-    "github_outputs": ["rebuild_all", "rebuild_tasks"],
-    "exit_codes": {"0": "success", "2": "configuration or GitHub authentication error"}
-  },
   "sync_profiles_asc": {
     "environment": [
       "CONFIG_TOML",

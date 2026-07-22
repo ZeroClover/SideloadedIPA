@@ -62,7 +62,7 @@ class SigningNodeResult:
     signed_executable_sha256: str
     embedded_profile_sha256: str | None
     signed_entitlements_sha256: str
-    duration_seconds: float
+    duration_seconds: float | None
     diagnostics: tuple[Diagnostic, ...] = ()
 
 

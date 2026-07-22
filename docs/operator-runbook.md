@@ -74,10 +74,14 @@ gh workflow run sign-and-upload.yml \
   -f debug=false
 ```
 
-The canary uses the production LiveContainer policy and template, four real
-profiles, the checksum-qualified backend, and an independent macOS oracle. It has
-no R2 credentials and retains only redacted JSON. For interactive device
-handoff, add `-f debug=true`; the workflow's SSH step keeps that runner alive.
+The canary runs `sideloadedipa run --apply` without `--publish`, so inspect,
+Apple plan/apply, signing, and standalone verification share one production
+manifest chain. It uses the production LiveContainer policy and template, four
+real profiles, the checksum-qualified backend, and an independent macOS oracle.
+It has no R2 credentials and retains the redacted command result and production
+run report. For interactive device handoff, add `-f debug=true`; decoded P12,
+private-key, certificate, profile, and keychain material is destroyed before the
+workflow's SSH step keeps that runner alive.
 
 The production job exposes the remaining boundaries explicitly:
 
@@ -108,12 +112,14 @@ certificate prerequisites, confirms the stored verification-report digest, and
 reopens the cached IPA through the full independent verification gate. Invalid
 or tampered candidates are reported as `cache-rejected` and rebuilt.
 
-The final redacted report is `work/reports/<run-id>.json`. It contains timings,
+The final redacted report is `work/reports/<run-id>.json`. It contains measured stage timings,
 source and graph provenance, bundle/profile mappings, capability decisions,
 non-secret tool and certificate fingerprints, cache decisions, verification,
 and publication outcomes. Per-stage manifests and cache decisions remain under
 `work/pipeline/<run-id>/`; each task also retains a canonical signing report with
-actual per-node backend evidence. CI uploads these JSON files even after failure.
+actual per-node backend evidence. Because zsign signs the graph in one subprocess,
+per-node `duration_seconds` is `null`; the total backend duration remains measured.
+CI uploads these JSON files even after failure.
 
 ## Retry and rollback
 
@@ -125,7 +131,8 @@ actual per-node backend evidence. CI uploads these JSON files even after failure
   created; leave those additive resources in place and reconcile them on retry.
 - A failed sign, verify, upload, or registry update must leave the prior R2 object
   and registry entry active. Never delete the old object before registry success
-  and revalidation.
+  and revalidation. If compensating cleanup itself fails, the diagnostic lists
+  every remaining IPA and icon key that was newly uploaded by that attempt.
 - Roll back a task by restoring its last reviewed configuration and the last
   verified registry document. Keep `publication_enabled = false` for a new
   multi-bundle task until a fresh automated canary and physical-device checklist

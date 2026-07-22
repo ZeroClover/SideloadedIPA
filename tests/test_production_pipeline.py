@@ -6,7 +6,7 @@ import hashlib
 import json
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
@@ -43,6 +43,16 @@ from sideloadedipa.sources import DownloadedSource
 from tests.test_signing_service import CopyBackend, request_for
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
+
+
+class IncrementingClock:
+    def __init__(self) -> None:
+        self.current = NOW
+
+    def __call__(self) -> datetime:
+        value = self.current
+        self.current += timedelta(milliseconds=10)
+        return value
 
 
 def command(
@@ -124,8 +134,17 @@ def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monke
     )
     monkeypatch.setattr(
         pipeline,
-        "_resolve_source",
-        lambda request, task: contexts[task.task_name],
+        "_resolve_source_asset",
+        lambda request, task: (
+            contexts[task.task_name].resolved,
+            contexts[task.task_name].downloaded,
+            contexts[task.task_name].source,
+        ),
+    )
+    monkeypatch.setattr(
+        production,
+        "inspect_source_graph",
+        lambda path, *, task: contexts[task.task_name].graph,
     )
     monkeypatch.setattr(
         production,
@@ -177,7 +196,7 @@ def test_source_failure_is_retained_as_preflight_evidence(tmp_path: Path, monkey
             task_name=selected.task_name,
         )
 
-    monkeypatch.setattr(pipeline, "_resolve_source", fail_source)
+    monkeypatch.setattr(pipeline, "_resolve_source_asset", fail_source)
     request = command(tmp_path, CommandName.INSPECT, task.task_name)
 
     with pytest.raises(DomainError):
@@ -207,14 +226,23 @@ def test_source_failure_is_retained_as_preflight_evidence(tmp_path: Path, monkey
 
 def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
-    pipeline = ProductionPipeline(dependencies(tmp_path))
+    pipeline = ProductionPipeline(replace(dependencies(tmp_path), clock=IncrementingClock()))
     context = source_context(tmp_path, task)
     monkeypatch.setattr(
         production,
         "load_configuration",
         lambda path: TaskConfiguration((task,)),
     )
-    monkeypatch.setattr(pipeline, "_resolve_source", lambda request, selected: context)
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_source_asset",
+        lambda request, selected: (context.resolved, context.downloaded, context.source),
+    )
+    monkeypatch.setattr(
+        production,
+        "inspect_source_graph",
+        lambda path, *, task: context.graph,
+    )
     monkeypatch.setattr(
         production,
         "validate_signing_preflight",
@@ -241,6 +269,9 @@ def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkey
     assert all(
         current.predecessor_sha256 == previous.manifest_sha256
         for previous, current in zip(stages, stages[1:])
+    )
+    assert all(
+        stage.completed_at is not None and stage.completed_at > stage.started_at for stage in stages
     )
 
 

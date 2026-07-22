@@ -25,7 +25,7 @@ SideloadedIPA automates acquisition, Apple development signing, verification, an
 
 ### Architecture Patterns
 
-- The current Python execution path is script-oriented: `check_changes.py` selects work, `sync_profiles_asc.py` reconciles profiles, `run_signing.py` downloads/signs/publishes, and focused modules handle icons, registry data, and R2.
+- The production Python execution path is the package-owned manifest orchestrator. It performs source inventory, Apple plan/apply, signing, independent verification, cache selection, and publication; remaining script entry points are compatibility wrappers for supported operational tools only.
 - `configs/tasks.toml` is the production task source. A task uses exactly one of `ipa_url` or `repo_url`; GitHub sources use `release_glob` (default `*.ipa`) and optional prerelease selection.
 - `site/apps.json` in R2 is the publication source of truth. IPA and icon objects use immutable/versioned or content-addressed keys; registry mutation and Vercel revalidation expose them to the web app.
 - OpenSpec baseline requirements under `openspec/specs/` are normative. Active changes must modify an existing requirement through a delta spec instead of adding a conflicting requirement under another capability.

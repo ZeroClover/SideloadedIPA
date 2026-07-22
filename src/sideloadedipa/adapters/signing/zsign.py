@@ -117,7 +117,7 @@ def collect_signed_node_evidence(
                 signed_executable_sha256=actual.executable_sha256,
                 embedded_profile_sha256=actual.embedded_profile_sha256,
                 signed_entitlements_sha256=entitlements.sha256,
-                duration_seconds=0.0,
+                duration_seconds=None,
             )
         )
     return tuple(evidence)

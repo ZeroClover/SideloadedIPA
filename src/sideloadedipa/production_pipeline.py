@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -92,12 +92,17 @@ from sideloadedipa.stage_manifests import finish_stage, start_stage
 _PROFILE_REFRESH_THRESHOLD = timedelta(days=30)
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass(frozen=True, slots=True)
 class ProductionPipelineDependencies:
     package: PackageCommandDependencies = PackageCommandDependencies()
     apple: AppleCommandDependencies = AppleCommandDependencies()
     manifest_root: Path = Path("work/pipeline")
     report_root: Path = Path("work/reports")
+    clock: Callable[[], datetime] = _utc_now
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +112,10 @@ class SourceContext:
     downloaded: DownloadedSource
     source: SourceAsset
     graph: BundleGraph
+    source_started_at: datetime | None = None
+    source_completed_at: datetime | None = None
+    inventory_started_at: datetime | None = None
+    inventory_completed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +388,9 @@ class ProductionPipeline:
         stage: PipelineStage,
         result_sha256: str,
         predecessor: StageManifest | None,
+        *,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> StageManifest:
         existing = store.load(task_name, stage)
         if existing is not None:
@@ -399,7 +411,7 @@ class ProductionPipeline:
         running = start_stage(
             task_name=task_name,
             stage=stage,
-            started_at=datetime.now(timezone.utc),
+            started_at=started_at or self.dependencies.clock(),
             input_sha256=predecessor.result_sha256 if predecessor is not None else None,
             predecessor=predecessor,
         )
@@ -407,7 +419,7 @@ class ProductionPipeline:
         completed = finish_stage(
             running,
             status=StageStatus.SUCCEEDED,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=completed_at or self.dependencies.clock(),
             result_sha256=result_sha256,
         )
         store.save(completed)
@@ -420,13 +432,16 @@ class ProductionPipeline:
         stage: PipelineStage,
         error: SideloadedIPAError,
         predecessor: StageManifest | None,
+        *,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> None:
         if store.load(task_name, stage) is not None:
             return
         running = start_stage(
             task_name=task_name,
             stage=stage,
-            started_at=datetime.now(timezone.utc),
+            started_at=started_at or self.dependencies.clock(),
             input_sha256=predecessor.result_sha256 if predecessor is not None else None,
             predecessor=predecessor,
         )
@@ -435,7 +450,7 @@ class ProductionPipeline:
             finish_stage(
                 running,
                 status=StageStatus.FAILED,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=completed_at or self.dependencies.clock(),
                 diagnostics=(error.to_diagnostic(),),
             )
         )
@@ -458,7 +473,9 @@ class ProductionPipeline:
         store.completed(task_name)
         return manifest
 
-    def _resolve_source(self, request: CommandRequest, task: Task) -> SourceContext:
+    def _resolve_source_asset(
+        self, request: CommandRequest, task: Task
+    ) -> tuple[ResolvedSource, DownloadedSource, SourceAsset]:
         dependencies = self.dependencies.package.inspect
         environment = self.dependencies.package.environment
         path = self._source_path(request, task)
@@ -484,8 +501,26 @@ class ProductionPipeline:
                 expected_sha256=resolved.expected_sha256,
             )
             _write_source_selection(selection_path, resolved)
+        return resolved, downloaded, _source_asset(resolved, downloaded)
+
+    def _resolve_source(self, request: CommandRequest, task: Task) -> SourceContext:
+        source_started_at = self.dependencies.clock()
+        resolved, downloaded, source = self._resolve_source_asset(request, task)
+        source_completed_at = self.dependencies.clock()
+        inventory_started_at = self.dependencies.clock()
         graph = inspect_source_graph(downloaded.path, task=task)
-        return SourceContext(task, resolved, downloaded, _source_asset(resolved, downloaded), graph)
+        inventory_completed_at = self.dependencies.clock()
+        return SourceContext(
+            task,
+            resolved,
+            downloaded,
+            source,
+            graph,
+            source_started_at,
+            source_completed_at,
+            inventory_started_at,
+            inventory_completed_at,
+        )
 
     def _inspect_contexts(self, request: CommandRequest) -> tuple[SourceContext, ...]:
         store = self._store(request)
@@ -493,24 +528,46 @@ class ProductionPipeline:
         diagnostics: list[str] = []
         repository_root = request.config_path.resolve().parent.parent
         for task in _selected_tasks(request):
+            task_started_at = self.dependencies.clock()
             source_manifest: StageManifest | None = None
             inventory_manifest: StageManifest | None = None
             try:
-                context = self._resolve_source(request, task)
+                source_started_at = self.dependencies.clock()
+                resolved, downloaded, source = self._resolve_source_asset(request, task)
+                source_completed_at = self.dependencies.clock()
                 source_manifest = self._record_success(
                     store,
                     task.task_name,
                     PipelineStage.SOURCE,
-                    _json_digest(asdict(context.source)),
+                    _json_digest(asdict(source)),
                     None,
+                    started_at=source_started_at,
+                    completed_at=source_completed_at,
                 )
+                inventory_started_at = self.dependencies.clock()
+                graph = inspect_source_graph(downloaded.path, task=task)
+                inventory_completed_at = self.dependencies.clock()
                 inventory_manifest = self._record_success(
                     store,
                     task.task_name,
                     PipelineStage.INVENTORY,
-                    context.graph.graph_sha256,
+                    graph.graph_sha256,
                     source_manifest,
+                    started_at=inventory_started_at,
+                    completed_at=inventory_completed_at,
                 )
+                context = SourceContext(
+                    task,
+                    resolved,
+                    downloaded,
+                    source,
+                    graph,
+                    source_started_at,
+                    source_completed_at,
+                    inventory_started_at,
+                    inventory_completed_at,
+                )
+                policy_started_at = self.dependencies.clock()
                 preflight = validate_signing_preflight(
                     task,
                     context.graph,
@@ -536,6 +593,7 @@ class ProductionPipeline:
                         PipelineStage.POLICY,
                         error,
                         inventory_manifest,
+                        started_at=policy_started_at,
                     )
                     diagnostics.extend(
                         f"{task.task_name}:{value.code}" for value in preflight.diagnostics
@@ -549,6 +607,7 @@ class ProductionPipeline:
                         {"policy": _policy_sha256(task), "graph": context.graph.graph_sha256}
                     ),
                     inventory_manifest,
+                    started_at=policy_started_at,
                 )
                 contexts.append(context)
             except SideloadedIPAError as error:
@@ -564,7 +623,14 @@ class ProductionPipeline:
                 predecessor = (
                     source_manifest if stage is PipelineStage.INVENTORY else inventory_manifest
                 )
-                self._record_failure(store, task.task_name, stage, error, predecessor)
+                self._record_failure(
+                    store,
+                    task.task_name,
+                    stage,
+                    error,
+                    predecessor,
+                    started_at=task_started_at,
+                )
                 diagnostics.append(f"{task.task_name}:{error.code.value}")
         if diagnostics:
             raise DomainError(
@@ -602,6 +668,7 @@ class ProductionPipeline:
             apply=False,
             publish=False,
         )
+        stage_started_at = self.dependencies.clock()
         result = apple_plan_command(apple_request, self.dependencies.apple)
         if result.exit_code:
             raise DomainError(
@@ -610,6 +677,7 @@ class ProductionPipeline:
                 remediation="complete the manual or blocked operations before apply",
             )
         digest = _json_digest(_payload_document(result))
+        stage_completed_at = self.dependencies.clock()
         for context in contexts:
             policy = self._require(store, context.task.task_name, PipelineStage.POLICY)
             self._record_success(
@@ -618,6 +686,8 @@ class ProductionPipeline:
                 PipelineStage.RESOURCE_PLAN,
                 _json_digest({"task": context.task.task_name, "plan": digest}),
                 policy,
+                started_at=stage_started_at,
+                completed_at=stage_completed_at,
             )
         return result
 
@@ -637,6 +707,7 @@ class ProductionPipeline:
                 apple_dependencies,
                 record_created_resource=self.journal.record_apple_resource,
             )
+        stage_started_at = self.dependencies.clock()
         result = apple_sync_command(apple_request, apple_dependencies)
         if result.exit_code:
             raise DomainError(
@@ -644,6 +715,7 @@ class ProductionPipeline:
                 "Apple resource synchronization did not reach an applied state",
             )
         digest = _json_digest(_payload_document(result))
+        stage_completed_at = self.dependencies.clock()
         for context in contexts:
             predecessor = self._require(store, context.task.task_name, PipelineStage.RESOURCE_PLAN)
             self._record_success(
@@ -652,6 +724,8 @@ class ProductionPipeline:
                 PipelineStage.RESOURCE_APPLY,
                 _json_digest({"task": context.task.task_name, "apply": digest}),
                 predecessor,
+                started_at=stage_started_at,
+                completed_at=stage_completed_at,
             )
         return result
 
@@ -762,6 +836,7 @@ class ProductionPipeline:
             for index, value in enumerate(prepared):
                 task_name = value.source.task.task_name
                 resource_apply = self._require(store, task_name, PipelineStage.RESOURCE_APPLY)
+                plan_started_at = self.dependencies.clock()
                 plan = value.plan
                 signing_plan = self._record_success(
                     store,
@@ -769,10 +844,12 @@ class ProductionPipeline:
                     PipelineStage.SIGNING_PLAN,
                     plan.plan_sha256,
                     resource_apply,
+                    started_at=plan_started_at,
                 )
                 decision = decisions[index]
                 verification: VerificationResult
                 signing_report_sha256: str
+                sign_started_at = self.dependencies.clock()
                 if not decision.rebuild:
                     record = cached_records[task_name]
                     artifact = self._cache().artifact_path(task_name, value.fingerprint.sha256)
@@ -785,7 +862,7 @@ class ProductionPipeline:
                                 True, value.request.profile_manifest.snapshot_sha256
                             ),
                             profiles=value.request.profiles,
-                            now=datetime.now(timezone.utc),
+                            now=self.dependencies.clock(),
                             refresh_threshold=_PROFILE_REFRESH_THRESHOLD,
                             verifier=value.request.verifier,
                         )
@@ -845,6 +922,7 @@ class ProductionPipeline:
                     PipelineStage.SIGN,
                     artifact_sha256,
                     signing_plan,
+                    started_at=sign_started_at,
                 )
                 pending_records.append(
                     TaskCacheRecord(
@@ -973,6 +1051,7 @@ class ProductionPipeline:
         with self._prepared(request, contexts) as prepared:
             for value in prepared:
                 task_name = value.source.task.task_name
+                stage_started_at = self.dependencies.clock()
                 signing = self._require(store, task_name, PipelineStage.SIGN)
                 plan = value.plan
                 planned = self._require(store, task_name, PipelineStage.SIGNING_PLAN)
@@ -998,6 +1077,7 @@ class ProductionPipeline:
                     PipelineStage.VERIFY,
                     verification.report_sha256,
                     signing,
+                    started_at=stage_started_at,
                 )
             if not request.publish:
                 self._promote_cache(request)
@@ -1028,6 +1108,7 @@ class ProductionPipeline:
             publication_store, publisher = _publication_runtime(
                 configuration, self.dependencies.package.environment
             )
+            stage_started_at = self.dependencies.clock()
             candidates: list[PublicationCandidate] = []
             for value in prepared:
                 task = value.source.task
@@ -1082,7 +1163,8 @@ class ProductionPipeline:
                         verification,
                     )
                 )
-            results = publisher.publish(candidates, now=datetime.now(timezone.utc))
+            results = publisher.publish(candidates, now=self.dependencies.clock())
+            stage_completed_at = self.dependencies.clock()
             if self.journal is not None:
                 self.journal.mark_publication_committed()
             publications = {value.task_name: value for value in results}
@@ -1095,6 +1177,8 @@ class ProductionPipeline:
                     PipelineStage.PUBLISH,
                     publications[task_name].registry_sha256,
                     verify_manifest,
+                    started_at=stage_started_at,
+                    completed_at=stage_completed_at,
                 )
             self._promote_cache(request)
             report = self._report(request, prepared, verifications, publications)

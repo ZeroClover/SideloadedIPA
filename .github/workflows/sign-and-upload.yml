@@ -295,13 +295,7 @@ jobs:
     env:
       ASC_VERSION: "3.1.1"
       ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
       ASC_BYPASS_KEYCHAIN: "1"
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Preflight - checkout
         uses: actions/checkout@v7.0.1
@@ -337,6 +331,8 @@ jobs:
       - name: Inventory - inspect every current task without mutation
         id: shadow-inventory
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
@@ -354,6 +350,13 @@ jobs:
       - name: Apple plan - read-only resource plan for every current task
         id: shadow-apple-plan
         shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           report_dir="$RUNNER_TEMP/sideloadedipa-shadow"
@@ -413,12 +416,7 @@ jobs:
     env:
       ASC_VERSION: "3.1.1"
       ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
       ASC_BYPASS_KEYCHAIN: "1"
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -449,6 +447,12 @@ jobs:
             "$ASC_VERSION" "$ASC_LINUX_AMD64_SHA256"
 
       - name: Collect redacted read-only snapshot
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
         run: uv run python -m sideloadedipa.apple_state_probe
 
       - name: "Debug: Start SSH session"
@@ -469,11 +473,6 @@ jobs:
       ZSIGN_LINUX_MUSL_SHA256: "9880b0e1290dea211481fd031bcca8d0d7f3f09ba1c6a89743b3422df1ac14b9"
       ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
       ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
       ASC_BYPASS_KEYCHAIN: "1"
     steps:
       - name: Checkout
@@ -557,6 +556,7 @@ jobs:
       - name: Preflight - extract configured public signing certificate
         shell: bash
         env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
           P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
         run: |
           set -euo pipefail
@@ -591,6 +591,10 @@ jobs:
 
       - name: Apple plan and optional apply - reconcile private prerequisites
         shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"
@@ -638,29 +642,31 @@ jobs:
             --config configs/tasks.toml \
             --per-profile-entitlements
 
-      - name: Apple apply - sync production LiveContainer profiles
+      - name: Production run - build and verify installable LiveContainer canary
         if: ${{ inputs.multi_bundle_canary == true }}
         shell: bash
-        run: |
-          set -euo pipefail
-          report_dir="$RUNNER_TEMP/backend-qualification"
-          uv run sideloadedipa sync --task LiveContainer --apply --json \
-            > "$report_dir/livecontainer-profile-sync.json"
-          jq -e '.status == "applied"' "$report_dir/livecontainer-profile-sync.json" >/dev/null
-
-      - name: Signing and verification - build installable LiveContainer canary
-        if: ${{ inputs.multi_bundle_canary == true }}
-        shell: bash
+        env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           report_dir="$RUNNER_TEMP/backend-qualification"
           export ZSIGN_BIN="$RUNNER_TEMP/backend-qualification/zsign-per-profile"
           export ZSIGN_SHA256
           ZSIGN_SHA256="$(sha256sum "$ZSIGN_BIN" | cut -d ' ' -f 1)"
-          uv run sideloadedipa sign --task LiveContainer --json \
-            > "$report_dir/livecontainer-signing.json"
-          jq -e '.status == "passed" and .task_count == 1 and .tasks[0].publication == "disabled"' \
-            "$report_dir/livecontainer-signing.json" >/dev/null
+          uv run sideloadedipa run --task LiveContainer --apply \
+            --run-id "$GITHUB_RUN_ID" --json > "$report_dir/livecontainer-run.json"
+          jq -e '.status == "passed" and (.report_path | type == "string")' \
+            "$report_dir/livecontainer-run.json" >/dev/null
+          run_report="work/reports/$GITHUB_RUN_ID.json"
+          jq -e \
+            '.tasks | length == 1 and .[0].task_name == "LiveContainer" and .[0].verification.passed == true and .[0].publication == null' \
+            "$run_report" >/dev/null
+          cp "$run_report" "$report_dir/livecontainer-run-report.json"
 
       - name: Publication - enforce disabled canary state
         shell: bash
@@ -682,8 +688,8 @@ jobs:
           path: |
             ${{ runner.temp }}/backend-qualification/zsign-profile-only-summary.json
             ${{ runner.temp }}/backend-qualification/zsign-summary.json
-            ${{ runner.temp }}/backend-qualification/livecontainer-profile-sync.json
-            ${{ runner.temp }}/backend-qualification/livecontainer-signing.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-run.json
+            ${{ runner.temp }}/backend-qualification/livecontainer-run-report.json
             ${{ runner.temp }}/backend-qualification/publication-disabled.json
           if-no-files-found: error
           retention-days: 1
@@ -697,12 +703,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: "Debug: Start SSH session"
-        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
-        uses: ./.github/actions/ssh-debug
-        with:
-          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
-
       - name: Remove private qualification material
         if: ${{ always() }}
         shell: bash
@@ -711,6 +711,12 @@ jobs:
           private_dir="${RUNNER_TEMP:?}/backend-qualification/private"
           test "$private_dir" = "$RUNNER_TEMP/backend-qualification/private"
           rm -rf -- "$private_dir"
+
+      - name: "Debug: Start SSH session"
+        if: ${{ always() && (inputs.debug == true || inputs.debug == 'true' || inputs.debug == '1') }}
+        uses: ./.github/actions/ssh-debug
+        with:
+          public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}
 
   backend-qualification-macos:
     name: Qualify with independent macOS codesign oracle
@@ -721,10 +727,6 @@ jobs:
     env:
       ASC_VERSION: "3.1.1"
       ASC_MACOS_ARM64_SHA256: "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef"
-      APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
       ASC_BYPASS_KEYCHAIN: "1"
     steps:
       - name: Checkout
@@ -750,6 +752,7 @@ jobs:
       - name: Import configured signing identity into an isolated keychain
         shell: bash
         env:
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
           P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
         run: |
           set -euo pipefail
@@ -806,6 +809,10 @@ jobs:
 
       - name: Probe private Apple qualification prerequisites
         shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           private_dir="$RUNNER_TEMP/backend-qualification/private"

@@ -128,6 +128,8 @@ class RecordingGateway:
         self.calls.append("delete-uploaded")
         assert isinstance(keys, tuple)
         self.deleted_uploaded = keys
+        if self.fail_at == "delete-uploaded":
+            raise OSError("injected cleanup failure")
 
     def revalidate(self) -> None:
         self.calls.append("revalidate")
@@ -291,3 +293,24 @@ def test_failure_preserves_previous_registry_and_discards_new_uploads(
             "apps/example/1.2.3/Example.ipa",
             "apps/example/icon.png",
         )
+
+
+def test_cleanup_failure_reports_every_ipa_and_icon_key(tmp_path: Path) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+    gateway = RecordingGateway(fail_at="delete-uploaded")
+    original_publish = gateway.publish_registry
+
+    def fail_registry(document: object) -> tuple[str, str]:
+        original_publish(document)
+        raise OSError("injected registry failure")
+
+    gateway.publish_registry = fail_registry  # type: ignore[method-assign]
+
+    with pytest.raises(DomainError, match="cleanup was incomplete") as caught:
+        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+
+    assert dict(caught.value.safe_details)["unreferenced_keys"] == (
+        "apps/example/1.2.3/Example.ipa",
+        "apps/example/icon.png",
+    )
