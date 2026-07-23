@@ -142,6 +142,8 @@ jobs:
       - name: Independently reopen and verify signed IPAs
         id: package-verification
         env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
           APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
           APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -153,6 +155,8 @@ jobs:
       - name: Publish verified batch
         id: package-publication
         env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
           APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
           APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

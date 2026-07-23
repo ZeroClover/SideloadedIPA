@@ -136,6 +136,21 @@ def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
     assert "always()" not in save_cache
 
 
+def test_every_backend_dependent_production_step_receives_qualified_identity() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+
+    for step_name in (
+        "Sign selected tasks",
+        "Independently reopen and verify signed IPAs",
+        "Publish verified batch",
+    ):
+        step = signing.split(f"- name: {step_name}", maxsplit=1)[1].split(
+            "\n      - name:", maxsplit=1
+        )[0]
+        assert "ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}" in step
+        assert "ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}" in step
+
+
 def test_production_debug_step_does_not_inherit_job_level_secrets() -> None:
     signing = SIGN_WORKFLOW.read_text()
     production_job = signing.split("  sign-and-upload:", maxsplit=1)[1]
