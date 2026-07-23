@@ -55,8 +55,8 @@ The system SHALL treat cached data as an optimization and SHALL revalidate time-
 #### Scenario: Reuse a cached signed artifact
 
 - **WHEN** a cache fingerprint matches
-- **THEN** current profile validity/manual-prerequisite status SHALL be checked
-- **AND** the cached IPA SHALL be reopened and pass the publication verification gate
+- **THEN** current profile validity/manual-prerequisite status SHALL be checked and the cached artifact digest SHALL match the cache record at the reuse decision
+- **AND** the cached IPA SHALL be reopened and pass the complete verification gate exactly once within the same run before cache promotion or publication
 
 #### Scenario: Run fails after cache restore
 
@@ -195,13 +195,13 @@ The production CLI and CI workflow MUST execute source, inventory, policy prefli
 
 ### Requirement: Production cache-hit verification
 
-The production orchestrator MUST use complete per-task cache fingerprints and MUST treat every cache hit as untrusted until current prerequisite and full artifact verification succeeds.
+The production orchestrator MUST use complete per-task cache fingerprints and MUST treat every cache hit as untrusted until current prerequisite revalidation and the run's full artifact verification succeed.
 
 #### Scenario: Production task fingerprint matches
 
 - **WHEN** a production task has a matching cached fingerprint
-- **THEN** the workflow SHALL revalidate current profile dates, devices, certificate and prerequisite status
-- **AND** SHALL reopen the cached IPA with the complete independent verifier before reuse or publication
+- **THEN** the workflow SHALL revalidate current profile dates, devices, certificate and prerequisite status, and the cached artifact digest at the reuse decision
+- **AND** the cached IPA SHALL pass the run's single complete independent verification before cache promotion or publication
 
 #### Scenario: Cache evidence is stale or invalid
 
@@ -236,21 +236,6 @@ The publication transaction SHALL remove newly uploaded immutable objects that a
 - **AND** the gateway SHALL attempt deletion of only the unreferenced keys uploaded by that attempt
 - **AND** any cleanup failure SHALL report every remaining IPA and icon key without masking the original publication failure
 
-### Requirement: Debug sessions use least-privilege credentials
-An SSH debug step MUST NOT inherit production signing, Apple API, object-storage, revalidation, or repository credentials unless a separately reviewed debug operation explicitly requires an individual credential.
-
-#### Scenario: Operator enables SSH debug
-- **WHEN** a manually dispatched production or PR validation workflow starts the public-key-authenticated debug session
-- **THEN** production secrets SHALL be absent from the debug process environment
-- **AND** decoded private keys, certificates, profiles, and temporary keychains SHALL already be destroyed or inaccessible to the debug processes
-- **AND** the checked-out repository SHALL NOT retain an ambient repository token readable during the session
-- **AND** the session SHALL retain its authentication, timeout, and audit controls
-
-#### Scenario: Production step consumes a credential
-- **WHEN** a production step requires an Apple, repository, publication, revalidation, or notification credential
-- **THEN** only that step SHALL receive the required credential
-- **AND** unrelated setup, reporting, cache, and debug steps SHALL NOT inherit it from job scope
-
 ### Requirement: Secret-safe credential transport
 
 Credentials SHALL be transported only through channels that do not persist them in third-party request logs, URLs, or retained artifacts, and SHALL avoid process-argument exposure wherever the invoked tool supports an environment or file channel.
@@ -266,3 +251,72 @@ Credentials SHALL be transported only through channels that do not persist them 
 - **WHEN** a command-line tool needs a certificate or key password
 - **THEN** the password SHALL be supplied through an environment or file channel when the tool supports one
 - **AND** process-argument exposure SHALL be limited to ephemeral values generated for that run or to documented platform tools with no alternative channel
+
+### Requirement: Combined plan-and-apply transaction evidence
+
+A production apply transaction SHALL compute the read-only resource plan it applies and SHALL record both resource-plan and resource-apply stage evidence for the same run and task.
+
+#### Scenario: CI runs one Apple transaction
+
+- **WHEN** CI executes Apple synchronization with apply enabled
+- **THEN** the transaction SHALL produce the read-only plan document and record resource-plan evidence before any mutation
+- **AND** mutation SHALL proceed only when the plan contains no manual-required or blocked operation
+
+#### Scenario: Plan is blocked inside the transaction
+
+- **WHEN** the computed plan contains a manual-required or blocked operation
+- **THEN** the transaction SHALL stop with a non-success status before any mutation
+- **AND** downstream stages SHALL fail closed on the missing apply evidence
+
+#### Scenario: Standalone plan mode remains available
+
+- **WHEN** an operator runs plan mode without apply
+- **THEN** the same plan document SHALL be emitted without Apple, R2, registry, or cache-success mutation
+
+### Requirement: In-run derived-input reuse
+
+Within one orchestrated production process, immutable derived inputs SHALL be computed once per run and task and consumed by reference or recorded digest; stages executing as separate processes SHALL reconstruct equivalent state from canonical manifests.
+
+#### Scenario: Prepared signing context is reused across stages
+
+- **WHEN** one process executes signing, verification, and publication for a run
+- **THEN** configuration parsing, prepared profile and certificate material, the validated signing plan, and backend identity SHALL be produced once per task
+- **AND** later stages SHALL consume the same instances or their recorded digests instead of recomputing them
+
+#### Scenario: Stage processes rely on canonical manifests
+
+- **WHEN** production stages execute as separate processes
+- **THEN** each stage SHALL reconstruct required inputs by loading and validating the canonical predecessor manifests for the same run and task
+
+### Requirement: Debug sessions receive production credentials on explicit request
+
+An SSH debug session SHALL start only from a manually dispatched workflow run with the debug input enabled and public-key authentication, and the production workflow's debug step SHALL receive the production credential set as step-scoped environment so live Apple, signing, and publication behavior can be exercised in the real CI environment.
+
+#### Scenario: Operator enables production debug
+
+- **WHEN** the production workflow is manually dispatched with the debug input enabled and the public-key-authenticated debug session starts
+- **THEN** the debug step SHALL receive the production credential set as step-scoped environment variables
+- **AND** the SSH server SHALL preserve that environment for debug child processes
+- **AND** the session SHALL retain its public-key authentication, timeout, and audit controls
+
+#### Scenario: Debug is not requested
+
+- **WHEN** a workflow runs without the explicit debug input
+- **THEN** no debug session or tunnel SHALL start
+- **AND** credentials SHALL reach only the production steps that require them
+
+#### Scenario: Production step consumes a credential
+
+- **WHEN** a production step requires an Apple, repository, publication, revalidation, or notification credential
+- **THEN** only that step SHALL receive the required credential
+- **AND** unrelated setup, reporting, and cache steps SHALL NOT inherit it from job scope
+
+#### Scenario: PR validation debug stays credential-free
+
+- **WHEN** the PR validation workflow starts its explicitly requested debug session
+- **THEN** production signing, Apple API, object-storage, revalidation, and notification credentials SHALL NOT be present in that session's environment
+
+#### Scenario: Debug session output is retained
+
+- **WHEN** a debug session or its parent workflow retains logs or artifacts
+- **THEN** credential values SHALL NOT be printed or persisted into retained artifacts
