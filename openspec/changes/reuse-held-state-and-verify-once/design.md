@@ -68,6 +68,9 @@ profile and removes `_validated`'s extra content read. See
 **D7 — CI merges the plan step into the apply step.**
 `sync --apply` already computes the identical plan and blocks identically; it records both RESOURCE_PLAN and RESOURCE_APPLY evidence so the stage chain is unchanged for downstream `require` calls. The standalone `plan` CLI mode remains for operators.
 
+**D8 — Production debug sessions receive production credentials by explicit request.**
+The previous contract stripped every credential from SSH debug sessions, which made them unable to reproduce any live App Store Connect, signing, or publication behavior — the D2 contract probe demonstrated that meaningful CI debugging requires the real environment. The debug step of the production workflow now receives the production credential set as step-scoped environment, and the SSH server preserves that environment for the session (`.github/actions/ssh-debug/action.yml`, Dropbear `-e`). Retained boundaries: sessions start only from a manual `workflow_dispatch` with `debug=true`; access requires the reviewed `DEBUG_SSH_PUBLIC_KEY` counterpart plus the per-run tunnel; job-level environment still carries no secrets and non-debug steps keep per-step injection; the PR-validation debug session receives no production credentials; retained logs and artifacts keep their redaction rules. Enforced by the rewritten assertions in `tests/test_workflow_toolchain.py`. *Alternative rejected:* per-credential debug scoping (an input enumerating allowed variables) — for a single-operator repository the enumeration adds dispatch friction without changing the trust boundary, since the same operator controls the secret store and the debug key; it can be revisited if the operator set ever grows.
+
 ## Risks / Trade-offs
 
 - [Stale snapshot between enumeration and mutation (TOCTOU widens slightly without intermediate re-lists)] → Mutations remain additive and idempotent; create/add conflicts surface as typed `APPLE_RESOURCE_CONFLICT` and the uncertain-create recovery path still re-lists the affected collection before deciding.
@@ -76,6 +79,8 @@ profile and removes `_validated`'s extra content read. See
 - [Larger in-memory snapshot (profile content ~10–20 KB × M)] → ~300 KB peak; negligible.
 - [Two active changes touch `signing-workflow-orchestration`] → This change only ADDs requirements to that spec and MODIFIES requirements the other change does not touch; archive either change in any order.
 - [Evidence semantics: final snapshot hash after creation is built from merged state rather than a fresh full enumeration] → Merged entries originate from documented server responses (create response or targeted read), which is the same provenance class as enumeration; the manifest continues to record resource IDs and digests.
+
+- [Debug session holds live production credentials (D8): whoever holds the debug private key during an explicitly dispatched debug run can read the P12, ASC key, R2, revalidation, and repository credentials] → Sessions never start unattended (manual dispatch + boolean input), authentication is public-key-only against one reviewed key, the tunnel is ephemeral and torn down with the job, values are never persisted to retained artifacts, and rotating the underlying secrets invalidates anything observed; revisit per-credential scoping if more than one operator ever gains dispatch rights.
 
 ## Migration Plan
 

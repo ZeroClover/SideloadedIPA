@@ -13,6 +13,7 @@ A code audit of the production pipeline found systematic re-acquisition of state
 - The complete independent verifier runs exactly once per artifact per run (the verify stage); the sign stage exposes its artifact after backend-evidence validation, and cache promotion and publication consume the run's canonical verification manifest by digest instead of re-running the verifier.
 - One verification pass derives all findings from one safe extraction of the artifact instead of one extraction per check.
 - Within one run, immutable derived inputs (parsed configuration, prepared signing context, signing plan, backend identity) are computed once and reused; the CI workflow may execute Apple plan and apply as one transaction that records both evidence stages.
+- **BREAKING** (security posture): explicitly requested production SSH debug sessions receive the production credential set as step-scoped environment, replacing the previous credential-free debug contract — a credential-free session cannot exercise live App Store Connect, signing, or publication behavior in the real CI environment. Job-scope secret isolation, per-step credential injection for non-debug steps, credential-free PR-validation debug, and artifact redaction all remain in force.
 - Out of scope (future changes): structural consolidation of overlapping verification layers, slimming `input_manifests`, and replacing the pinned `asc` CLI with direct REST calls.
 
 ## Capabilities
@@ -25,7 +26,7 @@ None.
 
 - `apple-signing-resource-sync`: add a bounded-state-collection requirement; App ID and capability reconciliation decide existence from the transaction snapshot and verify mutations from documented API responses instead of mandatory re-list/re-read.
 - `signed-ipa-verification`: add single-authoritative-pass and single-extraction requirements governing how often and how expensively the complete verifier executes per run.
-- `signing-workflow-orchestration`: cache-hit revalidation relies on prerequisite/digest checks plus the run's single full verification pass rather than an additional complete verifier execution per consuming stage; add combined plan-and-apply evidence and in-run derived-input reuse requirements.
+- `signing-workflow-orchestration`: cache-hit revalidation relies on prerequisite/digest checks plus the run's single full verification pass rather than an additional complete verifier execution per consuming stage; add combined plan-and-apply evidence and in-run derived-input reuse requirements; replace the least-privilege debug-credential requirement with an explicit-request production-credential debug contract (job-scope isolation, PR-debug credential absence, and redaction retained).
 - `multi-bundle-signing`: result-artifact exposure follows backend completion plus backend-evidence validation, with the complete verification remaining the publication/cache-promotion gate within the same run.
 
 ## Impact

@@ -33,7 +33,7 @@
 - [x] 4.3 Deduplicate P12 decoding so identity and material come from one PKCS#12 parse (`src/sideloadedipa/signing/certificate_identity.py:100-130`)
 - [x] 4.4 Memoize `ZsignBackend.identity()` and reuse `plan.backend` during `sign` instead of re-probing (`src/sideloadedipa/adapters/signing/zsign.py:144,186`)
 - [x] 4.5 Thread one parsed `TaskConfiguration` through each command invocation instead of re-parsing per helper (`src/sideloadedipa/pipeline/production.py`, `src/sideloadedipa/apple/commands.py:73`)
-- [x] 4.6 Reuse already-recorded digests at stage boundaries where the value is in hand: sign-stage artifact hash, verify-stage pre-hash, inventory source hash (`src/sideloadedipa/pipeline/stages/signing.py:278`, `src/sideloadedipa/pipeline/stages/verification.py:124`, `src/sideloadedipa/pipeline/package_runner.py:35`)
+- [x] 4.6 Reuse already-recorded digests at stage boundaries where the value is in hand: sign-stage artifact hash, verify-stage pre-hash, inventory source hash (`src/sideloadedipa/pipeline/stages/signing.py`, `src/sideloadedipa/pipeline/stages/verification.py`, `src/sideloadedipa/pipeline/package_runner.py`)
 - [x] 4.7 Record resource-plan evidence from within `sync --apply` and remove the standalone plan invocation from the production workflow, keeping both plan and apply report documents as CI artifacts (`src/sideloadedipa/pipeline/stages/apple.py`, `.github/workflows/sign-and-upload.yml:97-123`)
 - [x] 4.8 Update orchestration tests for combined plan-and-apply evidence and compute-once behavior (`tests/test_production_stage_architecture.py`, `tests/test_apple_command_backend.py`, `tests/test_cli.py`)
 
@@ -43,3 +43,9 @@
 - [x] 5.2 Run `openspec validate reuse-held-state-and-verify-once --strict` and resolve any findings
 - [x] 5.3 Capture production workflow reports before and after rollout and record in this change directory: ASC invocation count (expect ≥85% reduction), verifier executions per task (expect 1), identical plan documents, verification findings, and publication outcome
 - [x] 5.4 Confirm consecutive forced-rebuild and cache-hit production paths both show single-pass verification with unchanged fail-closed results
+
+## 6. Debug session credential policy alignment
+
+- [x] 6.1 Replace the least-privilege debug-credential requirement with the explicit-request production-credential debug contract in the `signing-workflow-orchestration` delta (REMOVED + ADDED), retaining job-scope secret isolation, per-step injection for non-debug steps, credential-free PR-validation debug, and artifact redaction (`openspec/changes/reuse-held-state-and-verify-once/specs/signing-workflow-orchestration/spec.md`)
+- [x] 6.2 Record the decision, retained boundaries, and residual-risk mitigation in `proposal.md` (What Changes, Modified Capabilities) and `design.md` (D8, Risks)
+- [x] 6.3 Re-run `openspec validate reuse-held-state-and-verify-once --strict` and confirm the workflow-toolchain tests already enforce the new contract (`tests/test_workflow_toolchain.py`)
