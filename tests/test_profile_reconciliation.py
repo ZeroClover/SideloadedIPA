@@ -18,6 +18,7 @@ from sideloadedipa.adapters.apple import (
 )
 from sideloadedipa.domain import (
     AppleProfileState,
+    FrozenJsonObject,
     ProfileType,
     ProfileValidationRequest,
     ProvisioningProfile,
@@ -92,6 +93,7 @@ class FakeGateway:
         self.create_error = create_error
         self.create_calls: list[dict[str, object]] = []
         self.download_calls: list[str] = []
+        self.view_calls: list[str] = []
         self.list_calls = 0
 
     def list(self) -> tuple[AppleProfileState, ...]:
@@ -123,6 +125,10 @@ class FakeGateway:
         if self.create_error is not None:
             raise self.create_error
         return resource_id
+
+    def view(self, resource_id: str) -> AppleProfileState:
+        self.view_calls.append(resource_id)
+        return next(profile for profile in self.profiles if profile.resource_id == resource_id)
 
     def download(self, resource_id: str) -> bytes:
         self.download_calls.append(resource_id)
@@ -211,7 +217,7 @@ def test_reuses_supplied_profile_snapshot_without_relisting_account() -> None:
     assert gateway.download_calls == [existing.resource_id]
 
 
-def test_profile_creation_is_the_only_success_path_that_refreshes_snapshot() -> None:
+def test_successful_profile_creation_uses_one_targeted_view_without_relisting() -> None:
     gateway = FakeGateway((), {})
 
     result = ProfileReconciler(gateway, FakeValidator()).ensure(
@@ -222,7 +228,8 @@ def test_profile_creation_is_the_only_success_path_that_refreshes_snapshot() -> 
     assert result.created is True
     assert result.state is not None
     assert result.state.resource_id == "PROFILE_NEW"
-    assert gateway.list_calls == 1
+    assert gateway.list_calls == 0
+    assert gateway.view_calls == ["PROFILE_NEW"]
 
 
 def test_creates_next_standard_name_after_all_existing_profiles_are_stale() -> None:
@@ -271,6 +278,7 @@ def test_recovers_an_accepted_create_after_an_uncertain_response() -> None:
     assert result.state.resource_id == "PROFILE_NEW"
     assert len(gateway.create_calls) == 1
     assert gateway.list_calls == 1
+    assert gateway.view_calls == []
 
 
 def test_blocks_ambiguous_uncertain_create_recovery() -> None:
@@ -377,8 +385,22 @@ def test_blocks_missing_devices_and_mismatched_created_state() -> None:
     assert invariant.value.code is ErrorCode.DOMAIN_INVARIANT
 
     class MismatchedGateway(FakeGateway):
-        def create(self, **kwargs: object) -> str:
-            resource_id = super().create(**kwargs)
+        def create(
+            self,
+            *,
+            name: str,
+            profile_type: ProfileType,
+            bundle_resource_id: str,
+            certificate_resource_id: str,
+            device_resource_ids: tuple[str, ...],
+        ) -> str:
+            resource_id = super().create(
+                name=name,
+                profile_type=profile_type,
+                bundle_resource_id=bundle_resource_id,
+                certificate_resource_id=certificate_resource_id,
+                device_resource_ids=device_resource_ids,
+            )
             self.profiles[-1] = state(
                 resource_id,
                 "Wrong Name",
@@ -414,8 +436,47 @@ class GatewayClient:
         allow_empty: bool = False,
     ) -> AscResponse:
         self.calls.append((args, paginate))
+        document: dict[str, object]
         if args[:2] == ("profiles", "create"):
             document = {"data": {"type": "profiles", "id": "PROFILE_CREATED"}}
+        elif "--include" in args:
+            document = {
+                "data": {
+                    "type": "profiles",
+                    "id": args[args.index("--id") + 1],
+                    "attributes": {
+                        "name": "LiveContainer Dev 3",
+                        "platform": "IOS",
+                        "profileType": "IOS_APP_DEVELOPMENT",
+                        "profileState": "ACTIVE",
+                        "profileContent": self.content,
+                        "uuid": "UUID-PROFILE-CREATED",
+                        "createdDate": "2026-07-21T00:00:00Z",
+                        "expirationDate": "2027-07-21T00:00:00Z",
+                    },
+                    "relationships": {
+                        "bundleId": {
+                            "data": {
+                                "type": "bundleIds",
+                                "id": BUNDLE_RESOURCE_ID,
+                            }
+                        },
+                        "certificates": {
+                            "data": [
+                                {
+                                    "type": "certificates",
+                                    "id": CERTIFICATE_RESOURCE_ID,
+                                }
+                            ]
+                        },
+                        "devices": {
+                            "data": [
+                                {"type": "devices", "id": value} for value in DEVICE_RESOURCE_IDS
+                            ]
+                        },
+                    },
+                }
+            }
         else:
             document = {
                 "data": {
@@ -425,7 +486,7 @@ class GatewayClient:
                 }
             }
         frozen = freeze_json(document)
-        assert not isinstance(frozen, tuple)
+        assert isinstance(frozen, FrozenJsonObject)
         return AscResponse(frozen, ("asc", *args), 0.01)
 
 
@@ -440,9 +501,12 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
         certificate_resource_id=CERTIFICATE_RESOURCE_ID,
         device_resource_ids=DEVICE_RESOURCE_IDS,
     )
+    state_value = gateway.view(resource_id)
     content = gateway.download(resource_id)
 
     assert resource_id == "PROFILE_CREATED"
+    assert state_value.resource_id == resource_id
+    assert state_value.bundle_resource_id == BUNDLE_RESOURCE_ID
     assert content == b"profile"
     assert client.calls == [
         (
@@ -459,6 +523,17 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
                 CERTIFICATE_RESOURCE_ID,
                 "--device",
                 ",".join(DEVICE_RESOURCE_IDS),
+            ),
+            False,
+        ),
+        (
+            (
+                "profiles",
+                "view",
+                "--id",
+                "PROFILE_CREATED",
+                "--include",
+                "bundleId,certificates,devices",
             ),
             False,
         ),
@@ -495,7 +570,7 @@ def test_asc_gateway_rejects_malformed_download_responses(
             allow_empty: bool = False,
         ) -> AscResponse:
             frozen = freeze_json(document) if document is not None else None
-            assert frozen is None or not isinstance(frozen, tuple)
+            assert frozen is None or isinstance(frozen, FrozenJsonObject)
             return AscResponse(frozen, ("asc", *args), 0.01)
 
     with pytest.raises(AdapterError) as caught:

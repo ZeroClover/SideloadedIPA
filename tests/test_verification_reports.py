@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+
+import pytest
 
 from sideloadedipa.domain import (
     BundleNodeKind,
@@ -14,8 +17,12 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
 )
+from sideloadedipa.errors import ConfigurationError
+from sideloadedipa.util.atomics import canonical_json
 from sideloadedipa.verification import (
     build_verification_result,
+    canonical_verification_report_json,
+    parse_verification_report_json,
     required_verification_checks,
     verification_publication_gate,
 )
@@ -172,3 +179,16 @@ def test_gate_rejects_a_result_for_another_plan() -> None:
     result = build_verification_result(plan, "9" * 64, _passing_findings(plan))
 
     assert not verification_publication_gate(replace(plan, plan_sha256="8" * 64), result)
+
+
+def test_canonical_report_round_trips_and_rejects_digest_mismatch() -> None:
+    plan = _plan()
+    result = build_verification_result(plan, "9" * 64, _passing_findings(plan))
+    payload = canonical_verification_report_json(plan, result)
+
+    assert parse_verification_report_json(plan, payload) == result
+
+    document = json.loads(payload)
+    document["artifact_sha256"] = "0" * 64
+    with pytest.raises(ConfigurationError):
+        parse_verification_report_json(plan, canonical_json(document))

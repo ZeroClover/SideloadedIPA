@@ -20,6 +20,7 @@ from sideloadedipa.application import CommandName, CommandResult
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
+    FrozenJsonObject,
     PipelineStage,
     PublicationResult,
     TaskConfiguration,
@@ -110,8 +111,8 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
             replace(context.source, path=PurePosixPath(path.name)),
         )
 
-    def inspect_graph(path, *, task):  # type: ignore[no-untyped-def]
-        del path, task
+    def inspect_graph(path, *, source_sha256, task):  # type: ignore[no-untyped-def]
+        del path, source_sha256, task
         return context.graph
 
     monkeypatch.setattr(pipeline, "_resolve_source_asset", resolve_source)
@@ -122,17 +123,17 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
         lambda *args, **kwargs: PreflightResult(()),
     )
 
-    def apple_plan(selected, deps):  # type: ignore[no-untyped-def]
-        del selected, deps
-        apple_effects.append(PipelineStage.RESOURCE_PLAN)
-        return CommandResult(payload=(("status", "ready"),))
-
     def apple_sync(selected, deps):  # type: ignore[no-untyped-def]
         del selected, deps
+        apple_effects.append(PipelineStage.RESOURCE_PLAN)
         apple_effects.append(PipelineStage.RESOURCE_APPLY)
-        return CommandResult(payload=(("status", "applied"),))
+        return CommandResult(
+            payload=(
+                ("status", "applied"),
+                ("resource_plan", FrozenJsonObject((("status", "ready"),))),
+            )
+        )
 
-    monkeypatch.setattr(production_apple_stage, "apple_plan_command", apple_plan)
     monkeypatch.setattr(production_apple_stage, "apple_sync_command", apple_sync)
 
     @contextmanager
@@ -151,11 +152,6 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
 
     monkeypatch.setattr(
         production_verification_stage,
-        "verify_package_artifact",
-        verify_artifact,
-    )
-    monkeypatch.setattr(
-        production_publication_stage,
         "verify_package_artifact",
         verify_artifact,
     )
@@ -234,18 +230,14 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
         store.load(task.task_name, stage) is None
         for stage in tuple(PipelineStage)[failed_index + 1 :]
     )
-    assert apple_effects == [
-        stage
-        for stage in (PipelineStage.RESOURCE_PLAN, PipelineStage.RESOURCE_APPLY)
-        if tuple(PipelineStage).index(stage) <= failed_index
-    ]
+    assert apple_effects == (
+        [PipelineStage.RESOURCE_PLAN, PipelineStage.RESOURCE_APPLY]
+        if failed_index >= tuple(PipelineStage).index(PipelineStage.RESOURCE_PLAN)
+        else []
+    )
     backend = signing_request.backend
     assert isinstance(backend, CopyBackend)
     assert backend.called is (failed_index >= tuple(PipelineStage).index(PipelineStage.SIGN))
-    expected_verify_calls = 0
-    if failed_index >= tuple(PipelineStage).index(PipelineStage.VERIFY):
-        expected_verify_calls += 1
-    if failed_stage is PipelineStage.PUBLISH:
-        expected_verify_calls += 1
+    expected_verify_calls = int(failed_index >= tuple(PipelineStage).index(PipelineStage.VERIFY))
     assert verify_calls == expected_verify_calls
     assert publish_calls == (1 if failed_stage is PipelineStage.PUBLISH else 0)

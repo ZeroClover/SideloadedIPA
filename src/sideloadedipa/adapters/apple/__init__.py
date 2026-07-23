@@ -27,8 +27,10 @@ from sideloadedipa.adapters.apple.profiles import (
 from sideloadedipa.adapters.apple.state import (
     AppleStateCollector,
     collect_bundle_identifiers,
+    collect_profile,
     collect_profiles,
     decode_bundle_identifier_response,
+    normalized_apple_state,
 )
 
 __all__ = [
@@ -49,9 +51,11 @@ __all__ = [
     "bundle_id_requirement",
     "capability_requirement",
     "collect_bundle_identifiers",
+    "collect_profile",
     "collect_profiles",
     "decode_bundle_identifier_response",
     "exact_bundle_id_matches",
     "exact_capability_matches",
     "next_profile_name",
+    "normalized_apple_state",
 ]

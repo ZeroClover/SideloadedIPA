@@ -208,16 +208,18 @@ def verify_package_artifact(
     return result
 
 
-def execute_package_signing(request: PackageSigningRequest) -> PlannedSigningExecution:
-    """Build, execute, and independently verify one package signing plan."""
+def execute_package_signing(
+    request: PackageSigningRequest,
+    plan: SigningPlan | None = None,
+) -> PlannedSigningExecution:
+    """Build and execute one package signing plan after backend-evidence validation."""
 
-    plan = plan_package_signing(request)
+    signing_plan = plan_package_signing(request) if plan is None else plan
     execution = execute_signing_plan(
-        plan=plan,
+        plan=signing_plan,
         source_ipa=request.source_ipa,
         destination_ipa=request.destination_ipa,
         certificate=request.certificate,
         backend=request.backend,
-        verifier=request.verifier,
     )
-    return PlannedSigningExecution(plan, execution)
+    return PlannedSigningExecution(signing_plan, execution)

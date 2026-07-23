@@ -16,6 +16,7 @@ from sideloadedipa.apple.commands import AscAppleCommandBackend
 from sideloadedipa.apple.intents import BundleResourceIntent
 from sideloadedipa.domain import (
     AppleBundleIdentifierState,
+    AppleCapabilityState,
     AppleDeviceState,
     AppleStateSnapshot,
     CertificateIdentity,
@@ -223,19 +224,27 @@ def test_backend_composes_and_delegates_apple_gateways(monkeypatch: pytest.Monke
     calls: list[tuple[str, object]] = []
 
     class Bundles:
-        def ensure(self, *, identifier: str, name: str) -> AppleBundleIdentifierState:
-            calls.append(("bundle", (identifier, name)))
+        def ensure(
+            self,
+            *,
+            identifier: str,
+            name: str,
+            bundle_ids: tuple[AppleBundleIdentifierState, ...],
+        ) -> AppleBundleIdentifierState:
+            calls.append(("bundle", (identifier, name, bundle_ids)))
             return bundle()
 
     class Capabilities:
-        def ensure(self, **values: object) -> None:
+        def ensure(self, **values: object) -> AppleCapabilityState:
             calls.append(("capability", values))
+            return AppleCapabilityState("CAP_ONE", "BUNDLE_ONE", "APP_GROUPS")
 
     class Collector:
         def __init__(self, value: object) -> None:
             assert value is client
 
-        def collect(self) -> AppleStateSnapshot:
+        def collect(self, **values: object) -> AppleStateSnapshot:
+            assert not any(value is not None for value in values.values())
             return snapshot()
 
     monkeypatch.setattr(backend_module, "AscBundleIdGateway", lambda value: ("bundles", value))
@@ -250,17 +259,22 @@ def test_backend_composes_and_delegates_apple_gateways(monkeypatch: pytest.Monke
     concrete = backend_module.AscAppleCommandBackend(client)
 
     assert concrete.collect() == snapshot()
-    assert concrete.ensure_bundle(intent()) == bundle()
-    concrete.ensure_capability(bundle=bundle(), capability_type="APP_GROUPS")
+    assert concrete.ensure_bundle(intent(), bundle_ids=(bundle(),)) == bundle()
+    concrete.ensure_capability(
+        bundle=bundle(),
+        capability_type="APP_GROUPS",
+        capabilities=(),
+    )
     assert concrete.profiles == ("profiles", client)
     assert calls == [
-        ("bundle", ("io.example.app", "Example")),
+        ("bundle", ("io.example.app", "Example", (bundle(),))),
         (
             "capability",
             {
                 "bundle_resource_id": "BUNDLE_ONE",
                 "bundle_id": "io.example.app",
                 "capability_type": "APP_GROUPS",
+                "capabilities": (),
             },
         ),
     ]

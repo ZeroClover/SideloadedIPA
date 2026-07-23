@@ -112,7 +112,10 @@ class CopyBackend:
 
 @dataclass
 class PassingVerifier:
+    calls: int = 0
+
     def verify(self, plan: SigningPlan, signed_ipa: Path) -> VerificationResult:
+        self.calls += 1
         findings = tuple(
             VerificationFinding(path, check.replace("*", "arm64"), True)
             for path, check in required_verification_checks(plan)
@@ -218,7 +221,12 @@ def test_current_root_only_tasks_run_through_package_planner_and_executor(
 
     assert len(result.plan.nodes) == 1
     assert result.plan.nodes[0].target_bundle_id == task.bundle_id
-    assert result.execution.verification.passed
+    assert (
+        result.execution.signing.output_sha256
+        == hashlib.sha256(request.destination_ipa.read_bytes()).hexdigest()
+    )
+    assert isinstance(request.verifier, PassingVerifier)
+    assert request.verifier.calls == 0
     with zipfile.ZipFile(request.destination_ipa) as archive:
         document = plistlib.loads(archive.read("Payload/Upstream.app/Info.plist"))
     assert document["CFBundleIdentifier"] == task.bundle_id
@@ -240,6 +248,8 @@ def test_reconstructs_plan_and_verifies_existing_artifact_without_backend(
     assert reconstructed == execution.plan
     assert verification.passed
     assert backend.called is False
+    assert isinstance(request.verifier, PassingVerifier)
+    assert request.verifier.calls == 1
 
 
 def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) -> None:
@@ -265,7 +275,13 @@ def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) ->
     )
 
     assert request.expected_entitlements[0].values == fixture.profiles[0].entitlements
-    assert execute_package_signing(request).execution.verification.passed
+    execution = execute_package_signing(request)
+    assert (
+        execution.execution.signing.output_sha256
+        == hashlib.sha256(request.destination_ipa.read_bytes()).hexdigest()
+    )
+    assert isinstance(request.verifier, PassingVerifier)
+    assert request.verifier.calls == 0
 
 
 def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> None:

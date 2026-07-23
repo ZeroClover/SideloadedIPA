@@ -126,12 +126,16 @@ def test_collects_sorted_redacted_snapshot_from_one_read_session() -> None:
         (("devices", "list", "--platform", "IOS", "--status", "ENABLED"), True),
         (("profiles", "list", "--profile-type", "IOS_APP_DEVELOPMENT"), True),
         (
-            ("profiles", "view", "--id", "PROFILE_ONE"),
+            (
+                "profiles",
+                "view",
+                "--id",
+                "PROFILE_ONE",
+                "--include",
+                "bundleId,certificates,devices",
+            ),
             False,
         ),
-        (("profiles", "links", "bundle-id", "--id", "PROFILE_ONE"), False),
-        (("profiles", "links", "certificates", "--id", "PROFILE_ONE"), True),
-        (("profiles", "links", "devices", "--id", "PROFILE_ONE"), True),
     ]
 
 
@@ -150,15 +154,35 @@ def test_snapshot_digest_is_independent_of_api_list_order() -> None:
     assert first == second
 
 
-def test_reuses_normalized_profiles_without_profile_api_calls() -> None:
+def test_reuses_all_normalized_slices_without_additional_api_calls() -> None:
     client = FixtureClient(fixture())
     initial = AppleStateCollector(client).collect()
     client.calls.clear()
 
-    refreshed = AppleStateCollector(client).collect(profiles=initial.profiles)
+    refreshed = AppleStateCollector(client).collect(
+        bundle_ids=tuple(reversed(initial.bundle_ids)),
+        capabilities=tuple(reversed(initial.capabilities)),
+        certificates=tuple(reversed(initial.certificates)),
+        devices=tuple(reversed(initial.devices)),
+        profiles=tuple(reversed(initial.profiles)),
+    )
 
     assert refreshed == initial
-    assert not any(args[0] == "profiles" for args, _ in client.calls)
+    assert client.calls == []
+
+
+def test_scopes_capability_enumeration_to_managed_bundle_identifiers() -> None:
+    client = FixtureClient(fixture())
+
+    snapshot = AppleStateCollector(client).collect(
+        managed_bundle_identifiers=("IO.EXAMPLE.APP.CHILD",),
+    )
+
+    capability_calls = [
+        args for args, _ in client.calls if args[:3] == ("bundle-ids", "capabilities", "list")
+    ]
+    assert capability_calls == [("bundle-ids", "capabilities", "list", "--bundle", "BUNDLE_CHILD")]
+    assert snapshot.capabilities == ()
 
 
 def test_normalizes_paginated_null_data_as_an_empty_list() -> None:

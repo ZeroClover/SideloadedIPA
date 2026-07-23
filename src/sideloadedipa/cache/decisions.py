@@ -28,7 +28,7 @@ class TaskCacheRecord:
     fingerprint_schema_version: int
     fingerprint_sha256: str
     artifact_sha256: str
-    verification_report_sha256: str
+    verification_report_sha256: str | None
     signing_report_sha256: str
 
 
@@ -120,17 +120,27 @@ def parse_cache_index_json(payload: bytes) -> CacheIndex:
         )
         if not isinstance(index.schema_version, int) or not isinstance(index.index_sha256, str):
             raise TypeError
-        if any(
-            not isinstance(field, str) or not field
-            for record in records
-            for field in (
-                record.task_name,
-                record.fingerprint_sha256,
-                record.artifact_sha256,
-                record.verification_report_sha256,
-                record.signing_report_sha256,
+        if (
+            any(
+                not isinstance(field, str) or not field
+                for record in records
+                for field in (
+                    record.task_name,
+                    record.fingerprint_sha256,
+                    record.artifact_sha256,
+                    record.signing_report_sha256,
+                )
             )
-        ) or any(not isinstance(record.fingerprint_schema_version, int) for record in records):
+            or any(
+                record.verification_report_sha256 is not None
+                and (
+                    not isinstance(record.verification_report_sha256, str)
+                    or not record.verification_report_sha256
+                )
+                for record in records
+            )
+            or any(not isinstance(record.fingerprint_schema_version, int) for record in records)
+        ):
             raise TypeError
         canonical_cache_index_json(index)
     except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -170,6 +180,8 @@ def select_rebuilds(
             reason = RebuildReason.SCHEMA_CHANGED
         elif record is None:
             reason = RebuildReason.FIRST_RUN
+        elif record.verification_report_sha256 is None:
+            reason = RebuildReason.CACHE_REJECTED
         elif record.fingerprint_sha256 != fingerprint.sha256:
             reason = RebuildReason.FINGERPRINT_CHANGED
         else:

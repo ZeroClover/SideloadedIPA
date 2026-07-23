@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import plistlib
 import struct
+import tempfile
 import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -29,7 +30,7 @@ from sideloadedipa.domain import (
     VerificationFinding,
     normalize_entitlements,
 )
-from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.verification import required_verification_checks
 from sideloadedipa.verification import signatures as signature_module
 from sideloadedipa.verification import verify_signed_signatures
@@ -331,14 +332,15 @@ def assembled_verifier(
 ) -> PackageVerifier:
     def inspect_entitlements(
         selected: SigningPlan,
-        artifact: Path,
+        signed_root: Path,
+        artifact_sha256: str,
         *,
         inspector: object | None = None,
     ) -> SignedArtifactEntitlementEvidence:
-        del inspector
+        del inspector, signed_root
         return SignedArtifactEntitlementEvidence(
             selected.plan_sha256,
-            file_sha256(artifact),
+            artifact_sha256,
             (),
         )
 
@@ -369,10 +371,22 @@ def assembled_verifier(
     )
 
 
+def verify_artifact_signatures(
+    plan: SigningPlan,
+    artifact: Path,
+    tmp_path: Path,
+) -> tuple[VerificationFinding, ...]:
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
+        extracted = Path(directory) / "signed"
+        extract_ipa_safely(artifact, extracted)
+        return verify_signed_signatures(plan, extracted)
+
+
 def test_verifies_every_planned_executable_and_parent_seal(tmp_path: Path) -> None:
     key, cert, digest = certificate()
+    artifact = signed_ipa(tmp_path, key, cert)
 
-    findings = verify_signed_signatures(signing_plan(digest), signed_ipa(tmp_path, key, cert))
+    findings = verify_artifact_signatures(signing_plan(digest), artifact, tmp_path)
 
     assert [(finding.node_path, finding.check, finding.passed) for finding in findings] == [
         (
@@ -391,7 +405,8 @@ def test_assembled_production_verifier_accepts_genuine_signatures_and_rejects_ta
     key, cert, digest = certificate()
     plan = signing_plan(digest)
     source = tmp_path / "source.ipa"
-    source.write_bytes(b"source evidence")
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("Payload/Source.app/marker", b"source evidence")
     verifier = assembled_verifier(plan, source, datetime.now(timezone.utc))
 
     genuine = signed_ipa(tmp_path, key, cert)
@@ -410,9 +425,11 @@ def test_assembled_production_verifier_accepts_genuine_signatures_and_rejects_ta
 def test_nested_tamper_fails_both_child_signature_and_parent_seal(tmp_path: Path) -> None:
     key, cert, digest = certificate()
 
-    findings = verify_signed_signatures(
+    artifact = signed_ipa(tmp_path, key, cert, tamper_nested=True)
+    findings = verify_artifact_signatures(
         signing_plan(digest),
-        signed_ipa(tmp_path, key, cert, tamper_nested=True),
+        artifact,
+        tmp_path,
     )
 
     failed = {(finding.node_path, finding.check) for finding in findings if not finding.passed}
@@ -428,15 +445,19 @@ def test_nested_tamper_fails_both_child_signature_and_parent_seal(tmp_path: Path
 def test_rejects_unintended_identity_ad_hoc_and_unsealed_content(tmp_path: Path) -> None:
     key, cert, digest = certificate()
     _, _, other_digest = certificate()
-    identity_findings = verify_signed_signatures(
-        signing_plan(other_digest), signed_ipa(tmp_path, key, cert)
+    identity_findings = verify_artifact_signatures(
+        signing_plan(other_digest),
+        signed_ipa(tmp_path, key, cert),
+        tmp_path,
     )
     assert all(
         not finding.passed for finding in identity_findings if finding.check == "code-signature"
     )
 
-    adhoc_findings = verify_signed_signatures(
-        signing_plan(digest), signed_ipa(tmp_path, key, cert, adhoc_root=True)
+    adhoc_findings = verify_artifact_signatures(
+        signing_plan(digest),
+        signed_ipa(tmp_path, key, cert, adhoc_root=True),
+        tmp_path,
     )
     root_signature = next(
         finding
@@ -447,8 +468,10 @@ def test_rejects_unintended_identity_ad_hoc_and_unsealed_content(tmp_path: Path)
     assert not root_signature.passed
     assert "ad-hoc" in root_signature.diagnostics[0].message
 
-    unsealed_findings = verify_signed_signatures(
-        signing_plan(digest), signed_ipa(tmp_path, key, cert, extra_resource=True)
+    unsealed_findings = verify_artifact_signatures(
+        signing_plan(digest),
+        signed_ipa(tmp_path, key, cert, extra_resource=True),
+        tmp_path,
     )
     seal = next(finding for finding in unsealed_findings if finding.check == "nested-resource-seal")
     assert not seal.passed
@@ -466,7 +489,11 @@ def test_rejects_code_directory_identifier_drift(tmp_path: Path) -> None:
         ),
     )
 
-    findings = verify_signed_signatures(plan, signed_ipa(tmp_path, key, cert))
+    findings = verify_artifact_signatures(
+        plan,
+        signed_ipa(tmp_path, key, cert),
+        tmp_path,
+    )
 
     root_signature = next(
         finding

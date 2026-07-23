@@ -190,40 +190,46 @@ def _content_sha256(value: object, field: str) -> str | None:
     return hashlib.sha256(decoded).hexdigest()
 
 
-def _linkage_ids(
-    response: AscResponse,
+def _relationship_ids(
+    resource: Mapping[str, object],
     field: str,
+    relationship_name: str,
     expected_type: str,
     *,
     many: bool,
 ) -> tuple[str, ...]:
-    document = _response_mapping(response, field)
-    data = document.get("data")
+    relationships = _mapping(resource.get("relationships"), f"{field}.relationships")
+    relationship = _mapping(
+        relationships.get(relationship_name),
+        f"{field}.relationships.{relationship_name}",
+    )
+    data = relationship.get("data")
     values: list[object]
     if many:
         if data is None:
             return ()
         if not isinstance(data, list):
             raise _invalid(
-                f"{field}.data must be an array",
-                f"{field}.data",
+                f"{field}.relationships.{relationship_name}.data must be an array",
+                f"{field}.relationships.{relationship_name}.data",
             )
         values = data
     else:
         values = [data]
     identifiers = []
     for index, value in enumerate(values):
-        linkage = _mapping(value, f"{field}.data[{index}]")
-        resource_type = _string(linkage.get("type"), f"{field}.data[{index}].type")
+        linkage_field = f"{field}.relationships.{relationship_name}.data[{index}]"
+        linkage = _mapping(value, linkage_field)
+        resource_type = _string(linkage.get("type"), f"{linkage_field}.type")
         if resource_type != expected_type:
             raise _invalid(
-                f"{field}.data[{index}].type must be {expected_type}",
-                f"{field}.data[{index}].type",
+                f"{linkage_field}.type must be {expected_type}",
+                f"{linkage_field}.type",
             )
         identifiers.append(
             _string(
                 linkage.get("id"),
-                f"{field}.data[{index}].id",
+                f"{linkage_field}.id",
             )
         )
     return tuple(sorted(identifiers))
@@ -248,6 +254,89 @@ def _snapshot_document(snapshot: AppleStateSnapshot) -> dict[str, object]:
     }
 
 
+def decode_profile_response(
+    response: AscResponse,
+    *,
+    expected_resource_id: str | None = None,
+    field: str = "profile",
+) -> AppleProfileState:
+    """Decode one included profile response from the pinned ASC contract."""
+
+    document = _response_mapping(response, field)
+    resource = _mapping(document.get("data"), f"{field}.data")
+    resource_id, attributes = _resource(resource, f"{field}.data", "profiles")
+    if expected_resource_id is not None and resource_id != expected_resource_id:
+        raise _invalid("profile detail ID differs from requested ID", f"{field}.data.id")
+    bundle_ids = _relationship_ids(
+        resource,
+        f"{field}.data",
+        "bundleId",
+        "bundleIds",
+        many=False,
+    )
+    if len(bundle_ids) != 1:
+        raise _invalid(
+            "profile must link to exactly one bundle ID",
+            f"{field}.data.relationships.bundleId.data",
+        )
+    certificate_ids = _relationship_ids(
+        resource,
+        f"{field}.data",
+        "certificates",
+        "certificates",
+        many=True,
+    )
+    device_ids = _relationship_ids(
+        resource,
+        f"{field}.data",
+        "devices",
+        "devices",
+        many=True,
+    )
+    return AppleProfileState(
+        resource_id=resource_id,
+        name=_string(attributes.get("name"), f"{field}.data.attributes.name"),
+        platform=_optional_string(attributes.get("platform"), f"{field}.data.attributes.platform"),
+        profile_type=_string(attributes.get("profileType"), f"{field}.data.attributes.profileType"),
+        profile_state=_optional_string(
+            attributes.get("profileState"), f"{field}.data.attributes.profileState"
+        ),
+        uuid=_optional_string(attributes.get("uuid"), f"{field}.data.attributes.uuid"),
+        created_date=_optional_string(
+            attributes.get("createdDate"), f"{field}.data.attributes.createdDate"
+        ),
+        expiration_date=_optional_string(
+            attributes.get("expirationDate"),
+            f"{field}.data.attributes.expirationDate",
+        ),
+        profile_sha256=_content_sha256(
+            attributes.get("profileContent"),
+            f"{field}.data.attributes.profileContent",
+        ),
+        bundle_resource_id=bundle_ids[0],
+        certificate_resource_ids=certificate_ids,
+        device_resource_ids=device_ids,
+    )
+
+
+def collect_profile(client: AscStateReader, resource_id: str) -> AppleProfileState:
+    """Read one profile with attributes and relationship linkages inline."""
+
+    return decode_profile_response(
+        client.run_json(
+            (
+                "profiles",
+                "view",
+                "--id",
+                resource_id,
+                "--include",
+                "bundleId,certificates,devices",
+            )
+        ),
+        expected_resource_id=resource_id,
+    )
+
+
 def collect_profiles(client: AscStateReader) -> tuple[AppleProfileState, ...]:
     """Collect normalized iOS development profiles and their exact relationships."""
 
@@ -261,74 +350,53 @@ def collect_profiles(client: AscStateReader) -> tuple[AppleProfileState, ...]:
     values = []
     for index, summary in enumerate(resources):
         profile_id, _ = _resource(summary, f"profiles.data[{index}]", "profiles")
-        detail_document = _response_mapping(
-            client.run_json(("profiles", "view", "--id", profile_id)),
-            "profile",
-        )
-        detail = _mapping(detail_document.get("data"), "profile.data")
-        detail_id, attributes = _resource(detail, "profile.data", "profiles")
-        if detail_id != profile_id:
-            raise _invalid("profile detail ID differs from list ID", "profile.data.id")
-        bundle_ids = _linkage_ids(
-            client.run_json(("profiles", "links", "bundle-id", "--id", profile_id)),
-            "profile_bundle_id",
-            "bundleIds",
-            many=False,
-        )
-        if len(bundle_ids) != 1:
-            raise _invalid(
-                "profile must link to exactly one bundle ID",
-                "profile_bundle_id.data",
-            )
-        certificate_ids = _linkage_ids(
-            client.run_json(
-                ("profiles", "links", "certificates", "--id", profile_id),
-                paginate=True,
-            ),
-            "profile_certificates",
-            "certificates",
-            many=True,
-        )
-        device_ids = _linkage_ids(
-            client.run_json(
-                ("profiles", "links", "devices", "--id", profile_id),
-                paginate=True,
-            ),
-            "profile_devices",
-            "devices",
-            many=True,
-        )
-        values.append(
-            AppleProfileState(
-                resource_id=profile_id,
-                name=_string(attributes.get("name"), "profile.data.attributes.name"),
-                platform=_optional_string(
-                    attributes.get("platform"), "profile.data.attributes.platform"
-                ),
-                profile_type=_string(
-                    attributes.get("profileType"), "profile.data.attributes.profileType"
-                ),
-                profile_state=_optional_string(
-                    attributes.get("profileState"), "profile.data.attributes.profileState"
-                ),
-                uuid=_optional_string(attributes.get("uuid"), "profile.data.attributes.uuid"),
-                created_date=_optional_string(
-                    attributes.get("createdDate"), "profile.data.attributes.createdDate"
-                ),
-                expiration_date=_optional_string(
-                    attributes.get("expirationDate"),
-                    "profile.data.attributes.expirationDate",
-                ),
-                profile_sha256=_content_sha256(
-                    attributes.get("profileContent"),
-                    "profile.data.attributes.profileContent",
-                ),
-                bundle_resource_id=bundle_ids[0],
-                certificate_resource_ids=certificate_ids,
-                device_resource_ids=device_ids,
-            )
-        )
+        values.append(collect_profile(client, profile_id))
     return tuple(sorted(values, key=lambda value: value.resource_id))
+
+
+def normalized_apple_state(
+    *,
+    bundle_ids: tuple[AppleBundleIdentifierState, ...],
+    capabilities: tuple[AppleCapabilityState, ...],
+    certificates: tuple[AppleCertificateState, ...],
+    devices: tuple[AppleDeviceState, ...],
+    profiles: tuple[AppleProfileState, ...],
+) -> AppleStateSnapshot:
+    """Sort held slices consistently and bind the resulting snapshot by digest."""
+
+    snapshot = AppleStateSnapshot(
+        snapshot_sha256="",
+        bundle_ids=tuple(
+            sorted(
+                bundle_ids,
+                key=lambda value: (value.identifier.casefold(), value.resource_id),
+            )
+        ),
+        capabilities=tuple(
+            sorted(
+                capabilities,
+                key=lambda value: (
+                    value.bundle_resource_id,
+                    value.capability_type,
+                    value.resource_id,
+                ),
+            )
+        ),
+        certificates=tuple(sorted(certificates, key=lambda value: value.resource_id)),
+        devices=tuple(sorted(devices, key=lambda value: value.resource_id)),
+        profiles=tuple(sorted(profiles, key=lambda value: value.resource_id)),
+    )
+    digest = hashlib.sha256(
+        json.dumps(_snapshot_document(snapshot), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return AppleStateSnapshot(
+        snapshot_sha256=digest,
+        bundle_ids=snapshot.bundle_ids,
+        capabilities=snapshot.capabilities,
+        certificates=snapshot.certificates,
+        devices=snapshot.devices,
+        profiles=snapshot.profiles,
+    )
 
 
 class AppleStateCollector:
@@ -339,10 +407,19 @@ class AppleStateCollector:
         return collect_bundle_identifiers(self.client)
 
     def _capabilities(
-        self, bundle_ids: tuple[AppleBundleIdentifierState, ...]
+        self,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...],
+        managed_bundle_identifiers: tuple[str, ...] | None,
     ) -> tuple[AppleCapabilityState, ...]:
+        managed = (
+            None
+            if managed_bundle_identifiers is None
+            else {identifier.casefold() for identifier in managed_bundle_identifiers}
+        )
         values: list[AppleCapabilityState] = []
         for bundle in bundle_ids:
+            if managed is not None and bundle.identifier.casefold() not in managed:
+                continue
             values.extend(collect_capabilities(self.client, bundle.resource_id))
         return tuple(
             sorted(
@@ -445,35 +522,24 @@ class AppleStateCollector:
     def collect(
         self,
         *,
+        managed_bundle_identifiers: tuple[str, ...] | None = None,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+        capabilities: tuple[AppleCapabilityState, ...] | None = None,
+        certificates: tuple[AppleCertificateState, ...] | None = None,
+        devices: tuple[AppleDeviceState, ...] | None = None,
         profiles: tuple[AppleProfileState, ...] | None = None,
     ) -> AppleStateSnapshot:
         """Read and normalize one complete signing-resource snapshot."""
 
-        bundle_ids = self._bundle_ids()
-        capabilities = self._capabilities(bundle_ids)
-        certificates = self._certificates()
-        devices = self._devices()
-        profile_values = (
-            self._profiles()
-            if profiles is None
-            else tuple(sorted(profiles, key=lambda value: value.resource_id))
-        )
-        snapshot = AppleStateSnapshot(
-            snapshot_sha256="",
-            bundle_ids=bundle_ids,
-            capabilities=capabilities,
-            certificates=certificates,
-            devices=devices,
-            profiles=profile_values,
-        )
-        digest = hashlib.sha256(
-            json.dumps(_snapshot_document(snapshot), sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        return AppleStateSnapshot(
-            snapshot_sha256=digest,
-            bundle_ids=snapshot.bundle_ids,
-            capabilities=snapshot.capabilities,
-            certificates=snapshot.certificates,
-            devices=snapshot.devices,
-            profiles=snapshot.profiles,
+        bundle_values = self._bundle_ids() if bundle_ids is None else bundle_ids
+        return normalized_apple_state(
+            bundle_ids=bundle_values,
+            capabilities=(
+                self._capabilities(bundle_values, managed_bundle_identifiers)
+                if capabilities is None
+                else capabilities
+            ),
+            certificates=self._certificates() if certificates is None else certificates,
+            devices=self._devices() if devices is None else devices,
+            profiles=self._profiles() if profiles is None else profiles,
         )

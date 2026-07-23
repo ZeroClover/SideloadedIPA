@@ -12,21 +12,16 @@ from sideloadedipa.domain import (
     CertificateMaterial,
     SigningPlan,
     SigningResult,
-    VerificationResult,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.archive import extract_ipa_safely
-from sideloadedipa.ports import SigningBackend, Verifier
+from sideloadedipa.ports import SigningBackend
 from sideloadedipa.signing.bundle_transform import (
     BundleIdentifierRewrite,
     rewrite_bundle_identifiers,
 )
 from sideloadedipa.util.atomics import file_sha256
 from sideloadedipa.util.workspace import task_workspace
-from sideloadedipa.verification.report import (
-    verification_publication_gate,
-    verification_report_sha256,
-)
 
 _ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 _COPY_BUFFER_BYTES = 1024 * 1024
@@ -35,7 +30,6 @@ _COPY_BUFFER_BYTES = 1024 * 1024
 @dataclass(frozen=True, slots=True)
 class SigningExecutionResult:
     signing: SigningResult
-    verification: VerificationResult
     rewrites: tuple[BundleIdentifierRewrite, ...]
 
 
@@ -116,6 +110,41 @@ def _validate_backend_result(
         mismatches.append(("backend_output_path", result.output_path.as_posix()))
     if result.output_sha256 != actual_sha256:
         mismatches.append(("backend_output_sha256", result.output_sha256))
+    planned_nodes = {node.source_path: node for node in plan.nodes}
+    result_nodes = {node.source_path: node for node in result.nodes}
+    if len(result_nodes) != len(result.nodes) or set(result_nodes) != set(planned_nodes):
+        mismatches.append(
+            (
+                "backend_node_paths",
+                ",".join(sorted(path.as_posix() for path in result_nodes)),
+            )
+        )
+    else:
+        for path, node in result_nodes.items():
+            planned = planned_nodes[path]
+            if len(node.signed_executable_sha256) != 64 or any(
+                character not in "0123456789abcdef" for character in node.signed_executable_sha256
+            ):
+                mismatches.append(
+                    (
+                        f"backend_node_executable_sha256:{path.as_posix()}",
+                        node.signed_executable_sha256,
+                    )
+                )
+            if node.embedded_profile_sha256 != planned.profile_sha256:
+                mismatches.append(
+                    (
+                        f"backend_node_profile_sha256:{path.as_posix()}",
+                        node.embedded_profile_sha256 or "",
+                    )
+                )
+            if node.signed_entitlements_sha256 != planned.expected_entitlements_sha256:
+                mismatches.append(
+                    (
+                        f"backend_node_entitlements_sha256:{path.as_posix()}",
+                        node.signed_entitlements_sha256,
+                    )
+                )
     if mismatches:
         raise _execution_error(
             plan,
@@ -125,43 +154,6 @@ def _validate_backend_result(
     return actual_sha256
 
 
-def _validate_verification_result(
-    plan: SigningPlan,
-    result: VerificationResult,
-    artifact_sha256: str,
-) -> None:
-    mismatches: list[tuple[str, str]] = []
-    publication_allowed = verification_publication_gate(plan, result)
-    if not publication_allowed or result.passed != publication_allowed:
-        mismatches.append(("verification_passed", "false"))
-    if result.plan_sha256 != plan.plan_sha256:
-        mismatches.append(("verification_plan_sha256", result.plan_sha256))
-    if result.artifact_sha256 != artifact_sha256:
-        mismatches.append(("verification_artifact_sha256", result.artifact_sha256))
-    if result.report_sha256 != verification_report_sha256(plan, result):
-        mismatches.append(("verification_report_sha256", result.report_sha256))
-    failed_checks = tuple(
-        f"{finding.node_path}:{finding.check}" for finding in result.findings if not finding.passed
-    )
-    if failed_checks:
-        mismatches.append(("failed_checks", ",".join(failed_checks[:20])))
-    failed_diagnostics = tuple(
-        f"{finding.node_path}:{finding.check}:{diagnostic.code}:"
-        f"{dict(diagnostic.details).get('path', dict(diagnostic.details).get('reason', '$'))}"
-        for finding in result.findings
-        if not finding.passed
-        for diagnostic in finding.diagnostics
-    )
-    if failed_diagnostics:
-        mismatches.append(("failed_diagnostics", ",".join(failed_diagnostics[:20])))
-    if mismatches:
-        raise _execution_error(
-            plan,
-            "signed IPA did not pass independent verification",
-            details=tuple(mismatches),
-        )
-
-
 def execute_signing_plan(
     *,
     plan: SigningPlan,
@@ -169,9 +161,8 @@ def execute_signing_plan(
     destination_ipa: Path,
     certificate: CertificateMaterial,
     backend: SigningBackend,
-    verifier: Verifier,
 ) -> SigningExecutionResult:
-    """Sign an isolated copy and atomically expose it only after verification."""
+    """Sign an isolated copy and expose it after backend-evidence validation."""
 
     if source_ipa.resolve() == destination_ipa.resolve():
         raise _execution_error(plan, "source and destination IPA paths must be different")
@@ -193,13 +184,11 @@ def execute_signing_plan(
             package_workspace_ipa(workspace.extracted, prepared_ipa)
 
             signing = backend.sign(plan, prepared_ipa, workspace.output_ipa, certificate)
-            artifact_sha256 = _validate_backend_result(plan, signing, workspace.output_ipa)
-            verification = verifier.verify(plan, workspace.output_ipa)
-            _validate_verification_result(plan, verification, artifact_sha256)
+            _validate_backend_result(plan, signing, workspace.output_ipa)
 
             workspace.output_ipa.replace(destination_ipa)
             promoted = replace(signing, output_path=PurePosixPath(destination_ipa.name))
-            return SigningExecutionResult(promoted, verification, rewrites)
+            return SigningExecutionResult(promoted, rewrites)
     finally:
         if remove_workspace_base:
             try:

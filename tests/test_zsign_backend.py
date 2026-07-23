@@ -171,10 +171,22 @@ def backend(tmp_path: Path, executable_path: Path) -> ZsignBackend:
 
 def test_signs_with_adjacent_profile_entitlement_pairs_and_redacted_argv(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     executable_path = executable(tmp_path)
     adapter = backend(tmp_path, executable_path)
+    original_run = adapter.runner.run
+    version_calls = 0
+
+    def run(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal version_calls
+        if list(args[0])[1:] == ["-v"]:
+            version_calls += 1
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(adapter.runner, "run", run)
     identity = adapter.identity()
+    assert adapter.identity() is identity
     signing_plan = plan(tmp_path / "profiles", identity)
     signing_plan = replace(signing_plan, nodes=tuple(reversed(signing_plan.nodes)))
     source = tmp_path / "source with spaces.ipa"
@@ -212,6 +224,7 @@ def test_signs_with_adjacent_profile_entitlement_pairs_and_redacted_argv(
     assert str(output) not in rendered
     assert str(certificate(tmp_path).private_key_path) not in rendered
     assert "***" in rendered
+    assert version_calls == 1
 
 
 def test_collects_actual_evidence_for_every_planned_node(tmp_path: Path, monkeypatch) -> None:

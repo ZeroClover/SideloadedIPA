@@ -94,21 +94,7 @@ jobs:
           uv run sideloadedipa inspect --run-id "$GITHUB_RUN_ID" --json \
             > "$RUNNER_TEMP/sideloadedipa-reports/01-inspect.json"
 
-      - name: Apple plan - read-only
-        env:
-          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
-          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
-          ASC_BYPASS_KEYCHAIN: "1"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          uv run sideloadedipa plan --run-id "$GITHUB_RUN_ID" --json \
-            > "$RUNNER_TEMP/sideloadedipa-reports/02-apple-plan.json"
-
-      - name: Apple apply - sync package profiles
+      - name: Apple plan and apply - sync package profiles
         env:
           APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
           APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
@@ -121,6 +107,9 @@ jobs:
           set -euo pipefail
           uv run sideloadedipa sync --apply --run-id "$GITHUB_RUN_ID" --json \
             > "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json"
+          jq -e -S '.resource_plan | select(type == "object")' \
+            "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json" \
+            > "$RUNNER_TEMP/sideloadedipa-reports/02-apple-plan.json"
 
       - name: Sign selected tasks
         id: package-signing
@@ -209,5 +198,24 @@ jobs:
       - name: "Debug: Start SSH session"
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.debug == true }}
         uses: ./.github/actions/ssh-debug
+        env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
+          APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}
+          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_BYPASS_KEYCHAIN: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}
+          WEBHOOK_URL: ${{ secrets.Instatus_Webhook_URL }}
         with:
           public-key: ${{ secrets.DEBUG_SSH_PUBLIC_KEY }}

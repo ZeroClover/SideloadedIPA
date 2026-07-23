@@ -17,19 +17,15 @@ from sideloadedipa.domain import (
     BundleNodeKind,
     CertificateIdentity,
     CertificateMaterial,
-    Diagnostic,
-    DiagnosticSeverity,
     SigningBackendIdentity,
     SigningNodePlan,
+    SigningNodeResult,
     SigningPlan,
     SigningResult,
-    VerificationFinding,
-    VerificationResult,
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.executor import execute_signing_plan, package_workspace_ipa
-from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 
 def sha256(path: Path) -> str:
@@ -112,7 +108,16 @@ class CopyingBackend:
             PurePosixPath(output.name),
             sha256(output),
             plan.backend,
-            (),
+            tuple(
+                SigningNodeResult(
+                    node.source_path,
+                    sha256(output),
+                    node.profile_sha256,
+                    node.expected_entitlements_sha256,
+                    0.0,
+                )
+                for node in plan.nodes
+            ),
             0.1,
         )
 
@@ -136,7 +141,16 @@ class ContractBreakingBackend:
             PurePosixPath(output.name),
             sha256(output) if output.exists() else "0" * 64,
             plan.backend,
-            (),
+            tuple(
+                SigningNodeResult(
+                    node.source_path,
+                    sha256(output) if output.exists() else "0" * 64,
+                    node.profile_sha256,
+                    node.expected_entitlements_sha256,
+                    0.0,
+                )
+                for node in plan.nodes
+            ),
             0.1,
         )
         if self.mismatch == "plan":
@@ -147,51 +161,30 @@ class ContractBreakingBackend:
             return replace(result, output_path=PurePosixPath("wrong.ipa"))
         if self.mismatch == "digest":
             return replace(result, output_sha256="0" * 64)
+        if self.mismatch == "nodes":
+            return replace(result, nodes=())
+        if self.mismatch == "node-digest":
+            return replace(
+                result,
+                nodes=(
+                    replace(
+                        result.nodes[0],
+                        signed_entitlements_sha256="0" * 64,
+                    ),
+                ),
+            )
         return result
 
 
-@dataclass
-class InspectingVerifier:
-    destination: Path
-    prior_content: bytes
-    passed: bool = True
-    wrong_digest: bool = False
-    called: bool = False
-
-    def verify(self, plan: SigningPlan, signed_ipa: Path) -> VerificationResult:
-        self.called = True
-        assert self.destination.read_bytes() == self.prior_content
-        artifact_sha256 = "0" * 64 if self.wrong_digest else sha256(signed_ipa)
-        findings = tuple(
-            VerificationFinding(
-                path,
-                check.replace("*", "arm64"),
-                self.passed,
-                diagnostics=(
-                    ()
-                    if self.passed
-                    else (
-                        Diagnostic(
-                            "verification.failed",
-                            DiagnosticSeverity.ERROR,
-                            "fixture failure",
-                        ),
-                    )
-                ),
-            )
-            for path, check in required_verification_checks(plan)
-        )
-        return build_verification_result(plan, artifact_sha256, findings)
-
-
-def test_signs_copy_rewrites_identifier_and_promotes_after_verification(tmp_path: Path) -> None:
+def test_signs_copy_rewrites_identifier_and_promotes_after_backend_evidence(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "downloaded.ipa"
     destination = tmp_path / "result.ipa"
     source_ipa(source)
     original = source.read_bytes()
     destination.write_bytes(b"previous verified artifact")
     backend = CopyingBackend()
-    verifier = InspectingVerifier(destination, destination.read_bytes())
 
     result = execute_signing_plan(
         plan=plan_for(source),
@@ -199,12 +192,10 @@ def test_signs_copy_rewrites_identifier_and_promotes_after_verification(tmp_path
         destination_ipa=destination,
         certificate=certificate(tmp_path),
         backend=backend,
-        verifier=verifier,
     )
 
     assert source.read_bytes() == original
     assert backend.seen_source is not None and backend.seen_source != source
-    assert verifier.called
     assert result.signing.output_path == PurePosixPath(destination.name)
     assert result.signing.output_sha256 == sha256(destination)
     assert result.rewrites[0].source_bundle_id == "com.example.source"
@@ -216,46 +207,27 @@ def test_signs_copy_rewrites_identifier_and_promotes_after_verification(tmp_path
     assert not (tmp_path / ".sideloadedipa-signing").exists()
 
 
-@pytest.mark.parametrize("failure", ["backend", "verification", "digest"])
-def test_failure_preserves_source_and_previous_artifact(tmp_path: Path, failure: str) -> None:
+def test_backend_failure_preserves_source_and_previous_artifact(tmp_path: Path) -> None:
     source = tmp_path / "downloaded.ipa"
     destination = tmp_path / "result.ipa"
     source_ipa(source)
     original = source.read_bytes()
     previous = b"previous verified artifact"
     destination.write_bytes(previous)
-    backend = CopyingBackend(fail=failure == "backend")
-    verifier = InspectingVerifier(
-        destination,
-        previous,
-        passed=failure != "verification",
-        wrong_digest=failure == "digest",
-    )
+    backend = CopyingBackend(fail=True)
 
-    expected_error = RuntimeError if failure == "backend" else DomainError
-    with pytest.raises(expected_error) as caught:
+    with pytest.raises(RuntimeError):
         execute_signing_plan(
             plan=plan_for(source),
             source_ipa=source,
             destination_ipa=destination,
             certificate=certificate(tmp_path),
             backend=backend,
-            verifier=verifier,
         )
 
     assert source.read_bytes() == original
     assert destination.read_bytes() == previous
-    assert verifier.called is (failure != "backend")
     assert not (tmp_path / ".sideloadedipa-signing").exists()
-    if failure == "verification":
-        assert isinstance(caught.value, DomainError)
-        details = dict(caught.value.safe_details)
-        failed_checks = details["failed_checks"]
-        assert "Payload/Example.app:bundle-identifier" in failed_checks
-        assert (
-            "Payload/Example.app:bundle-identifier:verification.failed:$"
-            in details["failed_diagnostics"]
-        )
 
 
 def test_rejects_source_digest_mismatch_before_creating_workspace(tmp_path: Path) -> None:
@@ -271,7 +243,6 @@ def test_rejects_source_digest_mismatch_before_creating_workspace(tmp_path: Path
             destination_ipa=tmp_path / "result.ipa",
             certificate=certificate(tmp_path),
             backend=CopyingBackend(),
-            verifier=InspectingVerifier(tmp_path / "result.ipa", b""),
         )
 
     assert caught.value.code is ErrorCode.SIGNING_VERIFICATION_FAILED
@@ -293,7 +264,18 @@ def test_packaging_is_deterministic(tmp_path: Path) -> None:
     assert first.read_bytes() == second.read_bytes()
 
 
-@pytest.mark.parametrize("mismatch", ["output-missing", "plan", "backend", "path", "digest"])
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "output-missing",
+        "plan",
+        "backend",
+        "path",
+        "digest",
+        "nodes",
+        "node-digest",
+    ],
+)
 def test_rejects_backend_result_contract_mismatches(tmp_path: Path, mismatch: str) -> None:
     source = tmp_path / "downloaded.ipa"
     destination = tmp_path / "result.ipa"
@@ -308,7 +290,6 @@ def test_rejects_backend_result_contract_mismatches(tmp_path: Path, mismatch: st
             destination_ipa=destination,
             certificate=certificate(tmp_path),
             backend=ContractBreakingBackend(mismatch),
-            verifier=InspectingVerifier(destination, previous),
         )
 
     assert caught.value.code is ErrorCode.SIGNING_VERIFICATION_FAILED
@@ -327,7 +308,6 @@ def test_rejects_identical_source_and_destination(tmp_path: Path) -> None:
             destination_ipa=source,
             certificate=certificate(tmp_path),
             backend=CopyingBackend(),
-            verifier=InspectingVerifier(source, source.read_bytes()),
         )
 
 

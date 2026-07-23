@@ -16,10 +16,8 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
 )
-from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.ipa.graph import MachOProbe, discover_bundle_structure
 from sideloadedipa.util.atomics import file_sha256
-from sideloadedipa.util.workspace import task_workspace
 
 _BUNDLE_KINDS = {BundleNodeKind.APP, BundleNodeKind.APP_EXTENSION, BundleNodeKind.FRAMEWORK}
 
@@ -150,112 +148,93 @@ def _protected_info(root: Path, nodes: tuple[BundleNode, ...]) -> dict[str, str]
 
 def verify_output_integrity(
     plan: SigningPlan,
-    source_ipa: Path,
-    signed_ipa: Path,
+    source_root: Path,
+    output_root: Path,
+    source_sha256: str,
+    output_sha256: str,
     *,
     macho_probe: MachOProbe | None = None,
 ) -> tuple[VerificationFinding, ...]:
     """Compare signed output structure and protected content with its exact source and plan."""
 
-    workspace_base = signed_ipa.parent / ".sideloadedipa-integrity-verification"
-    remove_workspace_base = not workspace_base.exists()
-    try:
-        with task_workspace(workspace_base, plan.task_name) as workspace:
-            source_root = workspace.root / "source"
-            output_root = workspace.root / "output"
-            extract_ipa_safely(source_ipa, source_root)
-            extract_ipa_safely(signed_ipa, output_root)
-            source_nodes = discover_bundle_structure(source_root, macho_probe=macho_probe)
-            output_nodes = discover_bundle_structure(output_root, macho_probe=macho_probe)
-            root = source_nodes[0].path
+    source_nodes = discover_bundle_structure(source_root, macho_probe=macho_probe)
+    output_nodes = discover_bundle_structure(output_root, macho_probe=macho_probe)
+    root = source_nodes[0].path
 
-            source_sha256 = file_sha256(source_ipa)
-            output_sha256 = file_sha256(signed_ipa)
-            findings = [
-                _finding(
-                    plan,
-                    root,
-                    "source-artifact",
-                    plan.source_ipa_sha256,
-                    source_sha256,
-                    message="verification source does not match the signing plan",
-                ),
-                VerificationFinding(
-                    root,
-                    "safe-output-archive",
-                    True,
-                    output_sha256,
-                    output_sha256,
-                ),
-            ]
+    findings = [
+        _finding(
+            plan,
+            root,
+            "source-artifact",
+            plan.source_ipa_sha256,
+            source_sha256,
+            message="verification source does not match the signing plan",
+        ),
+        VerificationFinding(
+            root,
+            "safe-output-archive",
+            True,
+            output_sha256,
+            output_sha256,
+        ),
+    ]
 
-            source_structure = _structure_document(source_nodes)
-            output_structure = _structure_document(output_nodes)
-            plan_structure = _plan_structure(plan)
-            source_plan_structure = [
-                {key: value for key, value in item.items() if key != "parent"}
-                for item in source_structure
-            ]
-            findings.extend(
-                (
-                    _finding(
-                        plan,
-                        root,
-                        "source-plan-node-set",
-                        _canonical_sha256(plan_structure),
-                        _canonical_sha256(source_plan_structure),
-                        message="source executable inventory does not match the signing plan",
-                    ),
-                    _finding(
-                        plan,
-                        root,
-                        "output-graph-parity",
-                        _canonical_sha256(source_structure),
-                        _canonical_sha256(output_structure),
-                        message="signed output graph differs from the inspected source graph",
-                    ),
-                    _finding(
-                        plan,
-                        root,
-                        "planned-identifiers",
-                        _canonical_sha256(_expected_identifiers(plan)),
-                        _canonical_sha256(_identifiers(plan, output_nodes)),
-                        message="signed bundle identifiers do not match the signing plan",
-                    ),
-                    _finding(
-                        plan,
-                        root,
-                        "executable-set",
-                        _canonical_sha256(
-                            sorted(node.executable_path.as_posix() for node in plan.nodes)
-                        ),
-                        _canonical_sha256(
-                            sorted(node.executable_path.as_posix() for node in output_nodes)
-                        ),
-                        message="signed output contains a missing or unplanned executable",
-                    ),
-                    _finding(
-                        plan,
-                        root,
-                        "protected-info-plists",
-                        _canonical_sha256(_protected_info(source_root, source_nodes)),
-                        _canonical_sha256(_protected_info(output_root, source_nodes)),
-                        message="a non-identifier Info.plist value changed during signing",
-                    ),
-                    _finding(
-                        plan,
-                        root,
-                        "protected-payload",
-                        _canonical_sha256(_protected_files(source_root, source_nodes)),
-                        _canonical_sha256(_protected_files(output_root, source_nodes)),
-                        message="non-signing payload content changed during signing",
-                    ),
-                )
-            )
-            return tuple(findings)
-    finally:
-        if remove_workspace_base:
-            try:
-                workspace_base.rmdir()
-            except OSError:
-                pass
+    source_structure = _structure_document(source_nodes)
+    output_structure = _structure_document(output_nodes)
+    plan_structure = _plan_structure(plan)
+    source_plan_structure = [
+        {key: value for key, value in item.items() if key != "parent"} for item in source_structure
+    ]
+    findings.extend(
+        (
+            _finding(
+                plan,
+                root,
+                "source-plan-node-set",
+                _canonical_sha256(plan_structure),
+                _canonical_sha256(source_plan_structure),
+                message="source executable inventory does not match the signing plan",
+            ),
+            _finding(
+                plan,
+                root,
+                "output-graph-parity",
+                _canonical_sha256(source_structure),
+                _canonical_sha256(output_structure),
+                message="signed output graph differs from the inspected source graph",
+            ),
+            _finding(
+                plan,
+                root,
+                "planned-identifiers",
+                _canonical_sha256(_expected_identifiers(plan)),
+                _canonical_sha256(_identifiers(plan, output_nodes)),
+                message="signed bundle identifiers do not match the signing plan",
+            ),
+            _finding(
+                plan,
+                root,
+                "executable-set",
+                _canonical_sha256(sorted(node.executable_path.as_posix() for node in plan.nodes)),
+                _canonical_sha256(sorted(node.executable_path.as_posix() for node in output_nodes)),
+                message="signed output contains a missing or unplanned executable",
+            ),
+            _finding(
+                plan,
+                root,
+                "protected-info-plists",
+                _canonical_sha256(_protected_info(source_root, source_nodes)),
+                _canonical_sha256(_protected_info(output_root, source_nodes)),
+                message="a non-identifier Info.plist value changed during signing",
+            ),
+            _finding(
+                plan,
+                root,
+                "protected-payload",
+                _canonical_sha256(_protected_files(source_root, source_nodes)),
+                _canonical_sha256(_protected_files(output_root, source_nodes)),
+                message="non-signing payload content changed during signing",
+            ),
+        )
+    )
+    return tuple(findings)

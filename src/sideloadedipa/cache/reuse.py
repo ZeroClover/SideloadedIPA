@@ -12,15 +12,9 @@ from sideloadedipa.domain import (
     DiagnosticSeverity,
     ProvisioningProfile,
     SigningPlan,
-    VerificationResult,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.ports import Verifier
 from sideloadedipa.util.atomics import file_sha256
-from sideloadedipa.verification import (
-    verification_publication_gate,
-    verification_report_sha256,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,9 +83,8 @@ def revalidate_cached_artifact(
     profiles: tuple[ProvisioningProfile, ...],
     now: datetime,
     refresh_threshold: timedelta,
-    verifier: Verifier,
-) -> VerificationResult:
-    """Recheck current prerequisites and reopen a cached IPA through the full verifier."""
+) -> str:
+    """Recheck current prerequisites and bind a cached IPA to its cache digest."""
 
     if cache_record.task_name != plan.task_name:
         raise _reject(plan, "cache record belongs to another task")
@@ -108,15 +101,4 @@ def revalidate_cached_artifact(
     artifact_sha256 = file_sha256(artifact)
     if artifact_sha256 != cache_record.artifact_sha256:
         raise _reject(plan, "cached artifact digest differs from its cache record")
-
-    result = verifier.verify(plan, artifact)
-    if (
-        result.artifact_sha256 != artifact_sha256
-        or result.plan_sha256 != plan.plan_sha256
-        or not verification_publication_gate(plan, result)
-        or result.passed is not True
-        or result.report_sha256 != verification_report_sha256(plan, result)
-        or result.report_sha256 != cache_record.verification_report_sha256
-    ):
-        raise _reject(plan, "cached artifact did not pass current full verification")
-    return result
+    return artifact_sha256

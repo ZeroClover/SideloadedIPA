@@ -10,14 +10,19 @@ from sideloadedipa.apple.intents import derive_bundle_resource_intents
 from sideloadedipa.application import CommandRequest, CommandResult
 from sideloadedipa.domain.capabilities import capability_rule
 from sideloadedipa.domain.pipeline import PipelineStage, PublicationResult, VerificationResult
-from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.domain.signing import SigningPlan
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.pipeline.run_reports import RunReport, TaskRunEvidence, write_run_report
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import PreparedContext, SourceContext
 from sideloadedipa.pipeline.stages.results import command_result
 from sideloadedipa.pipeline.stages.signing import PreparedFactory, SigningStage
 from sideloadedipa.signing.service import verify_package_artifact
-from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.atomics import atomic_write_bytes
+from sideloadedipa.verification import (
+    canonical_verification_report_json,
+    parse_verification_report_json,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +30,25 @@ class VerificationStage:
     signing: SigningStage
     evidence: StageEvidence
     report_root: Path
+
+    def verification_report_path(self, request: CommandRequest, task_name: str) -> Path:
+        return self.evidence.store(request.run_id).task_root(task_name) / "verification-report.json"
+
+    def load_verification(
+        self,
+        request: CommandRequest,
+        plan: SigningPlan,
+    ) -> VerificationResult:
+        path = self.verification_report_path(request, plan.task_name)
+        try:
+            return parse_verification_report_json(plan, path.read_bytes())
+        except OSError as error:
+            raise ConfigurationError(
+                ErrorCode.CONFIG_MISSING,
+                "canonical verification report is missing",
+                task_name=plan.task_name,
+                remediation="rerun the verification stage for this run ID",
+            ) from error
 
     def write_report(
         self,
@@ -121,18 +145,22 @@ class VerificationStage:
                         "reconstructed signing plan differs from the sign stage",
                         task_name=task_name,
                     )
-                if signing.result_sha256 != file_sha256(value.request.destination_ipa):
-                    raise DomainError(
-                        ErrorCode.SIGNING_VERIFICATION_FAILED,
-                        "signed artifact changed before standalone verification",
-                        task_name=task_name,
-                    )
                 verification = verify_package_artifact(
                     value.request,
                     plan,
                     value.request.destination_ipa,
                 )
+                if signing.result_sha256 != verification.artifact_sha256:
+                    raise DomainError(
+                        ErrorCode.SIGNING_VERIFICATION_FAILED,
+                        "signed artifact changed before standalone verification",
+                        task_name=task_name,
+                    )
                 verifications[task_name] = verification
+                atomic_write_bytes(
+                    self.verification_report_path(request, task_name),
+                    canonical_verification_report_json(plan, verification),
+                )
                 self.evidence.record_success(
                     store,
                     task_name,
@@ -141,6 +169,7 @@ class VerificationStage:
                     signing,
                     started_at=stage_started_at,
                 )
+            self.signing.record_verifications(request, verifications)
             if not request.publish:
                 self.signing.promote_cache(request)
             report = self.write_report(request, prepared, verifications)

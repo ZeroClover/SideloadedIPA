@@ -26,6 +26,9 @@ from sideloadedipa.apple.intents import BundleResourceIntent
 from sideloadedipa.apple.state_probe import certificate_identity_from_environment
 from sideloadedipa.domain import (
     AppleBundleIdentifierState,
+    AppleCapabilityState,
+    AppleCertificateState,
+    AppleDeviceState,
     AppleProfileState,
     AppleStateSnapshot,
     CertificateIdentity,
@@ -45,19 +48,30 @@ class AppleCommandBackend(Protocol):
     def collect(
         self,
         *,
+        managed_bundle_identifiers: tuple[str, ...] | None = None,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+        capabilities: tuple[AppleCapabilityState, ...] | None = None,
+        certificates: tuple[AppleCertificateState, ...] | None = None,
+        devices: tuple[AppleDeviceState, ...] | None = None,
         profiles: tuple[AppleProfileState, ...] | None = None,
     ) -> AppleStateSnapshot: ...
 
     def resolve_certificate(self, snapshot: AppleStateSnapshot) -> CertificateIdentity: ...
 
-    def ensure_bundle(self, intent: BundleResourceIntent) -> AppleBundleIdentifierState: ...
+    def ensure_bundle(
+        self,
+        intent: BundleResourceIntent,
+        *,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...],
+    ) -> AppleBundleIdentifierState: ...
 
     def ensure_capability(
         self,
         *,
         bundle: AppleBundleIdentifierState,
         capability_type: str,
-    ) -> None: ...
+        capabilities: tuple[AppleCapabilityState, ...],
+    ) -> AppleCapabilityState: ...
 
     def ensure_profile(
         self,
@@ -82,12 +96,21 @@ class AscAppleCommandBackend:
     def collect(
         self,
         *,
+        managed_bundle_identifiers: tuple[str, ...] | None = None,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+        capabilities: tuple[AppleCapabilityState, ...] | None = None,
+        certificates: tuple[AppleCertificateState, ...] | None = None,
+        devices: tuple[AppleDeviceState, ...] | None = None,
         profiles: tuple[AppleProfileState, ...] | None = None,
     ) -> AppleStateSnapshot:
-        collector = AppleStateCollector(self.client)
-        if profiles is None:
-            return collector.collect()
-        return collector.collect(profiles=profiles)
+        return AppleStateCollector(self.client).collect(
+            managed_bundle_identifiers=managed_bundle_identifiers,
+            bundle_ids=bundle_ids,
+            capabilities=capabilities,
+            certificates=certificates,
+            devices=devices,
+            profiles=profiles,
+        )
 
     def resolve_certificate(self, snapshot: AppleStateSnapshot) -> CertificateIdentity:
         identity = certificate_identity_from_environment(snapshot)
@@ -101,10 +124,16 @@ class AscAppleCommandBackend:
             )
         return identity
 
-    def ensure_bundle(self, intent: BundleResourceIntent) -> AppleBundleIdentifierState:
+    def ensure_bundle(
+        self,
+        intent: BundleResourceIntent,
+        *,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...],
+    ) -> AppleBundleIdentifierState:
         return self.bundle_ids.ensure(
             identifier=intent.target_bundle_id,
             name=intent.display_name,
+            bundle_ids=bundle_ids,
         )
 
     def ensure_capability(
@@ -112,11 +141,13 @@ class AscAppleCommandBackend:
         *,
         bundle: AppleBundleIdentifierState,
         capability_type: str,
-    ) -> None:
-        self.capabilities.ensure(
+        capabilities: tuple[AppleCapabilityState, ...],
+    ) -> AppleCapabilityState:
+        return self.capabilities.ensure(
             bundle_resource_id=bundle.resource_id,
             bundle_id=bundle.identifier,
             capability_type=capability_type,
+            capabilities=capabilities,
         )
 
     def ensure_profile(

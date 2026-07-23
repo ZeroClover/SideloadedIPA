@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.domain.bundle import BundleGraph
 from sideloadedipa.domain.config import Task
 from sideloadedipa.domain.pipeline import SourceAsset
+from sideloadedipa.domain.signing import SigningPlan
 from sideloadedipa.pipeline.inspection import ResolvedSource
 from sideloadedipa.signing.service import PackageSigningRequest, plan_package_signing
 from sideloadedipa.sources.download import DownloadedSource
@@ -32,7 +33,12 @@ class PreparedContext:
     source: SourceContext
     request: PackageSigningRequest
     fingerprint: SigningCacheFingerprint
+    _plan: SigningPlan | None = field(default=None, repr=False, compare=False)
 
     @property
-    def plan(self):  # type: ignore[no-untyped-def]
-        return plan_package_signing(self.request)
+    def plan(self) -> SigningPlan:
+        plan = self._plan
+        if plan is None:
+            plan = plan_package_signing(self.request)
+            object.__setattr__(self, "_plan", plan)
+        return plan

@@ -18,6 +18,8 @@ from sideloadedipa.verification.integrity import verify_output_integrity
 from sideloadedipa.verification.report import (
     VERIFICATION_REPORT_SCHEMA_VERSION,
     build_verification_result,
+    canonical_verification_report_json,
+    parse_verification_report_json,
     required_verification_checks,
     verification_publication_gate,
     verification_report_sha256,
@@ -37,7 +39,9 @@ __all__ = [
     "compare_entitlements",
     "VERIFICATION_REPORT_SCHEMA_VERSION",
     "build_verification_result",
+    "canonical_verification_report_json",
     "inspect_signed_entitlements",
+    "parse_verification_report_json",
     "verify_output_integrity",
     "verify_signed_signatures",
     "verify_three_way_entitlements",

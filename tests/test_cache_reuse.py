@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
@@ -20,12 +20,9 @@ from sideloadedipa.domain import (
     SigningBackendIdentity,
     SigningNodePlan,
     SigningPlan,
-    VerificationFinding,
-    VerificationResult,
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 ROOT = PurePosixPath("Payload/App.app")
@@ -77,54 +74,23 @@ def profile() -> ProvisioningProfile:
 
 
 def cache_record(artifact: Path) -> TaskCacheRecord:
-    signing_plan = plan()
-    verification = build_verification_result(
-        signing_plan,
-        hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        passing_findings(signing_plan),
-    )
     return TaskCacheRecord(
         "Example",
         1,
         "0" * 64,
         hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        verification.report_sha256,
+        "9" * 64,
         "1" * 64,
     )
-
-
-def passing_findings(signing_plan: SigningPlan) -> tuple[VerificationFinding, ...]:
-    return tuple(
-        VerificationFinding(path, check.replace("*", "arm64"), True)
-        for path, check in required_verification_checks(signing_plan)
-    )
-
-
-@dataclass
-class RecordingVerifier:
-    called: bool = False
-    fail: bool = False
-
-    def verify(self, signing_plan: SigningPlan, signed_ipa: Path) -> VerificationResult:
-        self.called = True
-        findings = passing_findings(signing_plan)
-        if self.fail:
-            findings = (*findings, VerificationFinding(ROOT, "oracle", False))
-        return build_verification_result(
-            signing_plan,
-            hashlib.sha256(signed_ipa.read_bytes()).hexdigest(),
-            findings,
-        )
 
 
 def ready() -> CachePrerequisiteState:
     return CachePrerequisiteState(True, "2" * 64)
 
 
-def test_cache_hit_reopens_artifact_through_full_verifier(tmp_path: Path) -> None:
+def test_cache_hit_checks_current_prerequisites_and_artifact_digest(tmp_path: Path) -> None:
     artifact = tmp_path / "cached.ipa"
     artifact.write_bytes(b"cached signed ipa")
-    verifier = RecordingVerifier()
 
     result = revalidate_cached_artifact(
         plan=plan(),
@@ -134,11 +100,9 @@ def test_cache_hit_reopens_artifact_through_full_verifier(tmp_path: Path) -> Non
         profiles=(profile(),),
         now=NOW,
         refresh_threshold=timedelta(days=30),
-        verifier=verifier,
     )
 
-    assert verifier.called
-    assert result.passed
+    assert result == hashlib.sha256(artifact.read_bytes()).hexdigest()
 
 
 @pytest.mark.parametrize("failure", ["prerequisite", "profile", "artifact"])
@@ -164,8 +128,6 @@ def test_current_preconditions_block_before_verifier(tmp_path: Path, failure: st
         current_profile = replace(current_profile, expires_at=NOW + timedelta(days=7))
     else:
         artifact.write_bytes(b"tampered")
-    verifier = RecordingVerifier()
-
     with pytest.raises(DomainError) as caught:
         revalidate_cached_artifact(
             plan=plan(),
@@ -175,31 +137,29 @@ def test_current_preconditions_block_before_verifier(tmp_path: Path, failure: st
             profiles=(current_profile,),
             now=NOW,
             refresh_threshold=timedelta(days=30),
-            verifier=verifier,
         )
 
     assert caught.value.code is ErrorCode.CACHE_REUSE_INVALID
-    assert not verifier.called
 
 
-def test_failed_current_verification_rejects_cache_hit(tmp_path: Path) -> None:
+def test_previous_verification_digest_is_not_reused_as_the_current_gate(
+    tmp_path: Path,
+) -> None:
     artifact = tmp_path / "cached.ipa"
     artifact.write_bytes(b"cached signed ipa")
-    verifier = RecordingVerifier(fail=True)
+    record = replace(cache_record(artifact), verification_report_sha256="0" * 64)
 
-    with pytest.raises(DomainError, match="full verification"):
-        revalidate_cached_artifact(
-            plan=plan(),
-            cache_record=cache_record(artifact),
-            artifact=artifact,
-            prerequisites=ready(),
-            profiles=(profile(),),
-            now=NOW,
-            refresh_threshold=timedelta(days=30),
-            verifier=verifier,
-        )
+    result = revalidate_cached_artifact(
+        plan=plan(),
+        cache_record=record,
+        artifact=artifact,
+        prerequisites=ready(),
+        profiles=(profile(),),
+        now=NOW,
+        refresh_threshold=timedelta(days=30),
+    )
 
-    assert verifier.called
+    assert result == record.artifact_sha256
 
 
 @pytest.mark.parametrize("failure", ["record-task", "profile-set", "profile-identity"])
@@ -214,8 +174,6 @@ def test_cache_and_profile_identity_must_match_plan(tmp_path: Path, failure: str
         current_profiles = ()
     else:
         current_profiles = (replace(profile(), profile_sha256="0" * 64),)
-    verifier = RecordingVerifier()
-
     with pytest.raises(DomainError):
         revalidate_cached_artifact(
             plan=plan(),
@@ -225,7 +183,4 @@ def test_cache_and_profile_identity_must_match_plan(tmp_path: Path, failure: str
             profiles=current_profiles,
             now=NOW,
             refresh_threshold=timedelta(days=30),
-            verifier=verifier,
         )
-
-    assert not verifier.called

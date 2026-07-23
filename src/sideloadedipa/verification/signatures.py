@@ -27,9 +27,7 @@ from sideloadedipa.domain import (
     VerificationFinding,
 )
 from sideloadedipa.errors import AdapterError
-from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.util.subprocesses import SubprocessRunner
-from sideloadedipa.util.workspace import task_workspace
 
 _SUPERBLOB_MAGIC = 0xFADE0CC0
 _CODE_DIRECTORY_MAGIC = 0xFADE0C02
@@ -460,82 +458,68 @@ def _failure(
 
 def verify_signed_signatures(
     plan: SigningPlan,
-    signed_ipa: Path,
+    signed_root: Path,
     *,
     runner: SubprocessRunner | None = None,
 ) -> tuple[VerificationFinding, ...]:
     """Verify every planned Mach-O signature and every directory bundle resource seal."""
 
     command_runner = runner or SubprocessRunner(default_timeout_seconds=30)
-    workspace_base = signed_ipa.parent / ".sideloadedipa-signature-verification"
-    remove_workspace_base = not workspace_base.exists()
-    try:
-        with task_workspace(workspace_base, plan.task_name) as workspace:
-            extract_ipa_safely(signed_ipa, workspace.extracted)
-            findings: list[VerificationFinding] = []
-            for node in plan.nodes:
-                executable = workspace.extracted.joinpath(*node.executable_path.parts)
-                bundle = _bundle_for_node(workspace.extracted, node)
-                try:
-                    with tempfile.TemporaryDirectory(
-                        prefix="cms-", dir=workspace.root
-                    ) as temporary:
-                        slices = _verify_executable(
-                            executable,
-                            bundle,
-                            expected_certificate_sha256=plan.certificate_sha256,
-                            expected_identifier=node.target_bundle_id,
-                            runner=command_runner,
-                            temporary_root=Path(temporary),
-                        )
-                    evidence_digest = hashlib.sha256(
-                        b"".join(
-                            item.code_directory_sha256.encode()
-                            + item.signer_certificate_sha256.encode()
-                            for item in slices
-                        )
-                    ).hexdigest()
-                    findings.append(
-                        VerificationFinding(
-                            node.source_path,
-                            "code-signature",
-                            bool(slices),
-                            plan.certificate_sha256,
-                            evidence_digest,
-                        )
-                    )
-                except (OSError, ValueError, RuntimeError, struct.error, PyAsn1Error) as error:
-                    findings.append(
-                        _failure(plan, node, "code-signature", str(error) or type(error).__name__)
-                    )
-                    continue
+    findings: list[VerificationFinding] = []
+    for node in plan.nodes:
+        executable = signed_root.joinpath(*node.executable_path.parts)
+        bundle = _bundle_for_node(signed_root, node)
+        try:
+            with tempfile.TemporaryDirectory(prefix="sideloadedipa-cms-") as temporary:
+                slices = _verify_executable(
+                    executable,
+                    bundle,
+                    expected_certificate_sha256=plan.certificate_sha256,
+                    expected_identifier=node.target_bundle_id,
+                    runner=command_runner,
+                    temporary_root=Path(temporary),
+                )
+            evidence_digest = hashlib.sha256(
+                b"".join(
+                    item.code_directory_sha256.encode() + item.signer_certificate_sha256.encode()
+                    for item in slices
+                )
+            ).hexdigest()
+            findings.append(
+                VerificationFinding(
+                    node.source_path,
+                    "code-signature",
+                    bool(slices),
+                    plan.certificate_sha256,
+                    evidence_digest,
+                )
+            )
+        except (OSError, ValueError, RuntimeError, struct.error, PyAsn1Error) as error:
+            findings.append(
+                _failure(plan, node, "code-signature", str(error) or type(error).__name__)
+            )
+            continue
 
-                if bundle is None:
-                    continue
-                try:
-                    seal_sha256 = _verify_resource_seal(bundle, executable)
-                    findings.append(
-                        VerificationFinding(
-                            node.source_path,
-                            "nested-resource-seal",
-                            True,
-                            seal_sha256,
-                            seal_sha256,
-                        )
-                    )
-                except (OSError, ValueError, plistlib.InvalidFileException) as error:
-                    findings.append(
-                        _failure(
-                            plan,
-                            node,
-                            "nested-resource-seal",
-                            str(error) or type(error).__name__,
-                        )
-                    )
-            return tuple(findings)
-    finally:
-        if remove_workspace_base:
-            try:
-                workspace_base.rmdir()
-            except OSError:
-                pass
+        if bundle is None:
+            continue
+        try:
+            seal_sha256 = _verify_resource_seal(bundle, executable)
+            findings.append(
+                VerificationFinding(
+                    node.source_path,
+                    "nested-resource-seal",
+                    True,
+                    seal_sha256,
+                    seal_sha256,
+                )
+            )
+        except (OSError, ValueError, plistlib.InvalidFileException) as error:
+            findings.append(
+                _failure(
+                    plan,
+                    node,
+                    "nested-resource-seal",
+                    str(error) or type(error).__name__,
+                )
+            )
+    return tuple(findings)

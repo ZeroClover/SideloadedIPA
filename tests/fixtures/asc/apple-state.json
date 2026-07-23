@@ -100,6 +100,17 @@
           "uuid": "UUID_REDACTED",
           "createdDate": "2026-07-21T00:00:00Z",
           "expirationDate": "2027-07-21T00:00:00Z"
+        },
+        "relationships": {
+          "bundleId": {
+            "data": {"type": "bundleIds", "id": "BUNDLE_ROOT"}
+          },
+          "certificates": {
+            "data": [{"type": "certificates", "id": "CERTIFICATE_ONE"}]
+          },
+          "devices": {
+            "data": [{"type": "devices", "id": "DEVICE_ONE"}]
+          }
         }
       }
     }

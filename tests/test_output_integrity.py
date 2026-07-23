@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import plistlib
+import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -18,6 +19,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.verification import verify_output_integrity
 
 
@@ -148,7 +150,19 @@ def plan(source_ipa: Path) -> SigningPlan:
 def verify(tmp_path: Path, files: dict[str, bytes]) -> tuple[VerificationFinding, ...]:
     source = archive(tmp_path / "source.ipa", source_files())
     output = archive(tmp_path / "output.ipa", files)
-    return verify_output_integrity(plan(source), source, output, macho_probe=MarkerMachOProbe())
+    with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
+        source_root = Path(directory) / "source"
+        output_root = Path(directory) / "output"
+        extract_ipa_safely(source, source_root)
+        extract_ipa_safely(output, output_root)
+        return verify_output_integrity(
+            plan(source),
+            source_root,
+            output_root,
+            hashlib.sha256(source.read_bytes()).hexdigest(),
+            hashlib.sha256(output.read_bytes()).hexdigest(),
+            macho_probe=MarkerMachOProbe(),
+        )
 
 
 def finding(findings: tuple[VerificationFinding, ...], check: str) -> VerificationFinding:
@@ -211,11 +225,22 @@ def test_rejects_wrong_source_and_malformed_output_archive(tmp_path: Path) -> No
         wrong_plan.nodes,
         wrong_plan.plan_sha256,
     )
-    findings = verify_output_integrity(wrong_plan, source, output, macho_probe=MarkerMachOProbe())
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    extract_ipa_safely(source, source_root)
+    extract_ipa_safely(output, output_root)
+    findings = verify_output_integrity(
+        wrong_plan,
+        source_root,
+        output_root,
+        hashlib.sha256(source.read_bytes()).hexdigest(),
+        hashlib.sha256(output.read_bytes()).hexdigest(),
+        macho_probe=MarkerMachOProbe(),
+    )
     assert not finding(findings, "source-artifact").passed
 
     malformed = tmp_path / "malformed.ipa"
     malformed.write_bytes(b"not a zip")
     with pytest.raises(DomainError) as caught:
-        verify_output_integrity(wrong_plan, source, malformed, macho_probe=MarkerMachOProbe())
+        extract_ipa_safely(malformed, tmp_path / "malformed")
     assert caught.value.code is ErrorCode.ARCHIVE_INVALID

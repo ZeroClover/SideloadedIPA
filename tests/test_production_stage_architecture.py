@@ -6,6 +6,11 @@ import ast
 import importlib
 from pathlib import Path
 
+import pytest
+
+import sideloadedipa.pipeline.stages.models as stage_models
+from sideloadedipa.pipeline.stages.models import PreparedContext
+
 STAGE_ROOT = Path("src/sideloadedipa/pipeline/stages")
 STAGE_PREFIX = "sideloadedipa.pipeline.stages."
 
@@ -62,3 +67,28 @@ def test_production_coordinator_remains_thin_and_signing_execution_is_single_pat
     assert signing.count("execute_package_signing(") == 1
     assert "class ProductionStage" not in production
     assert "ServiceContainer" not in production
+    run_source = production.split("    def run(", maxsplit=1)[1]
+    assert run_source.count("with self._prepared(") == 1
+    assert "self.plan(" not in run_source
+    assert "self.sign(" not in run_source
+    assert "self.verify(" not in run_source
+    assert "self.publish(" not in run_source
+
+
+def test_prepared_context_memoizes_one_signing_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    plan = object()
+
+    def build(_request):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return plan
+
+    monkeypatch.setattr(stage_models, "plan_package_signing", build)
+    prepared = PreparedContext(object(), object(), object())  # type: ignore[arg-type]
+
+    assert prepared.plan is plan
+    assert prepared.plan is plan
+    assert calls == 1

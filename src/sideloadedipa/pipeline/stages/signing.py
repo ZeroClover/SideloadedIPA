@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -23,7 +23,7 @@ from sideloadedipa.cache.reuse import CachePrerequisiteState, revalidate_cached_
 from sideloadedipa.cache.store import SigningCacheStore
 from sideloadedipa.domain.pipeline import PipelineStage, VerificationResult
 from sideloadedipa.domain.signing import SigningPlan
-from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode, SideloadedIPAError
 from sideloadedipa.pipeline.environment import (
     PipelineEnvironmentDependencies,
     decode_p12,
@@ -38,12 +38,11 @@ from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import PreparedContext, SourceContext
 from sideloadedipa.pipeline.stages.results import command_result
 from sideloadedipa.signing.reports import canonical_signing_report_json
-from sideloadedipa.signing.service import execute_package_signing
+from sideloadedipa.signing.service import execute_package_signing, plan_package_signing
 from sideloadedipa.util.atomics import (
     atomic_copy,
     atomic_write_bytes,
     canonical_json,
-    file_sha256,
 )
 
 _PROFILE_REFRESH_THRESHOLD = timedelta(days=30)
@@ -106,6 +105,7 @@ class SigningStage:
                     repository_root=repository_root,
                     graph=context.graph,
                 )
+                plan = plan_package_signing(signing_request)
                 prepared.append(
                     PreparedContext(
                         context,
@@ -116,7 +116,9 @@ class SigningStage:
                             graph=context.graph,
                             request=signing_request,
                             repository_root=repository_root,
+                            plan=plan,
                         ),
+                        plan,
                     )
                 )
             yield tuple(prepared)
@@ -170,9 +172,9 @@ class SigningStage:
         request: CommandRequest,
         value: PreparedContext,
         plan: SigningPlan,
-    ) -> tuple[VerificationResult, str]:
+    ) -> tuple[str, str]:
         task_name = value.source.task.task_name
-        execution = execute_package_signing(value.request)
+        execution = execute_package_signing(value.request, plan)
         artifact = self.cache().artifact_path(task_name, value.fingerprint.sha256)
         atomic_copy(value.request.destination_ipa, artifact)
         signing_report = canonical_signing_report_json(plan, execution.execution.signing)
@@ -182,7 +184,7 @@ class SigningStage:
             signing_report,
         )
         atomic_write_bytes(self.signing_report_path(request, task_name), signing_report)
-        return execution.execution.verification, signing_report_sha256
+        return execution.execution.signing.output_sha256, signing_report_sha256
 
     def sign(
         self,
@@ -225,14 +227,14 @@ class SigningStage:
                     started_at=plan_started_at,
                 )
                 decision = decisions[index]
-                verification: VerificationResult
+                artifact_sha256: str
                 signing_report_sha256: str
                 sign_started_at = self.evidence.clock()
                 if not decision.rebuild:
                     record = cached_records[task_name]
                     artifact = self.cache().artifact_path(task_name, value.fingerprint.sha256)
                     try:
-                        verification = revalidate_cached_artifact(
+                        artifact_sha256 = revalidate_cached_artifact(
                             plan=plan,
                             cache_record=record,
                             artifact=artifact,
@@ -243,7 +245,6 @@ class SigningStage:
                             profiles=value.request.profiles,
                             now=self.evidence.clock(),
                             refresh_threshold=_PROFILE_REFRESH_THRESHOLD,
-                            verifier=value.request.verifier,
                         )
                         signing_report_sha256 = restore_cached_signing_report(
                             plan=plan,
@@ -264,18 +265,17 @@ class SigningStage:
                             record.artifact_sha256,
                         )
                         decisions[index] = decision
-                        verification, signing_report_sha256 = self._execute_and_cache(
+                        artifact_sha256, signing_report_sha256 = self._execute_and_cache(
                             request,
                             value,
                             plan,
                         )
                 else:
-                    verification, signing_report_sha256 = self._execute_and_cache(
+                    artifact_sha256, signing_report_sha256 = self._execute_and_cache(
                         request,
                         value,
                         plan,
                     )
-                artifact_sha256 = file_sha256(value.request.destination_ipa)
                 self.evidence.record_success(
                     store,
                     task_name,
@@ -290,7 +290,7 @@ class SigningStage:
                         value.fingerprint.schema_version,
                         value.fingerprint.sha256,
                         artifact_sha256,
-                        verification.report_sha256,
+                        None,
                         signing_report_sha256,
                     )
                 )
@@ -324,6 +324,49 @@ class SigningStage:
             f"Production signing: {len(decisions_tuple)} passed",
         )
 
+    def record_verifications(
+        self,
+        request: CommandRequest,
+        verifications: Mapping[str, VerificationResult],
+    ) -> None:
+        pending = self.pending_cache(request).load()
+        if pending is None:
+            raise ConfigurationError(
+                ErrorCode.CONFIG_MISSING,
+                "verification stage has no pending cache index",
+                remediation="rerun signing for this run ID",
+            )
+        records = []
+        for record in pending.records:
+            verification = verifications.get(record.task_name)
+            if verification is None:
+                records.append(record)
+                continue
+            if verification.artifact_sha256 != record.artifact_sha256:
+                raise DomainError(
+                    ErrorCode.PIPELINE_TRANSITION_INVALID,
+                    "verification artifact differs from the pending cache record",
+                    task_name=record.task_name,
+                )
+            records.append(
+                replace(
+                    record,
+                    verification_report_sha256=verification.report_sha256,
+                )
+            )
+        missing = sorted(
+            task_name
+            for task_name in verifications
+            if not any(record.task_name == task_name for record in pending.records)
+        )
+        if missing:
+            raise DomainError(
+                ErrorCode.PIPELINE_TRANSITION_INVALID,
+                "verification has no matching pending cache record",
+                safe_details=(("task_names", tuple(missing)),),
+            )
+        self.pending_cache(request).save(build_cache_index(tuple(records)))
+
     def promote_cache(self, request: CommandRequest) -> None:
         pending = self.pending_cache(request).load()
         if pending is None:
@@ -331,5 +374,11 @@ class SigningStage:
                 ErrorCode.CONFIG_MISSING,
                 "verified run has no pending cache index",
                 remediation="rerun signing and verification for this run ID",
+            )
+        if any(record.verification_report_sha256 is None for record in pending.records):
+            raise DomainError(
+                ErrorCode.PIPELINE_TRANSITION_INVALID,
+                "pending cache index contains an unverified task",
+                remediation="complete verification before promoting the cache index",
             )
         self.cache().save(pending)

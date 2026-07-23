@@ -17,6 +17,7 @@ from sideloadedipa.application import (
     OutputFormat,
 )
 from sideloadedipa.cli import main
+from sideloadedipa.domain import FrozenJsonObject
 
 
 @dataclass
@@ -86,6 +87,49 @@ def test_run_parses_apply_publish_and_json_without_executing_business_logic() ->
     assert handler.requests[0].publish is True
     assert str(handler.requests[0].config_path) == "custom.toml"
     assert json.loads(stdout.getvalue()) == {"command": "run"}
+
+
+def test_sync_json_preserves_embedded_resource_plan_document() -> None:
+    handler = RecordingUseCase()
+    handler_result = CommandResult(
+        payload=(
+            ("status", "applied"),
+            (
+                "resource_plan",
+                FrozenJsonObject(
+                    (
+                        ("apply", False),
+                        ("command", "plan"),
+                        ("status", "ready"),
+                    )
+                ),
+            ),
+        )
+    )
+    stdout = io.StringIO()
+
+    def sync(_request: CommandRequest) -> CommandResult:
+        return handler_result
+
+    app = application(handler)
+    app = Application(
+        inspect=app.inspect,
+        plan=app.plan,
+        sync=sync,
+        sign=app.sign,
+        verify=app.verify,
+        publish=app.publish,
+        run=app.run,
+    )
+
+    exit_code = main(["sync", "--apply", "--json"], application=app, stdout=stdout)
+
+    assert exit_code == 0
+    assert json.loads(stdout.getvalue())["resource_plan"] == {
+        "apply": False,
+        "command": "plan",
+        "status": "ready",
+    }
 
 
 def test_default_application_returns_typed_error() -> None:

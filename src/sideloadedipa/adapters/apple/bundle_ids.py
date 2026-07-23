@@ -117,9 +117,19 @@ class BundleIdReconciler:
             )
         return matches[0] if matches else None
 
-    def ensure(self, *, identifier: str, name: str) -> AppleBundleIdentifierState:
+    def ensure(
+        self,
+        *,
+        identifier: str,
+        name: str,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+    ) -> AppleBundleIdentifierState:
         existing = self._require_exact_one(
-            exact_bundle_id_matches(self.gateway.list(), identifier), identifier
+            exact_bundle_id_matches(
+                self.gateway.list() if bundle_ids is None else bundle_ids,
+                identifier,
+            ),
+            identifier,
         )
         if existing is not None:
             return existing

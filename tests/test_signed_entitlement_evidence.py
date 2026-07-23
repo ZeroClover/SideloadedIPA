@@ -19,6 +19,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.verification import inspect_signed_entitlements
 
 EXPECTED = {
@@ -140,7 +141,13 @@ def test_reopens_ipa_and_records_xml_and_der_evidence_per_executable(tmp_path: P
     signed_ipa(artifact, executable=signed_macho())
     original = artifact.read_bytes()
 
-    evidence = inspect_signed_entitlements(plan(), artifact)
+    extracted = tmp_path / "signed"
+    extract_ipa_safely(artifact, extracted)
+    evidence = inspect_signed_entitlements(
+        plan(),
+        extracted,
+        hashlib.sha256(original).hexdigest(),
+    )
 
     assert artifact.read_bytes() == original
     assert evidence.plan_sha256 == plan().plan_sha256
@@ -154,14 +161,19 @@ def test_reopens_ipa_and_records_xml_and_der_evidence_per_executable(tmp_path: P
     assert node.slices[0].der is not None
     assert node.slices[0].xml.semantic_sha256 == node.slices[0].der.semantic_sha256
     assert node.slices[0].xml.raw_sha256 != node.slices[0].der.raw_sha256
-    assert not (tmp_path / ".sideloadedipa-verification").exists()
 
 
 def test_records_a_signed_slice_with_no_entitlement_slots(tmp_path: Path) -> None:
     artifact = tmp_path / "signed.ipa"
     signed_ipa(artifact, executable=signed_macho_without_entitlements())
 
-    evidence = inspect_signed_entitlements(plan(), artifact)
+    extracted = tmp_path / "signed"
+    extract_ipa_safely(artifact, extracted)
+    evidence = inspect_signed_entitlements(
+        plan(),
+        extracted,
+        hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    )
 
     assert len(evidence.nodes[0].slices) == 1
     assert evidence.nodes[0].slices[0].xml is None
@@ -178,9 +190,14 @@ def test_fails_closed_when_executable_evidence_is_unreadable(tmp_path: Path, fai
             signing_plan,
             nodes=(replace(signing_plan.nodes[0], executable_path=PurePosixPath("../escape")),),
         )
+    extracted = tmp_path / "signed"
+    extract_ipa_safely(artifact, extracted)
 
     with pytest.raises(DomainError) as caught:
-        inspect_signed_entitlements(signing_plan, artifact)
+        inspect_signed_entitlements(
+            signing_plan,
+            extracted,
+            hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        )
 
     assert caught.value.code is ErrorCode.VERIFICATION_EVIDENCE_INVALID
-    assert not (tmp_path / ".sideloadedipa-verification").exists()

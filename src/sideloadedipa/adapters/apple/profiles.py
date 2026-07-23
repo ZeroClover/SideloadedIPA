@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from sideloadedipa.adapters.apple.asc import AscResponse
-from sideloadedipa.adapters.apple.state import AscStateReader, collect_profiles
+from sideloadedipa.adapters.apple.state import AscStateReader, collect_profile, collect_profiles
 from sideloadedipa.domain import (
     AppleProfileState,
     ProfileType,
@@ -39,6 +39,8 @@ _STALE_PROFILE_ERRORS = frozenset(
 
 class ProfileGateway(Protocol):
     def list(self) -> tuple[AppleProfileState, ...]: ...
+
+    def view(self, resource_id: str) -> AppleProfileState: ...
 
     def create(
         self,
@@ -113,6 +115,9 @@ class AscProfileGateway:
 
     def list(self) -> tuple[AppleProfileState, ...]:
         return collect_profiles(self.client)
+
+    def view(self, resource_id: str) -> AppleProfileState:
+        return collect_profile(self.client, resource_id)
 
     def create(
         self,
@@ -309,14 +314,8 @@ class ProfileReconciler:
                 raise
             created = recovered
         else:
-            refreshed = self.gateway.list()
-            created_candidate = next(
-                (profile for profile in refreshed if profile.resource_id == resource_id),
-                None,
-            )
-            if created_candidate is None or not _matches_create_intent(
-                created_candidate, name, request
-            ):
+            created_candidate = self.gateway.view(resource_id)
+            if not _matches_create_intent(created_candidate, name, request):
                 raise AdapterError(
                     ErrorCode.ADAPTER_RESPONSE_INVALID,
                     "created profile was not present with the requested relationships",

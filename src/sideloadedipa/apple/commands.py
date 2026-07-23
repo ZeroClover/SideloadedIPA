@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from sideloadedipa.adapters.apple import ProfileReconciliationResult
+from sideloadedipa.adapters.apple import ProfileReconciliationResult, normalized_apple_state
 from sideloadedipa.apple.backend import (
     AppleCommandBackend,
     AscAppleCommandBackend,
@@ -22,6 +22,8 @@ from sideloadedipa.apple.reporting import (
 from sideloadedipa.application import CommandRequest, CommandResult
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
+    AppleBundleIdentifierState,
+    AppleCapabilityState,
     AppleProfileState,
     AppleResourcePlan,
     AppleStateSnapshot,
@@ -54,6 +56,7 @@ __all__ = [
 @dataclass(frozen=True, slots=True)
 class AppleCommandDependencies:
     load: Callable[[Path], TaskConfiguration] = load_configuration
+    configuration: TaskConfiguration | None = None
     backend: AppleCommandBackend | None = None
     profile_root: Path = Path("work/profiles")
     record_created_resource: Callable[[str, str], None] | None = None
@@ -70,10 +73,20 @@ def _read_plan(
     CertificateIdentity,
     dict[str, AppleResourcePlan],
 ]:
-    configuration = dependencies.load(request.config_path)
+    configuration = dependencies.configuration or dependencies.load(request.config_path)
     tasks = selected_tasks(configuration, request.task_names, scope="Apple command")
     intents_by_task = {task.task_name: derive_bundle_resource_intents(task) for task in tasks}
-    snapshot = backend.collect()
+    managed_bundle_identifiers = tuple(
+        sorted(
+            {
+                intent.target_bundle_id
+                for task_intents in intents_by_task.values()
+                for intent in task_intents
+            },
+            key=str.casefold,
+        )
+    )
+    snapshot = backend.collect(managed_bundle_identifiers=managed_bundle_identifiers)
     certificate = backend.resolve_certificate(snapshot)
     plans = build_plans(tasks, intents_by_task, snapshot, certificate)
     return tasks, intents_by_task, snapshot, certificate, plans
@@ -121,6 +134,40 @@ def _with_profile_state(
             ),
             key=lambda value: value.resource_id,
         )
+    )
+
+
+def _with_bundle_state(
+    bundle_ids: tuple[AppleBundleIdentifierState, ...],
+    state: AppleBundleIdentifierState,
+) -> tuple[AppleBundleIdentifierState, ...]:
+    return tuple(bundle for bundle in bundle_ids if bundle.resource_id != state.resource_id) + (
+        state,
+    )
+
+
+def _with_capability_state(
+    capabilities: tuple[AppleCapabilityState, ...],
+    state: AppleCapabilityState,
+) -> tuple[AppleCapabilityState, ...]:
+    return tuple(
+        capability for capability in capabilities if capability.resource_id != state.resource_id
+    ) + (state,)
+
+
+def _with_snapshot_slices(
+    snapshot: AppleStateSnapshot,
+    *,
+    bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+    capabilities: tuple[AppleCapabilityState, ...] | None = None,
+    profiles: tuple[AppleProfileState, ...] | None = None,
+) -> AppleStateSnapshot:
+    return normalized_apple_state(
+        bundle_ids=snapshot.bundle_ids if bundle_ids is None else bundle_ids,
+        capabilities=snapshot.capabilities if capabilities is None else capabilities,
+        certificates=snapshot.certificates,
+        devices=snapshot.devices,
+        profiles=snapshot.profiles if profiles is None else profiles,
     )
 
 
@@ -203,16 +250,40 @@ def sync_command(
             )
         )
 
-    profile_states = snapshot.profiles
+    resource_plan = plan_document(
+        command="plan",
+        apply=False,
+        snapshot=snapshot,
+        certificate=certificate,
+        tasks=tasks,
+        intents_by_task=intents,
+        plans=plans,
+    )
+    if _has_prerequisite_blockers(plans):
+        blocked = plan_document(
+            command="sync",
+            apply=True,
+            status="blocked",
+            snapshot=snapshot,
+            certificate=certificate,
+            tasks=tasks,
+            intents_by_task=intents,
+            plans=plans,
+        )
+        blocked["resource_plan"] = resource_plan
+        return command_result(blocked)
+
     for task in tasks:
         for intent in intents[task.task_name]:
             existing = exact_bundle(snapshot, intent.target_bundle_id)
-            ensured = backend.ensure_bundle(intent)
+            ensured = backend.ensure_bundle(intent, bundle_ids=snapshot.bundle_ids)
             if existing is None and dependencies.record_created_resource is not None:
                 dependencies.record_created_resource("bundle-id", ensured.resource_id)
+            snapshot = _with_snapshot_slices(
+                snapshot,
+                bundle_ids=_with_bundle_state(snapshot.bundle_ids, ensured),
+            )
 
-    snapshot = backend.collect(profiles=profile_states)
-    profile_states = snapshot.profiles
     for task in tasks:
         for intent in intents[task.task_name]:
             bundle = exact_bundle(snapshot, intent.target_bundle_id)
@@ -225,28 +296,18 @@ def sync_command(
                 )
             for capability_type in intent.required_capabilities:
                 if capability_rule(capability_type).automation is CapabilityAutomation.API_ADDITIVE:
-                    backend.ensure_capability(
+                    ensured_capability = backend.ensure_capability(
                         bundle=bundle,
                         capability_type=capability_type,
+                        capabilities=snapshot.capabilities,
                     )
-
-    snapshot = backend.collect(profiles=profile_states)
-    profile_states = snapshot.profiles
-    certificate = backend.resolve_certificate(snapshot)
-    plans = build_plans(tasks, intents, snapshot, certificate)
-    if _has_prerequisite_blockers(plans):
-        return command_result(
-            plan_document(
-                command="sync",
-                apply=True,
-                status="blocked",
-                snapshot=snapshot,
-                certificate=certificate,
-                tasks=tasks,
-                intents_by_task=intents,
-                plans=plans,
-            )
-        )
+                    snapshot = _with_snapshot_slices(
+                        snapshot,
+                        capabilities=_with_capability_state(
+                            snapshot.capabilities,
+                            ensured_capability,
+                        ),
+                    )
 
     reconciled: dict[str, list[tuple[BundleResourceIntent, ProfileReconciliationResult]]] = {
         task.task_name: [] for task in tasks
@@ -268,19 +329,25 @@ def sync_command(
                 certificate=certificate,
                 bundle=bundle,
                 config_path=request.config_path,
-                profile_states=profile_states,
+                profile_states=snapshot.profiles,
             )
             if result.created and dependencies.record_created_resource is not None:
                 dependencies.record_created_resource("profile", result.profile.resource_id)
             if result.created:
                 if result.state is None:
-                    snapshot = backend.collect()
-                    profile_states = snapshot.profiles
-                else:
-                    profile_states = _with_profile_state(profile_states, result.state)
+                    raise DomainError(
+                        ErrorCode.DOMAIN_INVARIANT,
+                        "created profile has no verified state to merge",
+                        task_name=task.task_name,
+                        bundle_id=intent.target_bundle_id,
+                    )
+                snapshot = _with_snapshot_slices(
+                    snapshot,
+                    profiles=_with_profile_state(snapshot.profiles, result.state),
+                )
             reconciled[task.task_name].append((intent, result))
 
-    final_snapshot = backend.collect() if profile_states != snapshot.profiles else snapshot
+    final_snapshot = snapshot
     manifests = _store_reconciled_profiles(
         root=dependencies.profile_root,
         tasks=tasks,
@@ -289,16 +356,16 @@ def sync_command(
         certificate=certificate,
     )
     final_plans = build_plans(tasks, intents, final_snapshot, certificate)
-    return command_result(
-        plan_document(
-            command="sync",
-            apply=True,
-            status="applied",
-            snapshot=final_snapshot,
-            certificate=certificate,
-            tasks=tasks,
-            intents_by_task=intents,
-            plans=final_plans,
-            manifests=manifests,
-        )
+    applied = plan_document(
+        command="sync",
+        apply=True,
+        status="applied",
+        snapshot=final_snapshot,
+        certificate=certificate,
+        tasks=tasks,
+        intents_by_task=intents,
+        plans=final_plans,
+        manifests=manifests,
     )
+    applied["resource_plan"] = resource_plan
+    return command_result(applied)

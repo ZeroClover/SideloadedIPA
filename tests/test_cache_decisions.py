@@ -101,3 +101,14 @@ def test_duplicate_current_or_cached_tasks_are_rejected() -> None:
         select_rebuilds((first, first), None)
     with pytest.raises(ValueError, match="duplicate"):
         build_cache_index((record(first), record(first)))
+
+
+def test_pending_verification_field_round_trips_but_cannot_be_a_cache_hit() -> None:
+    current = fingerprint("First", "a")
+    pending = replace(record(current), verification_report_sha256=None)
+    index = build_cache_index((pending,))
+
+    assert parse_cache_index_json(canonical_cache_index_json(index)) == index
+    decision = select_rebuilds((current,), index)[0]
+    assert decision.rebuild is True
+    assert decision.reason is RebuildReason.CACHE_REJECTED

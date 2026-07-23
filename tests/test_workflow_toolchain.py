@@ -136,6 +136,16 @@ def test_cache_is_versioned_and_saved_only_after_successful_signing() -> None:
     assert "always()" not in save_cache
 
 
+def test_production_apple_sync_records_plan_and_apply_in_one_cli_transaction() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+
+    assert signing.count('sideloadedipa sync --apply --run-id "$GITHUB_RUN_ID"') == 1
+    assert "sideloadedipa plan --run-id" not in signing
+    assert '.resource_plan | select(type == "object")' in signing
+    assert "02-apple-plan.json" in signing
+    assert "03-apple-apply.json" in signing
+
+
 def test_every_backend_dependent_production_step_receives_qualified_identity() -> None:
     signing = SIGN_WORKFLOW.read_text()
 
@@ -151,7 +161,7 @@ def test_every_backend_dependent_production_step_receives_qualified_identity() -
         assert "ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}" in step
 
 
-def test_production_debug_step_does_not_inherit_job_level_secrets() -> None:
+def test_production_debug_step_receives_step_scoped_credentials() -> None:
     signing = SIGN_WORKFLOW.read_text()
     production_job = signing.split("  sign-and-upload:", maxsplit=1)[1]
     job_environment = production_job.split("    env:", maxsplit=1)[1].split(
@@ -160,8 +170,24 @@ def test_production_debug_step_does_not_inherit_job_level_secrets() -> None:
     debug = production_job.split('name: "Debug: Start SSH session"', maxsplit=1)[1]
 
     assert "secrets." not in job_environment
-    assert "APPLE_DEV_CERT_P12_ENCODED:" not in debug
-    assert "ASC_PRIVATE_KEY_B64:" not in debug
+    for credential in (
+        "APPLE_DEV_CERT_P12_ENCODED: ${{ secrets.APPLE_DEV_CERT_P12_ENCODED }}",
+        "APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}",
+        "P12_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}",
+        "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}",
+        "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}",
+        "ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY }}",
+        "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+        "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+        "R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}",
+        "R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}",
+        "R2_BUCKET: ${{ secrets.R2_BUCKET }}",
+        "R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}",
+        "VERCEL_REVALIDATE_SECRET: ${{ secrets.VERCEL_REVALIDATE_SECRET }}",
+        "WEBHOOK_URL: ${{ secrets.Instatus_Webhook_URL }}",
+    ):
+        assert credential in debug
     assert production_job.index("- name: Notify webhook") < production_job.index(
         '- name: "Debug: Start SSH session"'
     )
@@ -173,20 +199,14 @@ def test_every_checkout_disables_persisted_repository_credentials() -> None:
         assert text.count("uses: actions/checkout@") == text.count("persist-credentials: false")
 
 
-def test_ssh_debug_long_lived_processes_drop_production_credentials() -> None:
+def test_ssh_debug_session_preserves_caller_environment() -> None:
     action = SSH_DEBUG_ACTION.read_text()
+    server = action.split("- name: Start public-key-only SSH server", maxsplit=1)[1].split(
+        "    - name:", maxsplit=1
+    )[0]
 
-    for step in (
-        "Start public-key-only SSH server",
-        "Start Cloudflare Tunnel",
-        "Hold runner open",
-    ):
-        body = action.split(f"- name: {step}", maxsplit=1)[1].split("    - name:", maxsplit=1)[0]
-        assert "unset APPLE_DEV_CERT_P12_ENCODED APPLE_DEV_CERT_PASSWORD" in body
-        assert "unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64" in body
-        assert "unset GITHUB_TOKEN GH_TOKEN" in body
-        assert "unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY" in body
-        assert "unset VERCEL_REVALIDATE_SECRET WEBHOOK_URL" in body
+    assert "unset " not in action
+    assert '-s -g -e -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"' in server
 
 
 def test_pr_workflow_uses_one_complete_debuggable_validation_job() -> None:

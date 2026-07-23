@@ -28,14 +28,19 @@ def source_entitlements_required(task: Task) -> bool:
     )
 
 
-def inspect_source_graph(source_ipa: Path, *, task: Task | None = None) -> BundleGraph:
+def inspect_source_graph(
+    source_ipa: Path,
+    *,
+    source_sha256: str | None = None,
+    task: Task | None = None,
+) -> BundleGraph:
     with tempfile.TemporaryDirectory(prefix="sideloadedipa-production-inventory-") as directory:
         extracted = Path(directory) / "extracted"
         extract_ipa_safely(source_ipa, extracted)
-        source_sha256 = file_sha256(source_ipa)
+        digest = file_sha256(source_ipa) if source_sha256 is None else source_sha256
         return discover_bundle_graph(
             extracted,
-            source_sha256,
+            digest,
             allow_missing_code_signature=(
                 task is not None and not source_entitlements_required(task)
             ),

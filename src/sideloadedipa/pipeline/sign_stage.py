@@ -48,8 +48,9 @@ def build_fingerprint(
     graph: BundleGraph,
     request: PackageSigningRequest,
     repository_root: Path,
+    plan: SigningPlan | None = None,
 ) -> SigningCacheFingerprint:
-    plan = plan_package_signing(request)
+    signing_plan = plan_package_signing(request) if plan is None else plan
     return build_signing_cache_fingerprint(
         source=source_asset,
         policy_sha256=policy_sha256(task),
@@ -57,13 +58,13 @@ def build_fingerprint(
         entitlement_template_sha256=template_digests(task, repository_root),
         resource_manifest=request.profile_manifest,
         profiles=request.profiles,
-        plan=plan,
+        plan=signing_plan,
         device_set_sha256=device_set_sha256(request),
         tools=(
             ToolFingerprint(
-                plan.backend.name,
-                plan.backend.version,
-                plan.backend.executable_sha256,
+                signing_plan.backend.name,
+                signing_plan.backend.version,
+                signing_plan.backend.executable_sha256,
             ),
         ),
     )

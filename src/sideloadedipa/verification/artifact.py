@@ -11,10 +11,8 @@ from typing import Protocol
 from sideloadedipa.domain import FrozenJsonValue, SigningPlan, normalize_entitlements
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa import LiefEntitlementInspector
-from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.ipa.entitlements import MachOEntitlementEvidence
 from sideloadedipa.util.atomics import file_sha256
-from sideloadedipa.util.workspace import task_workspace
 
 
 class SignedEntitlementInspector(Protocol):
@@ -86,59 +84,49 @@ def _executable(root: Path, plan: SigningPlan, path: PurePosixPath) -> Path:
 
 def inspect_signed_entitlements(
     plan: SigningPlan,
-    signed_ipa: Path,
+    signed_root: Path,
+    artifact_sha256: str,
     *,
     inspector: SignedEntitlementInspector | None = None,
 ) -> SignedArtifactEntitlementEvidence:
-    """Reopen an IPA and inspect every planned executable independently of the backend."""
+    """Inspect every planned executable in the pass's shared extracted tree."""
 
     selected_inspector = inspector or LiefEntitlementInspector()
-    workspace_base = signed_ipa.parent / ".sideloadedipa-verification"
-    remove_workspace_base = not workspace_base.exists()
-    try:
-        with task_workspace(workspace_base, plan.task_name) as workspace:
-            extract_ipa_safely(signed_ipa, workspace.extracted)
-            nodes: list[SignedNodeEntitlementEvidence] = []
-            for node in plan.nodes:
-                executable = _executable(workspace.extracted, plan, node.executable_path)
-                try:
-                    inspected = selected_inspector.inspect(executable)
-                except DomainError as error:
-                    raise _evidence_error(
-                        plan,
-                        node.source_path,
-                        "signed executable entitlement evidence could not be read",
-                    ) from error
-                slices = tuple(
-                    SignedEntitlementSliceEvidence(
-                        value.architecture,
-                        _representation(value.xml, value.xml_raw),
-                        _representation(value.der, value.der_raw),
-                    )
-                    for value in inspected.slices
-                )
-                if not slices:
-                    raise _evidence_error(
-                        plan,
-                        node.source_path,
-                        "signed executable has no architecture entitlement evidence",
-                    )
-                nodes.append(
-                    SignedNodeEntitlementEvidence(
-                        node.source_path,
-                        node.executable_path,
-                        file_sha256(executable),
-                        slices,
-                    )
-                )
-            return SignedArtifactEntitlementEvidence(
-                plan.plan_sha256,
-                file_sha256(signed_ipa),
-                tuple(nodes),
+    nodes: list[SignedNodeEntitlementEvidence] = []
+    for node in plan.nodes:
+        executable = _executable(signed_root, plan, node.executable_path)
+        try:
+            inspected = selected_inspector.inspect(executable)
+        except DomainError as error:
+            raise _evidence_error(
+                plan,
+                node.source_path,
+                "signed executable entitlement evidence could not be read",
+            ) from error
+        slices = tuple(
+            SignedEntitlementSliceEvidence(
+                value.architecture,
+                _representation(value.xml, value.xml_raw),
+                _representation(value.der, value.der_raw),
             )
-    finally:
-        if remove_workspace_base:
-            try:
-                workspace_base.rmdir()
-            except OSError:
-                pass
+            for value in inspected.slices
+        )
+        if not slices:
+            raise _evidence_error(
+                plan,
+                node.source_path,
+                "signed executable has no architecture entitlement evidence",
+            )
+        nodes.append(
+            SignedNodeEntitlementEvidence(
+                node.source_path,
+                node.executable_path,
+                file_sha256(executable),
+                slices,
+            )
+        )
+    return SignedArtifactEntitlementEvidence(
+        plan.plan_sha256,
+        artifact_sha256,
+        tuple(nodes),
+    )

@@ -20,6 +20,7 @@ from sideloadedipa.domain import (
     normalize_entitlements,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.verification.profiles import verify_signed_profiles
 
 ROOT = PurePosixPath("Payload/App.app")
@@ -110,8 +111,10 @@ def test_verifies_bundle_profile_team_certificate_devices_and_dates(tmp_path: Pa
     artifact = tmp_path / "signed.ipa"
     write_ipa(artifact)
     validator = FixtureValidator(profile())
+    extracted = tmp_path / "signed"
+    extract_ipa_safely(artifact, extracted)
 
-    findings = verify_signed_profiles(plan(), artifact, (profile(),), validator=validator)
+    findings = verify_signed_profiles(plan(), extracted, (profile(),), validator=validator)
 
     assert findings and all(value.passed for value in findings)
     assert validator.request is not None
@@ -119,7 +122,6 @@ def test_verifies_bundle_profile_team_certificate_devices_and_dates(tmp_path: Pa
     assert validator.request.team_id == "TEAMID"
     assert validator.request.certificate_sha256 == "c" * 64
     assert validator.request.device_udid_sha256 == ("device-sha256",)
-    assert not (tmp_path / ".sideloadedipa-profile-verification").exists()
 
 
 def test_reports_wrong_bundle_missing_or_changed_profile_and_expiry(tmp_path: Path) -> None:
@@ -129,15 +131,21 @@ def test_reports_wrong_bundle_missing_or_changed_profile_and_expiry(tmp_path: Pa
     write_ipa(wrong, bundle_id="io.example.other", profile_content=b"changed")
     write_ipa(missing, profile_content=None)
     write_ipa(expired)
+    wrong_root = tmp_path / "wrong"
+    missing_root = tmp_path / "missing"
+    expired_root = tmp_path / "expired"
+    extract_ipa_safely(wrong, wrong_root)
+    extract_ipa_safely(missing, missing_root)
+    extract_ipa_safely(expired, expired_root)
 
     wrong_findings = verify_signed_profiles(
-        plan(), wrong, (profile(),), validator=FixtureValidator(profile())
+        plan(), wrong_root, (profile(),), validator=FixtureValidator(profile())
     )
     missing_findings = verify_signed_profiles(
-        plan(), missing, (profile(),), validator=FixtureValidator(profile())
+        plan(), missing_root, (profile(),), validator=FixtureValidator(profile())
     )
     expired_findings = verify_signed_profiles(
-        plan(), expired, (profile(),), validator=FixtureValidator(profile(), failure=True)
+        plan(), expired_root, (profile(),), validator=FixtureValidator(profile(), failure=True)
     )
 
     assert {value.check for value in wrong_findings if not value.passed} == {
@@ -157,9 +165,11 @@ def test_rejects_validator_result_for_another_certificate(tmp_path: Path) -> Non
     artifact = tmp_path / "signed.ipa"
     write_ipa(artifact)
     wrong = replace(profile(), certificate_sha256="0" * 64)
+    extracted = tmp_path / "signed"
+    extract_ipa_safely(artifact, extracted)
 
     findings = verify_signed_profiles(
-        plan(), artifact, (profile(),), validator=FixtureValidator(wrong)
+        plan(), extracted, (profile(),), validator=FixtureValidator(wrong)
     )
 
     assert any(

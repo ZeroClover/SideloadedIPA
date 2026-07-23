@@ -16,7 +16,7 @@ from sideloadedipa.pipeline.stages.models import SourceContext
 from sideloadedipa.pipeline.stages.results import command_result
 from sideloadedipa.pipeline.stages.signing import PreparedFactory, SigningStage
 from sideloadedipa.pipeline.stages.verification import VerificationStage
-from sideloadedipa.signing.service import verify_package_artifact
+from sideloadedipa.util.atomics import file_sha256
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,15 +56,16 @@ class PublicationStage:
                         task_name=task.task_name,
                     )
                 plan = value.plan
-                verification = verify_package_artifact(
-                    value.request,
-                    plan,
-                    value.request.destination_ipa,
-                )
-                if verification_manifest.result_sha256 != verification.report_sha256:
+                verification = self.verification.load_verification(request, plan)
+                artifact_sha256 = file_sha256(value.request.destination_ipa)
+                if (
+                    verification_manifest.result_sha256 != verification.report_sha256
+                    or verification.plan_sha256 != plan.plan_sha256
+                    or verification.artifact_sha256 != artifact_sha256
+                ):
                     raise DomainError(
                         ErrorCode.PIPELINE_TRANSITION_INVALID,
-                        "current verification differs from the retained verify stage",
+                        "retained verification evidence differs from the publish artifact",
                         task_name=task.task_name,
                     )
                 verifications[task.task_name] = verification

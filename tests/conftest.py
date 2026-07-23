@@ -197,7 +197,10 @@ class FixtureCopyBackend:
 
 @dataclass
 class FixturePassingVerifier:
+    calls: int = 0
+
     def verify(self, plan, signed_ipa):  # type: ignore[no-untyped-def]
+        self.calls += 1
         from sideloadedipa.domain import VerificationFinding
         from sideloadedipa.verification import (
             build_verification_result,

@@ -44,9 +44,11 @@ class FakeGateway:
         self.listings = listings
         self.add_result = add_result
         self.add_calls: list[tuple[str, str]] = []
+        self.list_calls = 0
 
     def list(self, bundle_resource_id: str) -> tuple[AppleCapabilityState, ...]:
         assert bundle_resource_id == "BUNDLE_ONE"
+        self.list_calls += 1
         return self.listings.pop(0)
 
     def add(self, bundle_resource_id: str, capability_type: str) -> AppleCapabilityState:
@@ -121,28 +123,32 @@ def test_requirements_plan_existing_api_local_manual_and_unknown_states() -> Non
 
 def test_reuses_or_adds_and_reverifies_allowlisted_capability() -> None:
     existing = capability("CAP_HEALTH", "HEALTHKIT")
-    reuse_gateway = FakeGateway([(existing,)], existing)
+    reuse_gateway = FakeGateway([], existing)
     assert (
         CapabilityReconciler(reuse_gateway).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="HEALTHKIT",
+            capabilities=(existing,),
         )
         == existing
     )
     assert reuse_gateway.add_calls == []
+    assert reuse_gateway.list_calls == 0
 
     created = capability("CAP_GROUPS", "APP_GROUPS")
-    add_gateway = FakeGateway([(), (created,)], created)
+    add_gateway = FakeGateway([], created)
     assert (
         CapabilityReconciler(add_gateway).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="APP_GROUPS",
+            capabilities=(),
         )
         == created
     )
     assert add_gateway.add_calls == [("BUNDLE_ONE", "APP_GROUPS")]
+    assert add_gateway.list_calls == 0
 
 
 def test_recovers_uncertain_add_but_never_calls_non_allowlisted_capability() -> None:
@@ -153,16 +159,18 @@ def test_recovers_uncertain_add_but_never_calls_non_allowlisted_capability() -> 
         adapter="asc",
         operation="capabilities-add",
     )
-    gateway = FakeGateway([(), (created,)], timeout)
+    gateway = FakeGateway([(created,)], timeout)
     assert (
         CapabilityReconciler(gateway).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="APP_GROUPS",
+            capabilities=(),
         )
         == created
     )
     assert len(gateway.add_calls) == 1
+    assert gateway.list_calls == 1
 
     for value in ("KEYCHAIN_SHARING", "INCREASED_MEMORY_LIMIT", "UNREVIEWED"):
         blocked_gateway = FakeGateway([], created)
@@ -179,10 +187,11 @@ def test_fails_for_duplicates_mismatched_create_or_missing_verification() -> Non
     first = capability("ONE", "HEALTHKIT")
     second = capability("TWO", "HEALTHKIT")
     with pytest.raises(AdapterError) as duplicate:
-        CapabilityReconciler(FakeGateway([(first, second)], first)).ensure(
+        CapabilityReconciler(FakeGateway([], first)).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="HEALTHKIT",
+            capabilities=(first, second),
         )
     assert duplicate.value.code is ErrorCode.APPLE_RESOURCE_CONFLICT
 
@@ -191,20 +200,28 @@ def test_fails_for_duplicates_mismatched_create_or_missing_verification() -> Non
         wrong.resource_id, "OTHER_BUNDLE", wrong.capability_type, wrong.settings
     )
     with pytest.raises(AdapterError) as mismatched:
-        CapabilityReconciler(FakeGateway([()], wrong)).ensure(
+        CapabilityReconciler(FakeGateway([], wrong)).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="APP_GROUPS",
+            capabilities=(),
         )
     assert mismatched.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
 
+    timeout = AdapterError(
+        ErrorCode.ADAPTER_TIMEOUT,
+        "timeout",
+        adapter="asc",
+        operation="capabilities-add",
+    )
     with pytest.raises(AdapterError) as missing:
-        CapabilityReconciler(FakeGateway([(), ()], first)).ensure(
+        CapabilityReconciler(FakeGateway([()], timeout)).ensure(
             bundle_resource_id="BUNDLE_ONE",
             bundle_id="io.example.app",
             capability_type="HEALTHKIT",
+            capabilities=(),
         )
-    assert missing.value.operation == "capabilities-verify"
+    assert missing.value is timeout
 
 
 def test_asc_gateway_uses_only_list_and_add_commands() -> None:

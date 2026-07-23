@@ -140,8 +140,11 @@ class ZsignBackend:
         self.runner = runner or SubprocessRunner(default_timeout_seconds=timeout_seconds)
         self.evidence_collector = evidence_collector
         self.timeout_seconds = timeout_seconds
+        self._identity: SigningBackendIdentity | None = None
 
     def identity(self) -> SigningBackendIdentity:
+        if self._identity is not None:
+            return self._identity
         executable_sha256 = _file_sha256(self.executable, operation="verify-executable")
         if executable_sha256 != self.expected_executable_sha256:
             raise AdapterError(
@@ -168,13 +171,15 @@ class ZsignBackend:
                     ("actual_version", version_output),
                 ),
             )
-        return SigningBackendIdentity(
+        identity = SigningBackendIdentity(
             "zsign",
             EXPECTED_ZSIGN_VERSION,
             executable_sha256,
             ZSIGN_CONTRACT_VERSION,
             _FEATURES,
         )
+        self._identity = identity
+        return identity
 
     def sign(
         self,
@@ -183,11 +188,10 @@ class ZsignBackend:
         output_ipa: Path,
         certificate: CertificateMaterial,
     ) -> SigningResult:
-        identity = self.identity()
-        if plan.backend != identity:
+        if self._identity is None or plan.backend != self._identity:
             raise AdapterError(
                 ErrorCode.ADAPTER_VERSION_MISMATCH,
-                "signing plan backend identity differs from the installed backend",
+                "signing plan backend identity was not qualified by this backend instance",
                 adapter="zsign",
                 operation="verify-plan",
                 task_name=plan.task_name,
@@ -312,7 +316,7 @@ class ZsignBackend:
             plan_sha256=plan.plan_sha256,
             output_path=PurePosixPath(output_ipa.name),
             output_sha256=output_sha256,
-            backend=identity,
+            backend=plan.backend,
             nodes=nodes,
             duration_seconds=result.duration_seconds,
             backend_argv=result.argv,

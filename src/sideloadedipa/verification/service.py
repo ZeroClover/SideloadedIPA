@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +14,7 @@ from sideloadedipa.domain import (
     VerificationFinding,
     VerificationResult,
 )
+from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.util.atomics import file_sha256
 from sideloadedipa.verification.artifact import (
     SignedArtifactEntitlementEvidence,
@@ -35,7 +36,8 @@ class EntitlementEvidenceLoader(Protocol):
     def __call__(
         self,
         plan: SigningPlan,
-        signed_ipa: Path,
+        signed_root: Path,
+        artifact_sha256: str,
         *,
         inspector: SignedEntitlementInspector | None = None,
     ) -> SignedArtifactEntitlementEvidence: ...
@@ -54,7 +56,7 @@ class ProfileVerifier(Protocol):
     def __call__(
         self,
         plan: SigningPlan,
-        signed_ipa: Path,
+        signed_root: Path,
         profiles: tuple[ProvisioningProfile, ...],
         *,
         validator: EmbeddedProfileValidator,
@@ -65,7 +67,7 @@ class SignedArtifactVerifier(Protocol):
     def __call__(
         self,
         plan: SigningPlan,
-        signed_ipa: Path,
+        signed_root: Path,
     ) -> tuple[VerificationFinding, ...]: ...
 
 
@@ -73,8 +75,10 @@ class OutputIntegrityVerifier(Protocol):
     def __call__(
         self,
         plan: SigningPlan,
-        source_ipa: Path,
-        signed_ipa: Path,
+        source_root: Path,
+        output_root: Path,
+        source_sha256: str,
+        output_sha256: str,
     ) -> tuple[VerificationFinding, ...]: ...
 
 
@@ -112,21 +116,35 @@ class PackageVerifier:
             now=self.now,
             refresh_threshold=self.refresh_threshold,
         )
-        evidence = self.checks.inspect_entitlements(
-            plan,
-            signed_ipa,
-            inspector=self.entitlement_inspector,
-        )
-        findings = (
-            *self.checks.verify_entitlements(plan, self.profiles, evidence),
-            *self.checks.verify_profiles(
-                plan,
-                signed_ipa,
-                self.profiles,
-                validator=validator,
-            ),
-            *self.checks.verify_signatures(plan, signed_ipa),
-            *self.checks.verify_integrity(plan, self.source_ipa, signed_ipa),
-        )
+        source_sha256 = file_sha256(self.source_ipa)
         artifact_sha256 = file_sha256(signed_ipa)
+        with tempfile.TemporaryDirectory(prefix="sideloadedipa-verification-") as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            signed_root = root / "signed"
+            extract_ipa_safely(self.source_ipa, source_root)
+            extract_ipa_safely(signed_ipa, signed_root)
+            evidence = self.checks.inspect_entitlements(
+                plan,
+                signed_root,
+                artifact_sha256,
+                inspector=self.entitlement_inspector,
+            )
+            findings = (
+                *self.checks.verify_entitlements(plan, self.profiles, evidence),
+                *self.checks.verify_profiles(
+                    plan,
+                    signed_root,
+                    self.profiles,
+                    validator=validator,
+                ),
+                *self.checks.verify_signatures(plan, signed_root),
+                *self.checks.verify_integrity(
+                    plan,
+                    source_root,
+                    signed_root,
+                    source_sha256,
+                    artifact_sha256,
+                ),
+            )
         return build_verification_result(plan, artifact_sha256, findings)

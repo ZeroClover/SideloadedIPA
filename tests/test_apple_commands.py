@@ -94,7 +94,10 @@ class RecordingBackend:
     profile_created: bool = True
     created_profile_state: AppleProfileState | None = None
     calls: list[str] = field(default_factory=list)
+    managed_bundle_inputs: list[tuple[str, ...] | None] = field(default_factory=list)
     collect_profile_inputs: list[tuple[AppleProfileState, ...] | None] = field(default_factory=list)
+    ensure_bundle_inputs: list[tuple[AppleBundleIdentifierState, ...]] = field(default_factory=list)
+    ensure_capability_inputs: list[tuple[AppleCapabilityState, ...]] = field(default_factory=list)
     ensure_profile_inputs: list[tuple[AppleProfileState, ...]] = field(default_factory=list)
     mutations: dict[str, int] = field(
         default_factory=lambda: {
@@ -118,29 +121,41 @@ class RecordingBackend:
     def collect(
         self,
         *,
+        managed_bundle_identifiers: tuple[str, ...] | None = None,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...] | None = None,
+        capabilities: tuple[AppleCapabilityState, ...] | None = None,
+        certificates: tuple[AppleCertificateState, ...] | None = None,
+        devices: tuple[object, ...] | None = None,
         profiles: tuple[AppleProfileState, ...] | None = None,
     ) -> AppleStateSnapshot:
         self.calls.append("collect")
+        self.managed_bundle_inputs.append(managed_bundle_identifiers)
         self.collect_profile_inputs.append(profiles)
-        bundles = (self._bundle(),) if self.bundle_exists else ()
-        certificates = (
-            AppleCertificateState(
-                resource_id="CERT_ONE",
-                name="Development",
-                certificate_type="DEVELOPMENT",
-                display_name=None,
-                serial_number="1234ABCD",
-                platform="IOS",
-                expiration_date=None,
-                certificate_sha256=CERTIFICATE_SHA256,
-            ),
+        bundle_values = (
+            ((self._bundle(),) if self.bundle_exists else ()) if bundle_ids is None else bundle_ids
+        )
+        certificate_values = (
+            (
+                AppleCertificateState(
+                    resource_id="CERT_ONE",
+                    name="Development",
+                    certificate_type="DEVELOPMENT",
+                    display_name=None,
+                    serial_number="1234ABCD",
+                    platform="IOS",
+                    expiration_date=None,
+                    certificate_sha256=CERTIFICATE_SHA256,
+                ),
+            )
+            if certificates is None
+            else certificates
         )
         return AppleStateSnapshot(
             "snapshot",
-            bundles,
-            (),
-            certificates,
-            (),
+            bundle_values,
+            () if capabilities is None else capabilities,
+            certificate_values,
+            () if devices is None else devices,
             profiles if profiles is not None else (),
         )
 
@@ -155,17 +170,33 @@ class RecordingBackend:
             expires_at=NOW + timedelta(days=90),
         )
 
-    def ensure_bundle(self, intent: object) -> AppleBundleIdentifierState:
+    def ensure_bundle(
+        self,
+        intent: object,
+        *,
+        bundle_ids: tuple[AppleBundleIdentifierState, ...],
+    ) -> AppleBundleIdentifierState:
         self.calls.append("ensure_bundle")
+        self.ensure_bundle_inputs.append(bundle_ids)
         self.mutations["apple"] += 1
         self.bundle_exists = True
         return self._bundle()
 
     def ensure_capability(
-        self, *, bundle: AppleBundleIdentifierState, capability_type: str
-    ) -> None:
+        self,
+        *,
+        bundle: AppleBundleIdentifierState,
+        capability_type: str,
+        capabilities: tuple[AppleCapabilityState, ...],
+    ) -> AppleCapabilityState:
         self.calls.append(f"ensure_capability:{capability_type}")
+        self.ensure_capability_inputs.append(capabilities)
         self.mutations["apple"] += 1
+        return AppleCapabilityState(
+            resource_id=f"CAP_{capability_type}",
+            bundle_resource_id=bundle.resource_id,
+            capability_type=capability_type,
+        )
 
     def ensure_profile(self, **kwargs: object) -> ProfileReconciliationResult:
         self.calls.append("ensure_profile")
@@ -189,12 +220,28 @@ class RecordingBackend:
             path=profile_relative_path("Example", "io.example.app"),
             entitlements=(),
         )
+        state_value = self.created_profile_state
+        if self.profile_created and state_value is None:
+            state_value = AppleProfileState(
+                resource_id=profile.resource_id,
+                name=profile.name,
+                platform="IOS",
+                profile_type=profile.profile_type.value,
+                profile_state="ACTIVE",
+                uuid=f"UUID-{profile.resource_id}",
+                created_date=profile.created_at.isoformat(),
+                expiration_date=profile.expires_at.isoformat(),
+                profile_sha256=profile.profile_sha256,
+                bundle_resource_id="BUNDLE_ONE",
+                certificate_resource_ids=("CERT_ONE",),
+                device_resource_ids=(),
+            )
         return ProfileReconciliationResult(
             profile,
             content,
             self.profile_created,
             (),
-            self.created_profile_state,
+            state_value,
         )
 
 
@@ -235,6 +282,7 @@ def test_dry_commands_have_no_mutation_channel(
     assert "UDID" not in rendered
     assert "Task Example (1 bundles)" in (result.human_output or "")
     assert "safe-automatic: profile Example Dev" in (result.human_output or "")
+    assert backend.managed_bundle_inputs == [("io.example.app",)]
 
 
 def test_apply_stops_before_profiles_when_manual_prerequisite_remains(tmp_path: Path) -> None:
@@ -248,7 +296,11 @@ def test_apply_stops_before_profiles_when_manual_prerequisite_remains(tmp_path: 
 
     assert result.exit_code == 1
     assert document["status"] == "blocked"
+    assert document["resource_plan"]["command"] == "plan"
+    assert document["resource_plan"]["apply"] is False
     assert "ensure_profile" not in backend.calls
+    assert backend.calls == ["collect", "resolve_certificate"]
+    assert backend.mutations["apple"] == 0
     assert not (tmp_path / "profiles").exists()
     assert "remediation:" in (result.human_output or "")
 
@@ -301,6 +353,9 @@ def test_apply_stores_only_validated_profiles_and_redacted_manifest(tmp_path: Pa
 
     assert result.exit_code == 0
     assert document["status"] == "applied"
+    assert document["resource_plan"]["command"] == "plan"
+    assert document["resource_plan"]["apply"] is False
+    assert document["resource_plan"]["snapshot_sha256"] == "snapshot"
     assert backend.calls.count("ensure_bundle") == 1
     assert backend.calls.count("ensure_profile") == 1
     manifest_files = list(deps.profile_root.rglob("resource-manifest.json"))
@@ -312,8 +367,25 @@ def test_apply_stores_only_validated_profiles_and_redacted_manifest(tmp_path: Pa
     assert "validated mobileprovision fixture" not in manifest
     assert "PREFIX1234.io.example.app" not in manifest
     assert "manifest:" in (result.human_output or "")
-    assert backend.collect_profile_inputs == [None, (), (), None]
+    assert backend.collect_profile_inputs == [None]
+    assert backend.calls.count("collect") == 1
     assert backend.ensure_profile_inputs == [()]
+
+
+def test_preparsed_configuration_bypasses_command_loader(tmp_path: Path) -> None:
+    backend = RecordingBackend()
+    configuration = TaskConfiguration((task(),))
+    deps = AppleCommandDependencies(
+        load=lambda _: pytest.fail("configuration was parsed more than once"),
+        configuration=configuration,
+        backend=backend,
+        profile_root=tmp_path / "profiles",
+    )
+
+    result = plan_command(request(CommandName.PLAN), deps)
+
+    assert result.exit_code == 0
+    assert backend.calls == ["collect", "resolve_certificate"]
 
 
 def test_apply_reuses_profile_snapshot_when_profiles_do_not_mutate(tmp_path: Path) -> None:
@@ -325,11 +397,12 @@ def test_apply_reuses_profile_snapshot_when_profiles_do_not_mutate(tmp_path: Pat
     )
 
     assert result.exit_code == 0
-    assert backend.collect_profile_inputs == [None, (), ()]
+    assert backend.collect_profile_inputs == [None]
+    assert backend.calls.count("collect") == 1
     assert backend.ensure_profile_inputs == [()]
 
 
-def test_apply_merges_created_profile_state_then_refreshes_final_snapshot(
+def test_apply_merges_created_profile_state_without_refreshing_final_snapshot(
     tmp_path: Path,
 ) -> None:
     created = AppleProfileState(
@@ -359,4 +432,5 @@ def test_apply_merges_created_profile_state_then_refreshes_final_snapshot(
 
     assert result.exit_code == 0
     assert recorded == [("profile", created.resource_id)]
-    assert backend.collect_profile_inputs == [None, (), (), None]
+    assert backend.collect_profile_inputs == [None]
+    assert backend.calls.count("collect") == 1

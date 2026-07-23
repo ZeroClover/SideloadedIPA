@@ -7,15 +7,19 @@ import json
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import PurePosixPath
+from typing import cast
 
 from sideloadedipa.domain import (
     BundleNodeKind,
     Diagnostic,
     DiagnosticSeverity,
+    FrozenJsonObject,
     SigningPlan,
     VerificationFinding,
     VerificationResult,
+    freeze_json,
 )
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.util.atomics import canonical_json, diagnostic_document
 
 VERIFICATION_REPORT_SCHEMA_VERSION = 1
@@ -149,6 +153,123 @@ def verification_report_sha256(plan: SigningPlan, result: VerificationResult) ->
     """Digest a canonical redacted report without its self-referential digest."""
 
     return hashlib.sha256(canonical_json(_report_document(plan, result))).hexdigest()
+
+
+def canonical_verification_report_json(
+    plan: SigningPlan,
+    result: VerificationResult,
+) -> bytes:
+    """Serialize the digest-bound canonical verification evidence."""
+
+    if result.report_sha256 != verification_report_sha256(plan, result):
+        raise DomainError(
+            ErrorCode.DOMAIN_INVARIANT,
+            "verification report digest is inconsistent with its findings",
+            task_name=plan.task_name,
+        )
+    document = _report_document(plan, result)
+    document["report_sha256"] = result.report_sha256
+    return canonical_json(document)
+
+
+def _parse_error(plan: SigningPlan, message: str) -> ConfigurationError:
+    return ConfigurationError(
+        ErrorCode.CONFIG_INVALID,
+        message,
+        task_name=plan.task_name,
+        remediation="discard the retained verification report and rerun verification",
+    )
+
+
+def parse_verification_report_json(
+    plan: SigningPlan,
+    payload: bytes,
+) -> VerificationResult:
+    """Decode canonical verification evidence and verify every digest-bound field."""
+
+    try:
+        document = json.loads(payload)
+        if not isinstance(document, dict):
+            raise TypeError
+        findings_document = document["findings"]
+        if not isinstance(findings_document, list):
+            raise TypeError
+        findings: list[VerificationFinding] = []
+        for finding_document in findings_document:
+            if not isinstance(finding_document, dict):
+                raise TypeError
+            diagnostics_document = finding_document["diagnostics"]
+            if not isinstance(diagnostics_document, list):
+                raise TypeError
+            diagnostics: list[Diagnostic] = []
+            for diagnostic_value in diagnostics_document:
+                if not isinstance(diagnostic_value, dict) or not isinstance(
+                    diagnostic_value.get("details"), dict
+                ):
+                    raise TypeError
+                details = freeze_json(diagnostic_value["details"])
+                if not isinstance(details, FrozenJsonObject):
+                    raise TypeError
+                diagnostics.append(
+                    Diagnostic(
+                        code=cast(str, diagnostic_value["code"]),
+                        severity=DiagnosticSeverity(cast(str, diagnostic_value["severity"])),
+                        message=cast(str, diagnostic_value["message"]),
+                        task_name=cast(str | None, diagnostic_value["task_name"]),
+                        bundle_id=cast(str | None, diagnostic_value["bundle_id"]),
+                        remediation=cast(str | None, diagnostic_value["remediation"]),
+                        details=details.items,
+                    )
+                )
+            findings.append(
+                VerificationFinding(
+                    node_path=PurePosixPath(cast(str, finding_document["node_path"])),
+                    check=cast(str, finding_document["check"]),
+                    passed=cast(bool, finding_document["passed"]),
+                    expected_sha256=cast(
+                        str | None,
+                        finding_document["expected_sha256"],
+                    ),
+                    actual_sha256=cast(
+                        str | None,
+                        finding_document["actual_sha256"],
+                    ),
+                    diagnostics=tuple(diagnostics),
+                )
+            )
+        result = VerificationResult(
+            plan_sha256=cast(str, document["plan_sha256"]),
+            artifact_sha256=cast(str, document["artifact_sha256"]),
+            passed=cast(bool, document["verified"]),
+            findings=tuple(findings),
+            report_sha256=cast(str, document["report_sha256"]),
+        )
+        if (
+            document["schema_version"] != VERIFICATION_REPORT_SCHEMA_VERSION
+            or document["task_name"] != plan.task_name
+            or document["publication_allowed"] is not result.passed
+            or not isinstance(result.passed, bool)
+            or not isinstance(result.plan_sha256, str)
+            or not isinstance(result.artifact_sha256, str)
+            or not isinstance(result.report_sha256, str)
+            or not result.report_sha256
+        ):
+            raise TypeError
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as error:
+        raise _parse_error(plan, "verification report fields are invalid") from error
+    try:
+        canonical = canonical_verification_report_json(plan, result)
+    except DomainError as error:
+        raise _parse_error(plan, "verification report digest is invalid") from error
+    if canonical != canonical_json(document):
+        raise _parse_error(plan, "verification report canonical evidence is inconsistent")
+    return result
 
 
 def build_verification_result(

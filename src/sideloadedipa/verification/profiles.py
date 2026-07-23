@@ -19,10 +19,8 @@ from sideloadedipa.domain import (
     VerificationFinding,
 )
 from sideloadedipa.errors import ErrorCode, SideloadedIPAError
-from sideloadedipa.ipa.archive import extract_ipa_safely
 from sideloadedipa.signing.profile_validation import decode_and_validate_provisioning_profile
 from sideloadedipa.util.atomics import file_sha256
-from sideloadedipa.util.workspace import task_workspace
 
 
 class EmbeddedProfileValidator(Protocol):
@@ -95,7 +93,7 @@ def _info_bundle_id(path: Path) -> str | None:
 
 def verify_signed_profiles(
     plan: SigningPlan,
-    signed_ipa: Path,
+    signed_root: Path,
     profiles: tuple[ProvisioningProfile, ...],
     *,
     validator: EmbeddedProfileValidator,
@@ -103,121 +101,109 @@ def verify_signed_profiles(
     """Verify exact bundle IDs and embedded development-profile identity."""
 
     profiles_by_id = {value.resource_id: value for value in profiles}
-    workspace_base = signed_ipa.parent / ".sideloadedipa-profile-verification"
-    remove_workspace_base = not workspace_base.exists()
-    try:
-        with task_workspace(workspace_base, plan.task_name) as workspace:
-            extract_ipa_safely(signed_ipa, workspace.extracted)
-            findings: list[VerificationFinding] = []
-            for node in plan.nodes:
-                if node.profile_resource_id is None or node.target_bundle_id is None:
-                    continue
-                bundle = workspace.extracted.joinpath(*node.source_path.parts)
-                actual_bundle_id = _info_bundle_id(bundle / "Info.plist")
-                bundle_passed = actual_bundle_id == node.target_bundle_id
-                findings.append(
-                    _finding(
-                        node.source_path,
-                        "bundle-identifier",
-                        bundle_passed,
-                        expected=hashlib.sha256(node.target_bundle_id.encode()).hexdigest(),
-                        actual=(
-                            hashlib.sha256(actual_bundle_id.encode()).hexdigest()
-                            if actual_bundle_id is not None
-                            else None
-                        ),
-                        diagnostic=(
-                            None
-                            if bundle_passed
-                            else _diagnostic(
-                                plan,
-                                node.target_bundle_id,
-                                "verification.bundle_identifier",
-                                "signed bundle identifier does not match the plan",
-                            )
-                        ),
+    findings: list[VerificationFinding] = []
+    for node in plan.nodes:
+        if node.profile_resource_id is None or node.target_bundle_id is None:
+            continue
+        bundle = signed_root.joinpath(*node.source_path.parts)
+        actual_bundle_id = _info_bundle_id(bundle / "Info.plist")
+        bundle_passed = actual_bundle_id == node.target_bundle_id
+        findings.append(
+            _finding(
+                node.source_path,
+                "bundle-identifier",
+                bundle_passed,
+                expected=hashlib.sha256(node.target_bundle_id.encode()).hexdigest(),
+                actual=(
+                    hashlib.sha256(actual_bundle_id.encode()).hexdigest()
+                    if actual_bundle_id is not None
+                    else None
+                ),
+                diagnostic=(
+                    None
+                    if bundle_passed
+                    else _diagnostic(
+                        plan,
+                        node.target_bundle_id,
+                        "verification.bundle_identifier",
+                        "signed bundle identifier does not match the plan",
                     )
-                )
+                ),
+            )
+        )
 
-                embedded = bundle / "embedded.mobileprovision"
-                actual_profile_sha256 = _digest(embedded) if embedded.is_file() else None
-                digest_passed = (
-                    node.profile_sha256 is not None and actual_profile_sha256 == node.profile_sha256
-                )
-                findings.append(
-                    _finding(
-                        node.source_path,
-                        "embedded-profile-sha256",
-                        digest_passed,
-                        expected=node.profile_sha256,
-                        actual=actual_profile_sha256,
-                        diagnostic=(
-                            None
-                            if digest_passed
-                            else _diagnostic(
-                                plan,
-                                node.target_bundle_id,
-                                "verification.embedded_profile",
-                                "embedded profile is missing or differs from the plan",
-                            )
-                        ),
+        embedded = bundle / "embedded.mobileprovision"
+        actual_profile_sha256 = _digest(embedded) if embedded.is_file() else None
+        digest_passed = (
+            node.profile_sha256 is not None and actual_profile_sha256 == node.profile_sha256
+        )
+        findings.append(
+            _finding(
+                node.source_path,
+                "embedded-profile-sha256",
+                digest_passed,
+                expected=node.profile_sha256,
+                actual=actual_profile_sha256,
+                diagnostic=(
+                    None
+                    if digest_passed
+                    else _diagnostic(
+                        plan,
+                        node.target_bundle_id,
+                        "verification.embedded_profile",
+                        "embedded profile is missing or differs from the plan",
                     )
-                )
+                ),
+            )
+        )
 
-                planned_profile = profiles_by_id.get(node.profile_resource_id)
-                if planned_profile is None or not embedded.is_file():
-                    findings.append(
-                        _finding(
-                            node.source_path,
-                            "embedded-profile-validation",
-                            False,
-                            diagnostic=_diagnostic(
-                                plan,
-                                node.target_bundle_id,
-                                "verification.profile_identity",
-                                "planned or embedded profile evidence is missing",
-                            ),
-                        )
-                    )
-                    continue
-                request = ProfileValidationRequest(
-                    planned_profile.resource_id,
-                    node.target_bundle_id,
-                    planned_profile.application_identifier,
-                    planned_profile.team_id,
-                    planned_profile.profile_type,
-                    plan.certificate_sha256,
-                    planned_profile.device_ids,
-                    planned_profile.path,
-                    node.expected_entitlements,
+        planned_profile = profiles_by_id.get(node.profile_resource_id)
+        if planned_profile is None or not embedded.is_file():
+            findings.append(
+                _finding(
+                    node.source_path,
+                    "embedded-profile-validation",
+                    False,
+                    diagnostic=_diagnostic(
+                        plan,
+                        node.target_bundle_id,
+                        "verification.profile_identity",
+                        "planned or embedded profile evidence is missing",
+                    ),
                 )
-                try:
-                    validated = validator.validate(embedded, request)
-                    passed = (
-                        validated.resource_id == planned_profile.resource_id
-                        and validated.team_id == planned_profile.team_id
-                        and validated.application_identifier
-                        == planned_profile.application_identifier
-                        and validated.certificate_sha256 == plan.certificate_sha256
-                    )
-                    error_diagnostic = None
-                except SideloadedIPAError as error:
-                    passed = False
-                    error_diagnostic = error.to_diagnostic()
-                findings.append(
-                    _finding(
-                        node.source_path,
-                        "embedded-profile-validation",
-                        passed,
-                        expected=node.profile_sha256,
-                        actual=actual_profile_sha256,
-                        diagnostic=(error_diagnostic if not passed else None),
-                    )
-                )
-            return tuple(findings)
-    finally:
-        if remove_workspace_base:
-            try:
-                workspace_base.rmdir()
-            except OSError:
-                pass
+            )
+            continue
+        request = ProfileValidationRequest(
+            planned_profile.resource_id,
+            node.target_bundle_id,
+            planned_profile.application_identifier,
+            planned_profile.team_id,
+            planned_profile.profile_type,
+            plan.certificate_sha256,
+            planned_profile.device_ids,
+            planned_profile.path,
+            node.expected_entitlements,
+        )
+        try:
+            validated = validator.validate(embedded, request)
+            passed = (
+                validated.resource_id == planned_profile.resource_id
+                and validated.team_id == planned_profile.team_id
+                and validated.application_identifier == planned_profile.application_identifier
+                and validated.certificate_sha256 == plan.certificate_sha256
+            )
+            error_diagnostic = None
+        except SideloadedIPAError as error:
+            passed = False
+            error_diagnostic = error.to_diagnostic()
+        findings.append(
+            _finding(
+                node.source_path,
+                "embedded-profile-validation",
+                passed,
+                expected=node.profile_sha256,
+                actual=actual_profile_sha256,
+                diagnostic=(error_diagnostic if not passed else None),
+            )
+        )
+    return tuple(findings)

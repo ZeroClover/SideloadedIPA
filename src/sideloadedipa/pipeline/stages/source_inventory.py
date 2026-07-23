@@ -90,7 +90,11 @@ class SourceInventoryStage:
         resolved, downloaded, source = self.resolve_source_asset(request, task)
         source_completed_at = self.evidence.clock()
         inventory_started_at = self.evidence.clock()
-        graph = inspect_source_graph(downloaded.path, task=task)
+        graph = inspect_source_graph(
+            downloaded.path,
+            source_sha256=downloaded.sha256,
+            task=task,
+        )
         inventory_completed_at = self.evidence.clock()
         return SourceContext(
             task,
@@ -202,7 +206,11 @@ class SourceInventoryStage:
                         source_input, resolved, downloaded = inputs.load_source(task)
                         source = source_input.source
                     inventory_started_at = self.evidence.clock()
-                    graph = inspect_source_graph(downloaded.path, task=task)
+                    graph = inspect_source_graph(
+                        downloaded.path,
+                        source_sha256=downloaded.sha256,
+                        task=task,
+                    )
                     inventory_completed_at = self.evidence.clock()
                     inventory_manifest = self.evidence.record_success(
                         store,

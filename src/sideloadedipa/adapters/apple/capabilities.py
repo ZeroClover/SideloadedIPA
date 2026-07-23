@@ -134,7 +134,12 @@ class CapabilityReconciler:
         return matches[0] if matches else None
 
     def ensure(
-        self, *, bundle_resource_id: str, bundle_id: str, capability_type: str
+        self,
+        *,
+        bundle_resource_id: str,
+        bundle_id: str,
+        capability_type: str,
+        capabilities: tuple[AppleCapabilityState, ...] | None = None,
     ) -> AppleCapabilityState:
         rule = capability_rule(capability_type)
         if rule.automation is not CapabilityAutomation.API_ADDITIVE:
@@ -146,10 +151,10 @@ class CapabilityReconciler:
                 safe_details=(("capability_type", rule.capability_type),),
             )
 
-        def lookup() -> AppleCapabilityState | None:
+        def lookup(values: tuple[AppleCapabilityState, ...]) -> AppleCapabilityState | None:
             return self._require_exact_one(
                 exact_capability_matches(
-                    self.gateway.list(bundle_resource_id),
+                    values,
                     bundle_resource_id,
                     rule.capability_type,
                 ),
@@ -157,7 +162,9 @@ class CapabilityReconciler:
                 rule.capability_type,
             )
 
-        existing = lookup()
+        existing = lookup(
+            self.gateway.list(bundle_resource_id) if capabilities is None else capabilities
+        )
         if existing is not None:
             return existing
 
@@ -166,7 +173,7 @@ class CapabilityReconciler:
         except AdapterError as error:
             if error.code not in _UNCERTAIN_ADD_ERRORS:
                 raise
-            recovered = lookup()
+            recovered = lookup(self.gateway.list(bundle_resource_id))
             if recovered is not None:
                 return recovered
             raise
@@ -188,15 +195,4 @@ class CapabilityReconciler:
                 ),
             )
 
-        verified = lookup()
-        if verified is None:
-            raise AdapterError(
-                ErrorCode.ADAPTER_RESPONSE_INVALID,
-                "new capability was not present in the verified App ID state",
-                adapter="asc",
-                operation="capabilities-verify",
-                bundle_id=bundle_id,
-                remediation="re-run read-only planning before another apply attempt",
-                safe_details=(("capability_type", rule.capability_type),),
-            )
-        return verified
+        return created

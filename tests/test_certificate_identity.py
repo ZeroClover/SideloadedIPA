@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
 import sideloadedipa.apple.state_probe as state_probe
+import sideloadedipa.signing.certificate_identity as certificate_identity_module
 from sideloadedipa.apple.state_probe import (
     certificate_identity_from_environment,
     redacted_certificate_summary,
@@ -110,6 +111,48 @@ def test_materializes_private_backend_inputs_with_restricted_permissions(tmp_pat
     assert material.private_key_path.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
     assert material.certificate_path.stat().st_mode & 0o777 == 0o600
     assert material.private_key_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_materialization_decodes_pkcs12_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "development.p12"
+    make_p12(path, "private-password")
+    original = certificate_identity_module.pkcs12.load_key_and_certificates
+    calls = 0
+
+    def decode(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        certificate_identity_module.pkcs12,
+        "load_key_and_certificates",
+        decode,
+    )
+
+    load_p12_certificate_material(
+        path,
+        "private-password",
+        resource_id="CERT_ONE",
+        output_directory=tmp_path / "material",
+    )
+
+    assert calls == 1
+
+
+def test_materialization_requires_stable_resource_id(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        load_p12_certificate_material(
+            tmp_path / "unused.p12",
+            "unused",
+            resource_id="",
+            output_directory=tmp_path / "material",
+        )
+
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
 
 
 def test_rejects_missing_or_bad_password_p12(tmp_path: Path) -> None:

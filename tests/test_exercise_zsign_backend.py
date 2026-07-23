@@ -498,14 +498,18 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         )
         assert actual[role] == expected[role]
     assert evaluate_contract(actual) == []
-    helper_evidence = inspect_signed_entitlements(plan, signed).nodes[0]
+    helper_evidence = inspect_signed_entitlements(
+        plan,
+        extracted,
+        hashlib.sha256(signed.read_bytes()).hexdigest(),
+    ).nodes[0]
     assert helper_evidence.source_path == HELPER
     assert all(value.xml is None and value.der is None for value in helper_evidence.slices)
     assert {node.source_path for node in result.nodes} == {
         HELPER,
         *(PurePosixPath(bundle) for bundle, _, _ in TARGETS.values()),
     }
-    assert all(finding.passed for finding in verify_signed_signatures(plan, signed))
+    assert all(finding.passed for finding in verify_signed_signatures(plan, extracted))
 
     tampered = tmp_path / "tampered.ipa"
     with zipfile.ZipFile(signed) as source, zipfile.ZipFile(tampered, "w") as destination:
@@ -514,4 +518,7 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
             if info.filename == HELPER.as_posix():
                 content = bytes((content[0] ^ 1,)) + content[1:]
             destination.writestr(info, content)
-    assert any(not finding.passed for finding in verify_signed_signatures(plan, tampered))
+    tampered_root = tmp_path / "tampered"
+    with zipfile.ZipFile(tampered) as archive:
+        archive.extractall(tampered_root)
+    assert any(not finding.passed for finding in verify_signed_signatures(plan, tampered_root))

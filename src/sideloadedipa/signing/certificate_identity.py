@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
     NoEncryption,
@@ -28,8 +31,45 @@ from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.util.atomics import atomic_write_bytes
 
 
-def load_p12_certificate_identity(path: Path, password: str) -> P12CertificateIdentity:
-    """Extract only public certificate identity from a PKCS#12 container."""
+@dataclass(frozen=True, slots=True)
+class _DecodedP12:
+    private_key: PrivateKeyTypes
+    certificate: x509.Certificate
+    identity: P12CertificateIdentity
+
+
+def _public_identity(path: Path, certificate: x509.Certificate) -> P12CertificateIdentity:
+    certificate_der = certificate.public_bytes(Encoding.DER)
+    public_key_der = certificate.public_key().public_bytes(
+        Encoding.DER, PublicFormat.SubjectPublicKeyInfo
+    )
+    team_ids = certificate.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+    if len(team_ids) != 1 or not team_ids[0].value:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 certificate does not contain exactly one Apple Team ID",
+            remediation="use an Apple-issued code-signing certificate whose subject contains Team ID OU",
+            safe_details=(("path_name", path.name),),
+        )
+    team_id = team_ids[0].value
+    if not isinstance(team_id, str):
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "configured P12 certificate contains a non-text Apple Team ID",
+            remediation="use an Apple-issued code-signing certificate with a textual Team ID OU",
+            safe_details=(("path_name", path.name),),
+        )
+    return P12CertificateIdentity(
+        team_id=team_id,
+        serial_number=format(certificate.serial_number, "X"),
+        public_key_sha256=hashlib.sha256(public_key_der).hexdigest(),
+        certificate_sha256=hashlib.sha256(certificate_der).hexdigest(),
+        expires_at=certificate.not_valid_after_utc,
+    )
+
+
+def _decode_p12(path: Path, password: str) -> _DecodedP12:
+    """Read and decode one PKCS#12 container exactly once."""
 
     try:
         data = path.read_bytes()
@@ -62,33 +102,17 @@ def load_p12_certificate_identity(path: Path, password: str) -> P12CertificateId
             safe_details=(("path_name", path.name),),
         )
 
-    certificate_der = certificate.public_bytes(Encoding.DER)
-    public_key_der = certificate.public_key().public_bytes(
-        Encoding.DER, PublicFormat.SubjectPublicKeyInfo
+    return _DecodedP12(
+        private_key,
+        certificate,
+        _public_identity(path, certificate),
     )
-    team_ids = certificate.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
-    if len(team_ids) != 1 or not team_ids[0].value:
-        raise ConfigurationError(
-            ErrorCode.CONFIG_INVALID,
-            "configured P12 certificate does not contain exactly one Apple Team ID",
-            remediation="use an Apple-issued code-signing certificate whose subject contains Team ID OU",
-            safe_details=(("path_name", path.name),),
-        )
-    team_id = team_ids[0].value
-    if not isinstance(team_id, str):
-        raise ConfigurationError(
-            ErrorCode.CONFIG_INVALID,
-            "configured P12 certificate contains a non-text Apple Team ID",
-            remediation="use an Apple-issued code-signing certificate with a textual Team ID OU",
-            safe_details=(("path_name", path.name),),
-        )
-    return P12CertificateIdentity(
-        team_id=team_id,
-        serial_number=format(certificate.serial_number, "X"),
-        public_key_sha256=hashlib.sha256(public_key_der).hexdigest(),
-        certificate_sha256=hashlib.sha256(certificate_der).hexdigest(),
-        expires_at=certificate.not_valid_after_utc,
-    )
+
+
+def load_p12_certificate_identity(path: Path, password: str) -> P12CertificateIdentity:
+    """Extract only public certificate identity from a PKCS#12 container."""
+
+    return _decode_p12(path, password).identity
 
 
 def _atomic_private_write(path: Path, content: bytes) -> None:
@@ -109,30 +133,22 @@ def load_p12_certificate_material(
             ErrorCode.CONFIG_INVALID,
             "certificate material requires a stable Apple resource ID",
         )
-    public = load_p12_certificate_identity(path, password)
-    try:
-        private_key, certificate, _ = pkcs12.load_key_and_certificates(
-            path.read_bytes(), password.encode() if password else None
-        )
-    except (OSError, TypeError, ValueError) as error:
-        raise ConfigurationError(
-            ErrorCode.CONFIG_INVALID,
-            "configured P12 could not be materialized",
-            remediation="verify the P12 content and password",
-            safe_details=(("path_name", path.name),),
-        ) from error
-    if private_key is None or certificate is None:
-        raise ConfigurationError(
-            ErrorCode.CONFIG_INVALID,
-            "configured P12 must contain one private key and its certificate",
-        )
+    decoded = _decode_p12(path, password)
     certificate_path = output_directory / "certificate.pem"
     private_key_path = output_directory / "private-key.pem"
-    _atomic_private_write(certificate_path, certificate.public_bytes(Encoding.PEM))
+    _atomic_private_write(
+        certificate_path,
+        decoded.certificate.public_bytes(Encoding.PEM),
+    )
     _atomic_private_write(
         private_key_path,
-        private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()),
+        decoded.private_key.private_bytes(
+            Encoding.PEM,
+            PrivateFormat.PKCS8,
+            NoEncryption(),
+        ),
     )
+    public = decoded.identity
     identity = CertificateIdentity(
         resource_id,
         public.team_id,

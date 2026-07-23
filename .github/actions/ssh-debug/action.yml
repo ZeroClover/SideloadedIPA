@@ -1,5 +1,5 @@
 name: Start SSH debug session
-description: Start a public-key-only SSH server behind a temporary Cloudflare Tunnel
+description: Start a public-key-only SSH server with the caller environment behind a temporary Cloudflare Tunnel
 
 inputs:
   public-key:
@@ -36,17 +36,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        unset APPLE_DEV_CERT_P12_ENCODED APPLE_DEV_CERT_PASSWORD P12_PASSWORD
-        unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64
-        unset GITHUB_TOKEN GH_TOKEN
-        unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-        unset R2_ENDPOINT_URL R2_BUCKET R2_PUBLIC_BASE_URL
-        unset VERCEL_REVALIDATE_SECRET WEBHOOK_URL
         sudo apt-get install -y dropbear-bin
         mkdir -p "$RUNNER_TEMP/dropbear"
         dropbearkey -t ed25519 -f "$RUNNER_TEMP/dropbear/host_key"
         dropbear -p 127.0.0.1:2222 -r "$RUNNER_TEMP/dropbear/host_key" \
-          -s -g -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
+          -s -g -e -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
         echo "SSH server is listening on 127.0.0.1:2222 (login user: $(whoami))"
 
     - name: Install checksum-verified cloudflared
@@ -67,12 +61,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        unset APPLE_DEV_CERT_P12_ENCODED APPLE_DEV_CERT_PASSWORD P12_PASSWORD
-        unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64
-        unset GITHUB_TOKEN GH_TOKEN
-        unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-        unset R2_ENDPOINT_URL R2_BUCKET R2_PUBLIC_BASE_URL
-        unset VERCEL_REVALIDATE_SECRET WEBHOOK_URL
         debug_dir="$RUNNER_TEMP/ssh-debug"
         mkdir -p "$debug_dir"
         tunnel_log="$debug_dir/cloudflared.log"
@@ -121,12 +109,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        unset APPLE_DEV_CERT_P12_ENCODED APPLE_DEV_CERT_PASSWORD P12_PASSWORD
-        unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64
-        unset GITHUB_TOKEN GH_TOKEN
-        unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-        unset R2_ENDPOINT_URL R2_BUCKET R2_PUBLIC_BASE_URL
-        unset VERCEL_REVALIDATE_SECRET WEBHOOK_URL
         debug_dir="$RUNNER_TEMP/ssh-debug"
         tunnel_pid="$(cat "$debug_dir/cloudflared.pid")"
         if ! kill -0 "$tunnel_pid" 2>/dev/null; then

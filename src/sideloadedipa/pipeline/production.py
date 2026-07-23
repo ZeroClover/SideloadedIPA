@@ -13,7 +13,7 @@ from sideloadedipa.application import CommandName, CommandRequest, CommandResult
 from sideloadedipa.cache.decisions import RebuildDecision
 from sideloadedipa.cache.store import SigningCacheStore
 from sideloadedipa.config import load_configuration
-from sideloadedipa.domain.config import Task
+from sideloadedipa.domain.config import Task, TaskConfiguration
 from sideloadedipa.domain.pipeline import (
     PipelineStage,
     PublicationResult,
@@ -83,14 +83,15 @@ class ProductionPipeline:
             self._evidence,
         )
 
-    def _default_production_request(self, request: CommandRequest) -> CommandRequest:
+    def _default_production_request(
+        self,
+        request: CommandRequest,
+        configuration: TaskConfiguration | None = None,
+    ) -> CommandRequest:
         if request.task_names:
             return request
-        task_names = tuple(
-            task.task_name
-            for task in load_configuration(request.config_path).tasks
-            if task.publication_enabled
-        )
+        current = configuration or load_configuration(request.config_path)
+        task_names = tuple(task.task_name for task in current.tasks if task.publication_enabled)
         if not task_names:
             raise ConfigurationError(
                 ErrorCode.CONFIG_INVALID,
@@ -99,9 +100,13 @@ class ProductionPipeline:
             )
         return replace(request, task_names=task_names)
 
-    def _selected_tasks(self, request: CommandRequest) -> tuple[Task, ...]:
+    def _selected_tasks(
+        self,
+        request: CommandRequest,
+        configuration: TaskConfiguration | None = None,
+    ) -> tuple[Task, ...]:
         return selected_tasks(
-            load_configuration(request.config_path),
+            configuration or load_configuration(request.config_path),
             request.task_names,
             scope="production pipeline",
         )
@@ -191,13 +196,24 @@ class ProductionPipeline:
     def _resolve_source(self, request: CommandRequest, task: Task) -> SourceContext:
         return self._source_inventory.resolve(request, task)
 
-    def _load_contexts(self, request: CommandRequest) -> tuple[SourceContext, ...]:
-        return self._source_inventory.load(request, self._selected_tasks(request))
+    def _load_contexts(
+        self,
+        request: CommandRequest,
+        configuration: TaskConfiguration | None = None,
+    ) -> tuple[SourceContext, ...]:
+        return self._source_inventory.load(
+            request,
+            self._selected_tasks(request, configuration),
+        )
 
-    def _inspect_contexts(self, request: CommandRequest) -> tuple[SourceContext, ...]:
+    def _inspect_contexts(
+        self,
+        request: CommandRequest,
+        configuration: TaskConfiguration | None = None,
+    ) -> tuple[SourceContext, ...]:
         return self._source_inventory.inspect(
             request,
-            self._selected_tasks(request),
+            self._selected_tasks(request, configuration),
             self._resolve_source_asset,
         )
 
@@ -238,8 +254,9 @@ class ProductionPipeline:
         )
 
     def inspect(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
-        contexts = self._inspect_contexts(request)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
+        contexts = self._inspect_contexts(request, configuration)
         return command_result(
             "inspect",
             {
@@ -257,46 +274,62 @@ class ProductionPipeline:
         )
 
     def plan(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
-        return self._apple.plan(request, self._load_contexts(request))
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
+        return self._apple.plan(
+            request,
+            self._load_contexts(request, configuration),
+            configuration,
+        )
 
     def sync(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
-        return self._apple.sync(request, self._load_contexts(request), self.journal)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
+        return self._apple.sync(
+            request,
+            self._load_contexts(request, configuration),
+            configuration,
+            self.journal,
+        )
 
     def sign(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
         self._require_signing_environment()
-        return self._signing.sign(request, self._load_contexts(request), self._prepared)
+        return self._signing.sign(
+            request,
+            self._load_contexts(request, configuration),
+            self._prepared,
+        )
 
     def verify(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
         self._require_signing_environment()
         return self._verification.verify(
             request,
-            self._load_contexts(request),
+            self._load_contexts(request, configuration),
             self._prepared,
         )
 
     def publish(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
         self._require_signing_environment()
         return self._publication.publish(
             request,
-            self._load_contexts(request),
-            load_configuration(request.config_path),
+            self._load_contexts(request, configuration),
+            configuration,
             self._prepared,
             self.journal,
         )
 
     def run(self, request: CommandRequest) -> CommandResult:
-        request = self._default_production_request(request)
+        configuration = load_configuration(request.config_path)
+        request = self._default_production_request(request, configuration)
+        tasks = self._selected_tasks(request, configuration)
         if request.publish:
-            disabled = tuple(
-                task.task_name
-                for task in self._selected_tasks(request)
-                if not task.publication_enabled
-            )
+            disabled = tuple(task.task_name for task in tasks if not task.publication_enabled)
             if disabled:
                 raise ConfigurationError(
                     ErrorCode.CONFIG_INVALID,
@@ -304,21 +337,55 @@ class ProductionPipeline:
                     remediation="complete physical-device acceptance before enabling publication",
                     safe_details=(("task_names", disabled),),
                 )
-        self.inspect(replace(request, command=CommandName.INSPECT))
-        planned = self.plan(replace(request, command=CommandName.PLAN))
-        if not request.apply:
-            return planned
-        self.sync(replace(request, command=CommandName.SYNC, apply=True))
-        self.sign(replace(request, command=CommandName.SIGN))
-        self.verify(
-            replace(
-                request,
-                command=CommandName.VERIFY,
-                publish=request.publish,
-            )
+        contexts = self._source_inventory.inspect(
+            replace(request, command=CommandName.INSPECT),
+            tasks,
+            self._resolve_source_asset,
         )
-        if request.publish:
-            return self.publish(replace(request, command=CommandName.PUBLISH))
+        if not request.apply:
+            return self._apple.plan(
+                replace(request, command=CommandName.PLAN),
+                contexts,
+                configuration,
+            )
+        self._apple.sync(
+            replace(request, command=CommandName.SYNC, apply=True),
+            contexts,
+            configuration,
+            self.journal,
+        )
+        self._require_signing_environment()
+        with self._prepared(request, contexts) as prepared:
+
+            @contextmanager
+            def reuse_prepared(
+                _request: CommandRequest,
+                _contexts: tuple[SourceContext, ...],
+            ) -> Iterator[tuple[PreparedContext, ...]]:
+                yield prepared
+
+            self._signing.sign(
+                replace(request, command=CommandName.SIGN),
+                contexts,
+                reuse_prepared,
+            )
+            self._verification.verify(
+                replace(
+                    request,
+                    command=CommandName.VERIFY,
+                    publish=request.publish,
+                ),
+                contexts,
+                reuse_prepared,
+            )
+            if request.publish:
+                return self._publication.publish(
+                    replace(request, command=CommandName.PUBLISH),
+                    contexts,
+                    configuration,
+                    reuse_prepared,
+                    self.journal,
+                )
         report = self.dependencies.report_root / f"{request.run_id}.json"
         return command_result(
             "run",

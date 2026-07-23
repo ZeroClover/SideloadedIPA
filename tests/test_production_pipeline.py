@@ -28,6 +28,7 @@ from sideloadedipa.domain import (
     BundleGraph,
     Diagnostic,
     DiagnosticSeverity,
+    FrozenJsonObject,
     PipelineStage,
     PublicationResult,
     SourceAsset,
@@ -52,6 +53,7 @@ from sideloadedipa.sources import DownloadedSource
 from sideloadedipa.util import atomics
 from sideloadedipa.util.atomics import canonical_json
 from tests.conftest import FixtureCopyBackend as CopyBackend
+from tests.conftest import FixturePassingVerifier
 from tests.conftest import package_request as request_for
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
@@ -240,7 +242,7 @@ def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monke
     monkeypatch.setattr(
         source_inventory_stage,
         "inspect_source_graph",
-        lambda path, *, task: contexts[task.task_name].graph,
+        lambda path, *, source_sha256, task: contexts[task.task_name].graph,
     )
     monkeypatch.setattr(
         source_inventory_stage,
@@ -390,9 +392,10 @@ def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkey
     monkeypatch.setattr(pipeline, "_resolve_source_asset", resolve_source)
     inventory_calls = 0
 
-    def inspect_graph(path, *, task):  # type: ignore[no-untyped-def]
+    def inspect_graph(path, *, source_sha256, task):  # type: ignore[no-untyped-def]
         nonlocal inventory_calls
         inventory_calls += 1
+        assert source_sha256 == context.downloaded.sha256
         return context.graph
 
     monkeypatch.setattr(source_inventory_stage, "inspect_source_graph", inspect_graph)
@@ -409,7 +412,12 @@ def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkey
     monkeypatch.setattr(
         production_apple_stage,
         "apple_sync_command",
-        lambda request, deps: CommandResult(payload=(("status", "applied"),)),
+        lambda request, deps: CommandResult(
+            payload=(
+                ("status", "applied"),
+                ("resource_plan", FrozenJsonObject((("status", "ready"),))),
+            )
+        ),
     )
     request = command(tmp_path, CommandName.INSPECT, task.task_name)
 
@@ -452,7 +460,7 @@ def test_invalid_canonical_inputs_stop_downstream_side_effects(
     monkeypatch.setattr(
         source_inventory_stage,
         "inspect_source_graph",
-        lambda path, *, task: context.graph,
+        lambda path, *, source_sha256, task: context.graph,
     )
     monkeypatch.setattr(
         source_inventory_stage,
@@ -555,8 +563,17 @@ def test_unchanged_direct_source_cache_hit_reopens_artifact_without_resigning(
     fingerprint = SigningCacheFingerprint(1, task.task_name, (("task", task.task_name),), "a" * 64)
     prepared = PreparedContext(context, signing_request, fingerprint)
     pipeline = ProductionPipeline(dependencies(tmp_path))
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda path: TaskConfiguration((task,)),
+    )
 
-    monkeypatch.setattr(pipeline, "_load_contexts", lambda request: (context,))
+    monkeypatch.setattr(
+        pipeline,
+        "_load_contexts",
+        lambda request, configuration=None: (context,),
+    )
 
     @contextmanager
     def prepared_contexts(request, contexts):  # type: ignore[no-untyped-def]
@@ -673,8 +690,10 @@ def test_run_rejects_publication_disabled_task_before_signing(
     pipeline = ProductionPipeline(dependencies(tmp_path))
     monkeypatch.setattr(
         pipeline,
-        "inspect",
-        lambda _request: pytest.fail("disabled task reached production stages"),
+        "_source_inventory",
+        SimpleNamespace(
+            inspect=lambda *_args: pytest.fail("disabled task reached production stages")
+        ),
     )
 
     with pytest.raises(ConfigurationError, match="not approved"):
@@ -702,7 +721,7 @@ def test_default_production_selection_ignores_publication_disabled_tasks(
     pipeline = ProductionPipeline(dependencies(tmp_path))
     selected: list[tuple[str, ...]] = []
 
-    def inspect_contexts(request):  # type: ignore[no-untyped-def]
+    def inspect_contexts(request, configuration=None):  # type: ignore[no-untyped-def]
         selected.append(request.task_names)
         return ()
 
@@ -728,14 +747,19 @@ def test_default_production_selection_rejects_an_empty_publication_set(
     monkeypatch.setattr(
         pipeline,
         "_inspect_contexts",
-        lambda _request: pytest.fail("empty production selection reached inspection"),
+        lambda _request, _configuration=None: pytest.fail(
+            "empty production selection reached inspection"
+        ),
     )
 
     with pytest.raises(ConfigurationError, match="no publication-enabled tasks"):
         pipeline.inspect(command(tmp_path, CommandName.INSPECT))
 
 
-def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypatch) -> None:
+def test_publish_consumes_retained_verification_once_and_promotes_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     signing_request = request_for(task, tmp_path)
     context = SourceContext(
@@ -785,7 +809,11 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
         "load_configuration",
         lambda path: TaskConfiguration((task,)),
     )
-    monkeypatch.setattr(pipeline, "_load_contexts", lambda selected: (context,))
+    monkeypatch.setattr(
+        pipeline,
+        "_load_contexts",
+        lambda selected, configuration=None: (context,),
+    )
 
     @contextmanager
     def prepared_contexts(selected, contexts):  # type: ignore[no-untyped-def]
@@ -794,6 +822,16 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
     monkeypatch.setattr(pipeline, "_prepared", prepared_contexts)
     pipeline.sign(request)
     pipeline.verify(replace(request, command=CommandName.VERIFY))
+    verifier = signing_request.verifier
+    assert isinstance(verifier, FixturePassingVerifier)
+    assert verifier.calls == 1
+    verification_report = pipeline._verification.verification_report_path(
+        request,
+        task.task_name,
+    )
+    retained_report = verification_report.read_bytes()
+    retained_artifact = signing_request.destination_ipa.read_bytes()
+    publish_calls = 0
 
     class PublicationStore:
         def upload_icon(self, slug, content):  # type: ignore[no-untyped-def]
@@ -803,6 +841,8 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
 
     class Publisher:
         def publish(self, candidates, *, now):  # type: ignore[no-untyped-def]
+            nonlocal publish_calls
+            publish_calls += 1
             candidate = candidates[0]
             assert candidate.icon_url == "https://downloads.example/icon.png"
             assert candidate.bundle_id == "com.example.app"
@@ -827,11 +867,34 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
     )
     monkeypatch.setattr(publish_stage, "build_icon_png", lambda *args, **kwargs: b"icon")
 
-    result = pipeline.publish(replace(request, command=CommandName.PUBLISH))
+    publish_request = replace(request, command=CommandName.PUBLISH)
+    verification_report.unlink()
+    with pytest.raises(ConfigurationError):
+        pipeline.publish(publish_request)
+    assert publish_calls == 0
+    verification_report.write_bytes(retained_report)
+
+    report_document = json.loads(retained_report)
+    report_document["artifact_sha256"] = "0" * 64
+    verification_report.write_bytes(canonical_json(report_document))
+    with pytest.raises(ConfigurationError):
+        pipeline.publish(publish_request)
+    assert publish_calls == 0
+    verification_report.write_bytes(retained_report)
+
+    signing_request.destination_ipa.write_bytes(b"tampered after verification")
+    with pytest.raises(DomainError):
+        pipeline.publish(publish_request)
+    assert publish_calls == 0
+    signing_request.destination_ipa.write_bytes(retained_artifact)
+
+    result = pipeline.publish(publish_request)
 
     payload = dict(result.payload)
     assert payload["status"] == "passed"
     assert journal.publication_committed is True
+    assert publish_calls == 1
+    assert verifier.calls == 1
     assert pipeline._cache().load() is not None
     assert pipeline._store(request).load(task.task_name, PipelineStage.PUBLISH) is not None
     report = json.loads((tmp_path / "reports/published.json").read_text())
@@ -840,38 +903,113 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
 
 def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monkeypatch) -> None:
     pipeline = ProductionPipeline(dependencies(tmp_path))
+    configuration = TaskConfiguration((load_configuration(Path("configs/tasks.toml")).tasks[0],))
     calls: list[tuple[str, bool, bool]] = []
-    monkeypatch.setattr(
-        production,
-        "load_configuration",
-        lambda _path: load_configuration(Path("configs/tasks.toml")),
-    )
+    configuration_loads = 0
+    prepared_entries = 0
+    held_values: list[tuple[str, tuple[object, ...]]] = []
 
-    def handler(name: str):
-        def execute(request):  # type: ignore[no-untyped-def]
+    def load_once(_path):  # type: ignore[no-untyped-def]
+        nonlocal configuration_loads
+        configuration_loads += 1
+        return configuration
+
+    monkeypatch.setattr(production, "load_configuration", load_once)
+
+    def inspect(request, tasks, resolver):  # type: ignore[no-untyped-def]
+        del tasks, resolver
+        calls.append(("inspect", request.apply, request.publish))
+        return ()
+
+    monkeypatch.setattr(pipeline, "_source_inventory", SimpleNamespace(inspect=inspect))
+
+    def apple_handler(name: str):
+        def execute(request, contexts, current, *args):  # type: ignore[no-untyped-def]
+            del contexts, args
+            assert current is configuration
             calls.append((name, request.apply, request.publish))
             return CommandResult(payload=(("stage", name),))
 
         return execute
 
-    for name in ("inspect", "plan", "sync", "sign", "verify", "publish"):
-        monkeypatch.setattr(pipeline, name, handler(name))
+    monkeypatch.setattr(
+        pipeline,
+        "_apple",
+        SimpleNamespace(
+            plan=apple_handler("plan"),
+            sync=apple_handler("sync"),
+        ),
+    )
+
+    @contextmanager
+    def prepare(request, contexts):  # type: ignore[no-untyped-def]
+        nonlocal prepared_entries
+        del request, contexts
+        prepared_entries += 1
+        yield (object(),)
+
+    monkeypatch.setattr(pipeline, "_prepared", prepare)
+    monkeypatch.setattr(pipeline, "_require_signing_environment", lambda: None)
+
+    def prepared_handler(name: str):
+        def execute(request, contexts, factory, *args):  # type: ignore[no-untyped-def]
+            del args
+            calls.append((name, request.apply, request.publish))
+            with factory(request, contexts) as values:
+                held_values.append((name, values))
+            return CommandResult(payload=(("stage", name),))
+
+        return execute
+
+    monkeypatch.setattr(
+        pipeline,
+        "_signing",
+        SimpleNamespace(sign=prepared_handler("sign")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_verification",
+        SimpleNamespace(verify=prepared_handler("verify")),
+    )
+
+    def publish(request, contexts, current, factory, journal):  # type: ignore[no-untyped-def]
+        del journal
+        assert current is configuration
+        return prepared_handler("publish")(request, contexts, factory)
+
+    monkeypatch.setattr(pipeline, "_publication", SimpleNamespace(publish=publish))
 
     plan_only = command(tmp_path, CommandName.RUN, run_id="plan-only")
     assert dict(pipeline.run(plan_only).payload)["stage"] == "plan"
     assert [name for name, _, _ in calls] == ["inspect", "plan"]
+    assert prepared_entries == 0
+    assert configuration_loads == 1
 
     calls.clear()
+    held_values.clear()
     applied = replace(plan_only, apply=True)
     assert dict(pipeline.run(applied).payload)["status"] == "passed"
-    assert [name for name, _, _ in calls] == ["inspect", "plan", "sync", "sign", "verify"]
+    assert [name for name, _, _ in calls] == ["inspect", "sync", "sign", "verify"]
     assert calls[-1] == ("verify", True, False)
+    assert prepared_entries == 1
+    assert held_values[0][1] is held_values[1][1]
+    assert configuration_loads == 2
 
     calls.clear()
+    held_values.clear()
     published = replace(applied, publish=True)
     assert dict(pipeline.run(published).payload)["stage"] == "publish"
-    assert [name for name, _, _ in calls][-2:] == ["verify", "publish"]
+    assert [name for name, _, _ in calls] == [
+        "inspect",
+        "sync",
+        "sign",
+        "verify",
+        "publish",
+    ]
     assert calls[-2] == ("verify", True, True)
+    assert prepared_entries == 2
+    assert held_values[0][1] is held_values[1][1] is held_values[2][1]
+    assert configuration_loads == 3
 
 
 def test_run_defaults_every_stage_to_publication_enabled_tasks(
@@ -888,15 +1026,46 @@ def test_run_defaults_every_stage_to_publication_enabled_tasks(
     pipeline = ProductionPipeline(dependencies(tmp_path))
     calls: list[tuple[str, tuple[str, ...]]] = []
 
-    def handler(name: str):
-        def execute(request):  # type: ignore[no-untyped-def]
+    def inspect(request, tasks, resolver):  # type: ignore[no-untyped-def]
+        del resolver
+        calls.append(("inspect", request.task_names))
+        assert tuple(task.task_name for task in tasks) == (enabled.task_name,)
+        return ()
+
+    monkeypatch.setattr(pipeline, "_source_inventory", SimpleNamespace(inspect=inspect))
+
+    def apple_sync(request, contexts, current, journal):  # type: ignore[no-untyped-def]
+        del contexts, journal
+        assert current.tasks == (enabled, disabled)
+        calls.append(("sync", request.task_names))
+        return CommandResult()
+
+    monkeypatch.setattr(pipeline, "_apple", SimpleNamespace(sync=apple_sync))
+
+    @contextmanager
+    def prepared(request, contexts):  # type: ignore[no-untyped-def]
+        del request, contexts
+        yield ()
+
+    monkeypatch.setattr(pipeline, "_prepared", prepared)
+    monkeypatch.setattr(pipeline, "_require_signing_environment", lambda: None)
+
+    def stage(name: str):
+        def execute(request, contexts, factory, *args):  # type: ignore[no-untyped-def]
+            del contexts, factory, args
             calls.append((name, request.task_names))
             return CommandResult(payload=(("stage", name),))
 
         return execute
 
-    for name in ("inspect", "plan", "sync", "sign", "verify", "publish"):
-        monkeypatch.setattr(pipeline, name, handler(name))
+    monkeypatch.setattr(pipeline, "_signing", SimpleNamespace(sign=stage("sign")))
+    monkeypatch.setattr(pipeline, "_verification", SimpleNamespace(verify=stage("verify")))
+
+    def publish(request, contexts, current, factory, journal):  # type: ignore[no-untyped-def]
+        del current, journal
+        return stage("publish")(request, contexts, factory)
+
+    monkeypatch.setattr(pipeline, "_publication", SimpleNamespace(publish=publish))
 
     request = replace(
         command(tmp_path, CommandName.RUN),
@@ -904,7 +1073,7 @@ def test_run_defaults_every_stage_to_publication_enabled_tasks(
         publish=True,
     )
     assert dict(pipeline.run(request).payload)["stage"] == "publish"
-    assert [name for name, _ in calls] == ["inspect", "plan", "sync", "sign", "verify", "publish"]
+    assert [name for name, _ in calls] == ["inspect", "sync", "sign", "verify", "publish"]
     assert {task_names for _, task_names in calls} == {(enabled.task_name,)}
 
 
@@ -918,8 +1087,10 @@ def test_run_rejects_unknown_task_before_stages(tmp_path: Path, monkeypatch) -> 
     pipeline = ProductionPipeline(dependencies(tmp_path))
     monkeypatch.setattr(
         pipeline,
-        "inspect",
-        lambda _request: pytest.fail("unknown task reached production stages"),
+        "_source_inventory",
+        SimpleNamespace(
+            inspect=lambda *_args: pytest.fail("unknown task reached production stages")
+        ),
     )
 
     with pytest.raises(ConfigurationError, match="selection is invalid"):
@@ -968,7 +1139,7 @@ def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, mo
     monkeypatch.setattr(
         source_inventory_stage,
         "inspect_source_graph",
-        lambda path, *, task: graph,
+        lambda path, *, source_sha256, task: graph,
     )
     request = command(tmp_path, CommandName.INSPECT, task.task_name)
 

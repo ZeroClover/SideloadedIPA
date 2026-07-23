@@ -40,8 +40,10 @@ class FakeGateway:
         self.listings = listings
         self.create_result = create_result
         self.create_calls: list[tuple[str, str]] = []
+        self.list_calls = 0
 
     def list(self) -> tuple[AppleBundleIdentifierState, ...]:
+        self.list_calls += 1
         return self.listings.pop(0)
 
     def create(self, *, identifier: str, name: str) -> AppleBundleIdentifierState:
@@ -111,22 +113,32 @@ def test_requirement_uses_snapshot_and_creation_policy() -> None:
 
 def test_reuses_existing_bundle_id_without_create() -> None:
     existing = bundle("ONE", "io.example.app")
-    gateway = FakeGateway([(existing,)], create_result=existing)
+    gateway = FakeGateway([], create_result=existing)
 
-    result = BundleIdReconciler(gateway).ensure(identifier="io.example.app", name="Example")
+    result = BundleIdReconciler(gateway).ensure(
+        identifier="io.example.app",
+        name="Example",
+        bundle_ids=(existing,),
+    )
 
     assert result == existing
     assert gateway.create_calls == []
+    assert gateway.list_calls == 0
 
 
 def test_creates_once_and_validates_returned_identifier() -> None:
     created = bundle("CREATED", "IO.Example.App")
-    gateway = FakeGateway([()], create_result=created)
+    gateway = FakeGateway([], create_result=created)
 
-    result = BundleIdReconciler(gateway).ensure(identifier="io.example.app", name="Example")
+    result = BundleIdReconciler(gateway).ensure(
+        identifier="io.example.app",
+        name="Example",
+        bundle_ids=(),
+    )
 
     assert result == created
     assert gateway.create_calls == [("io.example.app", "Example")]
+    assert gateway.list_calls == 0
 
 
 @pytest.mark.parametrize(
@@ -140,20 +152,29 @@ def test_creates_once_and_validates_returned_identifier() -> None:
 )
 def test_recovers_an_uncertain_create_by_exact_relookup(code: ErrorCode) -> None:
     recovered = bundle("RECOVERED", "io.example.app")
-    gateway = FakeGateway([(), (recovered,)], create_result=uncertain_error(code))
+    gateway = FakeGateway([(recovered,)], create_result=uncertain_error(code))
 
-    result = BundleIdReconciler(gateway).ensure(identifier="io.example.app", name="Example")
+    result = BundleIdReconciler(gateway).ensure(
+        identifier="io.example.app",
+        name="Example",
+        bundle_ids=(),
+    )
 
     assert result == recovered
     assert len(gateway.create_calls) == 1
+    assert gateway.list_calls == 1
 
 
 def test_does_not_retry_when_uncertain_create_is_still_missing() -> None:
     error = uncertain_error()
-    gateway = FakeGateway([(), ()], create_result=error)
+    gateway = FakeGateway([()], create_result=error)
 
     with pytest.raises(AdapterError) as caught:
-        BundleIdReconciler(gateway).ensure(identifier="io.example.app", name="Example")
+        BundleIdReconciler(gateway).ensure(
+            identifier="io.example.app",
+            name="Example",
+            bundle_ids=(),
+        )
 
     assert caught.value is error
     assert len(gateway.create_calls) == 1
@@ -161,29 +182,45 @@ def test_does_not_retry_when_uncertain_create_is_still_missing() -> None:
 
 def test_fails_closed_for_duplicate_or_mismatched_resources() -> None:
     duplicate_gateway = FakeGateway(
-        [(bundle("ONE", "io.example.app"), bundle("TWO", "IO.EXAMPLE.APP"))],
+        [],
         create_result=bundle("UNUSED", "io.example.app"),
     )
     with pytest.raises(AdapterError) as duplicate:
-        BundleIdReconciler(duplicate_gateway).ensure(identifier="io.example.app", name="Example")
+        BundleIdReconciler(duplicate_gateway).ensure(
+            identifier="io.example.app",
+            name="Example",
+            bundle_ids=(
+                bundle("ONE", "io.example.app"),
+                bundle("TWO", "IO.EXAMPLE.APP"),
+            ),
+        )
     assert duplicate.value.code is ErrorCode.APPLE_RESOURCE_CONFLICT
     assert duplicate_gateway.create_calls == []
 
-    mismatched_gateway = FakeGateway([()], create_result=bundle("WRONG", "io.example.other"))
+    mismatched_gateway = FakeGateway([], create_result=bundle("WRONG", "io.example.other"))
     with pytest.raises(AdapterError) as mismatched:
-        BundleIdReconciler(mismatched_gateway).ensure(identifier="io.example.app", name="Example")
+        BundleIdReconciler(mismatched_gateway).ensure(
+            identifier="io.example.app",
+            name="Example",
+            bundle_ids=(),
+        )
     assert mismatched.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
 
 
 def test_does_not_relookup_after_a_certain_create_failure() -> None:
     error = uncertain_error(ErrorCode.APPLE_AUTHORIZATION_FAILED)
-    gateway = FakeGateway([()], create_result=error)
+    gateway = FakeGateway([], create_result=error)
 
     with pytest.raises(AdapterError) as caught:
-        BundleIdReconciler(gateway).ensure(identifier="io.example.app", name="Example")
+        BundleIdReconciler(gateway).ensure(
+            identifier="io.example.app",
+            name="Example",
+            bundle_ids=(),
+        )
 
     assert caught.value is error
     assert gateway.listings == []
+    assert gateway.list_calls == 0
 
 
 def test_asc_gateway_uses_only_list_and_create_commands() -> None:
