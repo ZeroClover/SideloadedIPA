@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -16,10 +16,8 @@ from sideloadedipa.config import load_configuration
 from sideloadedipa.domain.config import Task, TaskConfiguration
 from sideloadedipa.domain.pipeline import (
     PipelineStage,
-    PublicationResult,
     SourceAsset,
     StageManifest,
-    VerificationResult,
 )
 from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
 from sideloadedipa.pipeline.cancellation import (
@@ -40,15 +38,12 @@ from sideloadedipa.pipeline.stages.apple import AppleStage
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import PreparedContext, SourceContext
 from sideloadedipa.pipeline.stages.publication import PublicationStage
-from sideloadedipa.pipeline.stages.results import command_result, payload_document
+from sideloadedipa.pipeline.stages.results import command_result
 from sideloadedipa.pipeline.stages.signing import SigningStage
 from sideloadedipa.pipeline.stages.source_inventory import SourceInventoryStage
 from sideloadedipa.pipeline.stages.verification import VerificationStage
 from sideloadedipa.sources.download import DownloadedSource
 from sideloadedipa.util.atomics import utc_now
-
-_payload_document = payload_document
-_result = command_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,9 +116,6 @@ class ProductionPipeline:
     def _require_signing_environment(self) -> None:
         self._signing.require_environment()
 
-    def _pending_cache(self, request: CommandRequest) -> SigningCacheStore:
-        return self._signing.pending_cache(request)
-
     def _source_path(self, request: CommandRequest, task: Task) -> Path:
         return self._source_inventory.source_path(request, task)
 
@@ -178,14 +170,6 @@ class ProductionPipeline:
             completed_at=completed_at,
         )
 
-    def _require(
-        self,
-        store: FileStageManifestStore,
-        task_name: str,
-        stage: PipelineStage,
-    ) -> StageManifest:
-        return self._evidence.require(store, task_name, stage)
-
     def _resolve_source_asset(
         self,
         request: CommandRequest,
@@ -235,23 +219,6 @@ class ProductionPipeline:
 
     def _read_decisions(self, request: CommandRequest) -> tuple[RebuildDecision, ...]:
         return self._signing.read_decisions(request)
-
-    def _promote_cache(self, request: CommandRequest) -> None:
-        self._signing.promote_cache(request)
-
-    def _report(
-        self,
-        request: CommandRequest,
-        prepared: tuple[PreparedContext, ...],
-        verifications: Mapping[str, VerificationResult],
-        publications: Mapping[str, PublicationResult] | None = None,
-    ) -> Path:
-        return self._verification.write_report(
-            request,
-            prepared,
-            verifications,
-            publications,
-        )
 
     def inspect(self, request: CommandRequest) -> CommandResult:
         configuration = load_configuration(request.config_path)

@@ -126,15 +126,26 @@ def _with_profile_state(
     profiles: tuple[AppleProfileState, ...],
     state: AppleProfileState,
 ) -> tuple[AppleProfileState, ...]:
-    return tuple(
-        sorted(
-            (
-                *(profile for profile in profiles if profile.resource_id != state.resource_id),
-                state,
-            ),
-            key=lambda value: value.resource_id,
-        )
+    return tuple(profile for profile in profiles if profile.resource_id != state.resource_id) + (
+        state,
     )
+
+
+def _require_bundle(
+    snapshot: AppleStateSnapshot,
+    task_name: str,
+    target_bundle_id: str,
+    message: str,
+) -> AppleBundleIdentifierState:
+    bundle = exact_bundle(snapshot, target_bundle_id)
+    if bundle is None:
+        raise DomainError(
+            ErrorCode.APPLE_RESOURCE_NOT_FOUND,
+            message,
+            task_name=task_name,
+            bundle_id=target_bundle_id,
+        )
+    return bundle
 
 
 def _with_bundle_state(
@@ -196,14 +207,12 @@ def _store_reconciled_profiles(
                     task_name=task.task_name,
                     bundle_id=intent.target_bundle_id,
                 )
-            bundle = exact_bundle(snapshot, intent.target_bundle_id)
-            if bundle is None:
-                raise DomainError(
-                    ErrorCode.APPLE_RESOURCE_NOT_FOUND,
-                    "validated profile target App ID disappeared from final Apple state",
-                    task_name=task.task_name,
-                    bundle_id=intent.target_bundle_id,
-                )
+            bundle = _require_bundle(
+                snapshot,
+                task.task_name,
+                intent.target_bundle_id,
+                "validated profile target App ID disappeared from final Apple state",
+            )
             device_set_sha256 = hashlib.sha256(
                 canonical_json(sorted(result.profile.device_ids))
             ).hexdigest()
@@ -286,14 +295,12 @@ def sync_command(
 
     for task in tasks:
         for intent in intents[task.task_name]:
-            bundle = exact_bundle(snapshot, intent.target_bundle_id)
-            if bundle is None:
-                raise DomainError(
-                    ErrorCode.APPLE_RESOURCE_NOT_FOUND,
-                    "created App ID was not present after bundle reconciliation",
-                    task_name=task.task_name,
-                    bundle_id=intent.target_bundle_id,
-                )
+            bundle = _require_bundle(
+                snapshot,
+                task.task_name,
+                intent.target_bundle_id,
+                "created App ID was not present after bundle reconciliation",
+            )
             for capability_type in intent.required_capabilities:
                 if capability_rule(capability_type).automation is CapabilityAutomation.API_ADDITIVE:
                     ensured_capability = backend.ensure_capability(
@@ -314,14 +321,12 @@ def sync_command(
     }
     for task in tasks:
         for intent in intents[task.task_name]:
-            bundle = exact_bundle(snapshot, intent.target_bundle_id)
-            if bundle is None:
-                raise DomainError(
-                    ErrorCode.APPLE_RESOURCE_NOT_FOUND,
-                    "profile target App ID is absent after prerequisite reconciliation",
-                    task_name=task.task_name,
-                    bundle_id=intent.target_bundle_id,
-                )
+            bundle = _require_bundle(
+                snapshot,
+                task.task_name,
+                intent.target_bundle_id,
+                "profile target App ID is absent after prerequisite reconciliation",
+            )
             result = backend.ensure_profile(
                 task=task,
                 intent=intent,
@@ -329,7 +334,6 @@ def sync_command(
                 certificate=certificate,
                 bundle=bundle,
                 config_path=request.config_path,
-                profile_states=snapshot.profiles,
             )
             if result.created and dependencies.record_created_resource is not None:
                 dependencies.record_created_resource("profile", result.profile.resource_id)

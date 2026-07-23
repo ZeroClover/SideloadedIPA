@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
 from typing import Protocol
 
 from sideloadedipa.adapters.apple.asc import AscResponse
@@ -324,6 +323,6 @@ class ProfileReconciler:
             profile=profile,
             content=content,
             created=True,
-            stale_resource_ids=tuple(sorted(profile.resource_id for profile in relevant)),
+            stale_resource_ids=tuple(sorted(state.resource_id for state in relevant)),
             state=created,
         )

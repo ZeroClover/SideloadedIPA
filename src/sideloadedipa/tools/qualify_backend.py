@@ -7,7 +7,6 @@ import json
 import os
 import platform
 import shutil
-import sys
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator, Mapping, Sequence

@@ -18,7 +18,7 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
 )
-from sideloadedipa.errors import ErrorCode, SideloadedIPAError
+from sideloadedipa.errors import SideloadedIPAError
 from sideloadedipa.signing.profile_validation import decode_and_validate_provisioning_profile
 from sideloadedipa.util.atomics import file_sha256
 

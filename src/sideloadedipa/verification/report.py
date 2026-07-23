@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import cast
 

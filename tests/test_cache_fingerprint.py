@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from sideloadedipa.cache.fingerprint import (
     SigningCacheFingerprint,

@@ -82,7 +82,6 @@ class AppleCommandBackend(Protocol):
         certificate: CertificateIdentity,
         bundle: AppleBundleIdentifierState,
         config_path: Path,
-        profile_states: tuple[AppleProfileState, ...] | None = None,
     ) -> ProfileReconciliationResult: ...
 
 
@@ -159,7 +158,6 @@ class AscAppleCommandBackend:
         certificate: CertificateIdentity,
         bundle: AppleBundleIdentifierState,
         config_path: Path,
-        profile_states: tuple[AppleProfileState, ...] | None = None,
     ) -> ProfileReconciliationResult:
         prefix = application_identifier_prefix(bundle)
         expected = expected_entitlements(
@@ -204,5 +202,5 @@ class AscAppleCommandBackend:
                 device_resource_ids=tuple(sorted(device.resource_id for device in devices)),
                 validation=validation,
             ),
-            profiles=snapshot.profiles if profile_states is None else profile_states,
+            profiles=snapshot.profiles,
         )

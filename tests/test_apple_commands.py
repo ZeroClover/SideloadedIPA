@@ -201,9 +201,9 @@ class RecordingBackend:
     def ensure_profile(self, **kwargs: object) -> ProfileReconciliationResult:
         self.calls.append("ensure_profile")
         self.mutations["apple"] += 1
-        profile_states = kwargs["profile_states"]
-        assert isinstance(profile_states, tuple)
-        self.ensure_profile_inputs.append(profile_states)
+        snapshot = kwargs["snapshot"]
+        assert isinstance(snapshot, AppleStateSnapshot)
+        self.ensure_profile_inputs.append(snapshot.profiles)
         content = b"validated mobileprovision fixture"
         profile = ProvisioningProfile(
             resource_id="PROFILE_ONE",

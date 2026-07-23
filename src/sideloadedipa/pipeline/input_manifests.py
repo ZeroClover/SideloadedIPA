@@ -23,7 +23,7 @@ from sideloadedipa.domain import (
     freeze_json,
     thaw_json,
 )
-from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
+from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.ipa.graph import canonical_graph_json
 from sideloadedipa.pipeline.inspection import ResolvedSource
 from sideloadedipa.pipeline.manifest_store import FileStageManifestStore

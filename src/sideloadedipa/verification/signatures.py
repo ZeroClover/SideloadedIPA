@@ -8,7 +8,7 @@ import struct
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import lief
 from cryptography import x509
