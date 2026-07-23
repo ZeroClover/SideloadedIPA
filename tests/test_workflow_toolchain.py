@@ -146,6 +146,22 @@ def test_production_apple_sync_records_plan_and_apply_in_one_cli_transaction() -
     assert "03-apple-apply.json" in signing
 
 
+def test_production_report_counts_asc_invocations_without_logging_arguments() -> None:
+    signing = SIGN_WORKFLOW.read_text()
+    telemetry = signing.split("- name: Instrument redacted ASC invocation count", maxsplit=1)[
+        1
+    ].split("\n      - name:", maxsplit=1)[0]
+    apple = signing.split("- name: Apple plan and apply - sync package profiles", maxsplit=1)[
+        1
+    ].split("\n      - name:", maxsplit=1)[0]
+
+    assert 'cp "$(command -v asc)" "$telemetry_dir/asc-real"' in telemetry
+    assert 'exec "$telemetry_dir/asc-real" "$@"' in telemetry
+    assert 'echo "$@"' not in telemetry
+    assert 'asc_invocation_count="$(<"$RUNNER_TEMP/asc-telemetry/count")"' in apple
+    assert "'. + {\"asc_invocation_count\": $count}'" in apple
+
+
 def test_every_backend_dependent_production_step_receives_qualified_identity() -> None:
     signing = SIGN_WORKFLOW.read_text()
 

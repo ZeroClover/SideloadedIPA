@@ -78,6 +78,30 @@ jobs:
           asset: asc_${{ env.ASC_VERSION }}_linux_amd64
           sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
+      - name: Instrument redacted ASC invocation count
+        run: |
+          set -euo pipefail
+          telemetry_dir="$RUNNER_TEMP/asc-telemetry"
+          mkdir -p "$telemetry_dir"
+          cp "$(command -v asc)" "$telemetry_dir/asc-real"
+          chmod 0755 "$telemetry_dir/asc-real"
+          printf '0\n' > "$telemetry_dir/count"
+          cat > "$telemetry_dir/asc" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          telemetry_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          counter_file="$telemetry_dir/count"
+          count="$(<"$counter_file")"
+          if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+            echo "ASC invocation counter is invalid." >&2
+            exit 70
+          fi
+          printf '%s\n' "$((count + 1))" > "$counter_file"
+          exec "$telemetry_dir/asc-real" "$@"
+          EOF
+          chmod 0755 "$telemetry_dir/asc"
+          printf '%s\n' "$telemetry_dir" >> "$GITHUB_PATH"
+
       - name: Preflight - build cached qualified zsign
         id: patched-zsign
         uses: ./.github/actions/build-patched-zsign
@@ -107,6 +131,18 @@ jobs:
           set -euo pipefail
           uv run sideloadedipa sync --apply --run-id "$GITHUB_RUN_ID" --json \
             > "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json"
+          asc_invocation_count="$(<"$RUNNER_TEMP/asc-telemetry/count")"
+          if [[ ! "$asc_invocation_count" =~ ^[0-9]+$ ]]; then
+            echo "ASC invocation counter is invalid." >&2
+            exit 70
+          fi
+          jq --argjson count "$asc_invocation_count" \
+            '. + {"asc_invocation_count": $count}' \
+            "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json" \
+            > "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.tmp"
+          mv \
+            "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.tmp" \
+            "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json"
           jq -e -S '.resource_plan | select(type == "object")' \
             "$RUNNER_TEMP/sideloadedipa-reports/03-apple-apply.json" \
             > "$RUNNER_TEMP/sideloadedipa-reports/02-apple-plan.json"
