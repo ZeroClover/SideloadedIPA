@@ -1,4 +1,4 @@
-"""Per-task package signing route used during the legacy-engine migration."""
+"""Per-task package signing request assembly, planning, and execution."""
 
 from __future__ import annotations
 

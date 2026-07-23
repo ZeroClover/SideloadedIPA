@@ -94,14 +94,6 @@ class AppleStateSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class AppleResource:
-    kind: AppleResourceKind
-    resource_id: str
-    name: str
-    attributes: tuple[tuple[str, FrozenJsonValue], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class AppleOperation:
     disposition: OperationDisposition
     resource_kind: AppleResourceKind
@@ -116,7 +108,6 @@ class AppleOperation:
 class AppleResourcePlan:
     snapshot_sha256: str
     operations: tuple[AppleOperation, ...]
-    resources: tuple[AppleResource, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -154,10 +154,6 @@ class R2Store:
         digest = hashlib.sha256(png_bytes).hexdigest()[:ICON_DIGEST_LENGTH]
         return f"{self.key_prefix}/{slug}/icon-{digest}.png"
 
-    def legacy_icon_key(self, slug: str) -> str:
-        """The pre-content-addressing icon key; only the migration still needs it."""
-        return f"{self.key_prefix}/{slug}/icon.png"
-
     def public_url(self, key: str) -> str:
         return f"{self.public_base_url}/{key}"
 

@@ -28,6 +28,7 @@ from sideloadedipa.verification.entitlements import (
 
 _APPLICATION_IDENTIFIER = "application-identifier"
 _TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
+DEFAULT_PROFILE_REFRESH_THRESHOLD = timedelta(days=30)
 
 
 @dataclass(frozen=True, slots=True)

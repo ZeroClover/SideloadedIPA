@@ -126,10 +126,6 @@ class TestKeyHelpers:
         store = _store()
         assert store.icon_key("ehpanda", b"same") == store.icon_key("ehpanda", b"same")
 
-    def test_legacy_icon_key(self) -> None:
-        store = _store()
-        assert store.legacy_icon_key("ehpanda") == "apps/ehpanda/icon.png"
-
     def test_public_url(self) -> None:
         store = _store()
         assert store.public_url("apps/ehpanda/icon.png") == (f"{BASE_URL}/apps/ehpanda/icon.png")

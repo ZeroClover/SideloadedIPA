@@ -20,6 +20,7 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.profile_validation import (
+    DEFAULT_PROFILE_REFRESH_THRESHOLD,
     decode_mobileprovision,
     validate_provisioning_profile,
 )
@@ -70,7 +71,7 @@ def load_synced_profile(
     certificate: CertificateIdentity,
     now: datetime,
     expected_entitlements: tuple[tuple[str, FrozenJsonValue], ...] | None = None,
-    refresh_threshold: timedelta = timedelta(days=30),
+    refresh_threshold: timedelta = DEFAULT_PROFILE_REFRESH_THRESHOLD,
     decoder: ProfileDecoder = decode_mobileprovision,
 ) -> ProvisioningProfile:
     """Decode and revalidate one private profile named by an authenticated manifest."""
@@ -134,7 +135,7 @@ def load_synced_profiles(
     certificate: CertificateIdentity,
     now: datetime,
     expected_entitlements: Mapping[str, tuple[tuple[str, FrozenJsonValue], ...]] | None = None,
-    refresh_threshold: timedelta = timedelta(days=30),
+    refresh_threshold: timedelta = DEFAULT_PROFILE_REFRESH_THRESHOLD,
     decoder: ProfileDecoder = decode_mobileprovision,
 ) -> tuple[ProvisioningProfile, ...]:
     expected = expected_entitlements or {}

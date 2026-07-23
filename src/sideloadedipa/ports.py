@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -54,8 +53,3 @@ class VerifiedPublicationGateway(Protocol):
         slugs: Sequence[str],
         referenced_keys: frozenset[str],
     ) -> tuple[str, ...]: ...
-
-
-@runtime_checkable
-class Clock(Protocol):
-    def now(self) -> datetime: ...

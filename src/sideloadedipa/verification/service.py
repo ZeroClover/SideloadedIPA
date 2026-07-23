@@ -15,6 +15,7 @@ from sideloadedipa.domain import (
     VerificationResult,
 )
 from sideloadedipa.ipa.archive import extract_ipa_safely
+from sideloadedipa.signing.profile_validation import DEFAULT_PROFILE_REFRESH_THRESHOLD
 from sideloadedipa.util.atomics import file_sha256
 from sideloadedipa.verification.artifact import (
     SignedArtifactEntitlementEvidence,
@@ -106,7 +107,7 @@ class PackageVerifier:
     source_ipa: Path
     profiles: tuple[ProvisioningProfile, ...]
     now: datetime
-    refresh_threshold: timedelta = timedelta(days=30)
+    refresh_threshold: timedelta = DEFAULT_PROFILE_REFRESH_THRESHOLD
     entitlement_inspector: SignedEntitlementInspector | None = None
     profile_validator: EmbeddedProfileValidator | None = None
     checks: VerificationChecks = VerificationChecks()

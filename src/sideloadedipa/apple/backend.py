@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -38,9 +37,11 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.signing.profile_storage import profile_relative_path
-from sideloadedipa.signing.profile_validation import MobileProvisionValidator
+from sideloadedipa.signing.profile_validation import (
+    DEFAULT_PROFILE_REFRESH_THRESHOLD,
+    MobileProvisionValidator,
+)
 
-_PROFILE_REFRESH_THRESHOLD = timedelta(days=30)
 _IOS_DEVICE_CLASSES = frozenset({"IPHONE", "IPAD"})
 
 
@@ -192,7 +193,7 @@ class AscAppleCommandBackend:
         )
         reconciler = ProfileReconciler(
             self.profiles,
-            MobileProvisionValidator(refresh_threshold=_PROFILE_REFRESH_THRESHOLD),
+            MobileProvisionValidator(refresh_threshold=DEFAULT_PROFILE_REFRESH_THRESHOLD),
         )
         return reconciler.ensure(
             ProfileSyncRequest(

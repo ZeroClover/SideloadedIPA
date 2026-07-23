@@ -6,7 +6,6 @@ from collections import Counter
 
 from sideloadedipa.domain import (
     AppleOperation,
-    AppleResource,
     AppleResourcePlan,
     AppleResourceRequirement,
     Diagnostic,
@@ -103,7 +102,6 @@ def plan_apple_resources(
     task_name: str,
     snapshot_sha256: str,
     requirements: tuple[AppleResourceRequirement, ...],
-    resources: tuple[AppleResource, ...] = (),
 ) -> AppleResourcePlan:
     """Classify a complete read-only requirement set without performing I/O."""
 
@@ -156,5 +154,4 @@ def plan_apple_resources(
     return AppleResourcePlan(
         snapshot_sha256=snapshot_sha256,
         operations=tuple(operations),
-        resources=tuple(sorted(resources, key=lambda value: (value.kind.value, value.resource_id))),
     )

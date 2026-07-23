@@ -351,20 +351,19 @@ def sync_command(
                 )
             reconciled[task.task_name].append((intent, result))
 
-    final_snapshot = snapshot
     manifests = _store_reconciled_profiles(
         root=dependencies.profile_root,
         tasks=tasks,
-        snapshot=final_snapshot,
+        snapshot=snapshot,
         results={key: tuple(value) for key, value in reconciled.items()},
         certificate=certificate,
     )
-    final_plans = build_plans(tasks, intents, final_snapshot, certificate)
+    final_plans = build_plans(tasks, intents, snapshot, certificate)
     applied = plan_document(
         command="sync",
         apply=True,
         status="applied",
-        snapshot=final_snapshot,
+        snapshot=snapshot,
         certificate=certificate,
         tasks=tasks,
         intents_by_task=intents,
