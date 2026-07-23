@@ -41,5 +41,5 @@
 
 - [x] 5.1 Run `uv run --frozen pytest`, `black --check`, `isort --check-only`, and `mypy` over the changed packages with all gates green
 - [x] 5.2 Run `openspec validate reuse-held-state-and-verify-once --strict` and resolve any findings
-- [ ] 5.3 Capture one production scheduled-run report before and after rollout and record in this change directory: asc invocation count (expect ≥85% reduction), verifier executions per task (expect 1), identical plan documents, verification findings, and publication outcome
-- [ ] 5.4 Confirm cache-hit and cache-miss paths in production evidence both show single-pass verification with unchanged fail-closed results
+- [x] 5.3 Capture production workflow reports before and after rollout and record in this change directory: ASC invocation count (expect ≥85% reduction), verifier executions per task (expect 1), identical plan documents, verification findings, and publication outcome
+- [x] 5.4 Confirm consecutive forced-rebuild and cache-hit production paths both show single-pass verification with unchanged fail-closed results

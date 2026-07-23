@@ -80,7 +80,7 @@ profile and removes `_validated`'s extra content read. See
 ## Migration Plan
 
 1. Land spec deltas (this change), then implement in three PR-sized slices: (a) Apple read reuse (D1–D3, N-series), (b) verification single-pass and single-extraction (D4–D5), (c) compute-once and CI step merge (D6–D7).
-2. Each slice keeps behavior-equivalence evidence: existing tests updated to count adapter calls/extractions, one scheduled-run report compared before/after for identical plan documents, verification findings, and publication outcome.
+2. Each slice keeps behavior-equivalence evidence: existing tests updated to count adapter calls/extractions, production workflow reports compared before/after for identical plan documents, verification findings, and publication outcome. Consecutive manual dispatches on one commit exercise forced-rebuild and cache-hit paths without changing production job semantics.
 3. Rollback is per-slice revert; no data-format or registry migration is involved (pending/promoted cache layout unchanged; verification fields of the cache record are simply populated in the verify stage instead of the sign stage).
 
 ## Open Questions

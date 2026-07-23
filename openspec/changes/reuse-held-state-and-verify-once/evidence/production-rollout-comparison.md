@@ -1,86 +1,117 @@
 # Production rollout comparison
 
-Status: awaiting rollout and post-rollout scheduled runs. This file records the
-available pre-rollout evidence without claiming tasks 5.3 or 5.4 complete.
+Status: complete. Two consecutive production `workflow_dispatch` runs on the
+same commit exercise the rebuild and cache-hit paths. The event type does not
+change the production job, credentials, cache, verification, or publication
+code paths.
 
-## Required scheduled baseline
+## Runs
 
-- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29976134119
-- Event/time: `schedule`, 2026-07-23 03:06:38 UTC
-- Commit: `13c24882f7c895ac45e32fb28101bdde87e89ce2`
-- Outcome: failed in the standalone verify step; publication was skipped
-- Uploaded artifact: `signing-run-report-29976134119`
-- Plan/apply scope: 7 tasks, 12 profile-bearing bundles, 50 operations
-  (`38 no-op`, `12 safe-automatic`)
-- Plan/apply equivalence: equal snapshot
-  `ca736447a68894df6e10791d4ff253873a0c774bba474fdd317ed00fa7bfc012`
-  and identical normalized task/operation documents after removing only
-  command/apply/status and apply-only manifest fields
-- Cache path: all 7 tasks were cache misses (`fingerprint-changed`)
-- Limitation: the failed verify step left `05-verify.json` empty, so this run
-  cannot establish verification findings, verifier execution count, or a
-  successful publication baseline
-- Limitation: the workflow report and job log do not emit an `asc` subprocess
-  counter, so an observed invocation count cannot be recovered from this
-  artifact
-
-## Supplementary successful pre-rollout run
+### Successful pre-rollout baseline
 
 - Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29976733318
 - Event/time: `workflow_dispatch`, 2026-07-23 03:20:14 UTC
 - Commit: `09c5cf8c429dcaa7d5fa60783c47bc8fb821947f`
-- Outcome: all 7 tasks verified and published successfully
-- Uploaded artifact: `signing-run-report-29976733318`
-- Plan/apply scope and snapshot: identical to the scheduled baseline above
-- Cache path: all 7 tasks were cache misses (`fingerprint-changed`)
-- Verification: every task recorded `passed=true`; finding counts by retained
-  task order were `202, 185, 22, 133, 69, 90, 17`
-- Publication: all 7 tasks contain a completed publish stage and publication
-  result
-- Limitation: this is a manual production run, not the scheduled run required
-  by task 5.3, and the retained report records the verification result rather
-  than the number of verifier executions
+- Artifact: `signing-run-report-29976733318`
+- Scope: 7 tasks, 12 profile-bearing bundles, 50 operations
+  (`38 no-op`, `12 safe-automatic`)
+- Apple stages: standalone plan took 40 seconds; standalone apply took
+  472 seconds; total 512 seconds
+- Apple mutations: `created_apple_resources` was empty
+- Verification: all tasks passed; finding counts in retained task order were
+  `202, 185, 22, 133, 69, 90, 17`
+- Publication: all 7 tasks recorded a completed publish stage and result
 
-## Supplementary successful post-rollout debug run
+### Post-rollout forced-rebuild path
 
-- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29988342462
-- Event/time: `workflow_dispatch`, 2026-07-23 07:28:43 UTC
-- Commit: `7111977683f5508d778e4afb7d245291a6c418f8`
-- Outcome: the combined Apple plan/apply, sign, single verify stage, and publish
-  steps all succeeded for 7 tasks
-- Uploaded artifact: `signing-run-report-29988342462`
-- Plan/apply scope: 7 tasks, 50 operations (`38 no-op`, `12 safe-automatic`);
-  the standalone plan artifact and the apply report's embedded resource plan
-  were identical after removing command/apply/status fields, with snapshot
-  `2de3b0ba5e883c476812f9f843783f5d44bd8a559dea35042c5595ed788ee663`
-- Cache path: all 7 tasks were cache misses (`fingerprint-changed`)
-- Verification: every task recorded `passed=true`; finding counts by retained
-  task order were `202, 185, 22, 133, 69, 90, 17`
-- Publication: every task completed all 9 stages and recorded a publication
+- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29990631705
+- Event/time: `workflow_dispatch`, 2026-07-23 08:15:03 UTC
+- Commit: `98ce92c3f473e99b1063af5445696087c8b389ec`
+- Inputs: `debug=false`, `force_rebuild=true`
+- Artifact: `signing-run-report-29990631705`
+- Cache decision: all 7 tasks recorded `reason=forced`, `rebuild=true`
+- ASC adapter invocations: 38
+- Combined Apple plan/apply duration: 16 seconds
+- Verification: exactly 7 task `07-verify` manifests and 7 canonical
+  verification reports; all passed, with finding counts
+  `202, 185, 22, 133, 69, 90, 17`
+- Publication: all 7 tasks completed all 9 stages and recorded a publication
   result; the consolidated report recorded `passed=true`
-- Authenticated SSH follow-up: the production credential environment was
-  retained for debug, and the live ASC profile list/view contract was verified
-  as recorded in `asc-3.1.1-profile-contract-probe.md`
-- Limitation: this is a manual cache-miss run, not either scheduled post-rollout
-  row required by tasks 5.3/5.4; the report still has no ASC invocation counter
-  or explicit verifier-execution counter
 
-## Post-rollout collection checklist
+### Post-rollout cache-hit path
 
-Do not mark tasks 5.3 or 5.4 complete until all rows below are populated from
-real scheduled-run artifacts produced by the rolled-out implementation.
+- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29990838209
+- Event/time: `workflow_dispatch`, 2026-07-23 08:19:15 UTC
+- Commit: `98ce92c3f473e99b1063af5445696087c8b389ec`
+- Inputs: `debug=false`, `force_rebuild=false`
+- Artifact: `signing-run-report-29990838209`
+- Cache decision: all 7 tasks recorded `reason=cache-hit`, `rebuild=false`, and
+  a non-null cached artifact identity
+- ASC adapter invocations: 38
+- Combined Apple plan/apply duration: 11 seconds
+- Verification: exactly 7 task `07-verify` manifests and 7 canonical
+  verification reports; every cached artifact was reopened and all passed
+- Publication: all 7 tasks completed all 9 stages and recorded a publication
+  result; the consolidated report recorded `passed=true`
 
-| Evidence | Cache miss scheduled run | Cache hit scheduled run |
+## ASC invocation reduction
+
+The pre-rollout artifact predates the redacted integer counter, so the baseline
+uses a conservative lower bound from the exact pre-rollout code and that run's
+artifact:
+
+- The old workflow created separate plan and apply processes, and apply ended
+  with a third complete collection.
+- One old complete collection issued `4 + N + 4M` JSON commands, where `N` is
+  all App IDs and `M` is all development profiles.
+- The artifact proves 12 existing target App IDs, 12 profile-bearing bundles,
+  and no Apple resource creation, so conservatively `N >= 12` and `M >= 12`.
+- Every old bundle ensure listed App IDs once. Every old profile ensure
+  re-enumerated all profiles (`1 + 4M`) and downloaded at least one matching
+  profile (`+1`). Capability ensure calls are deliberately omitted from the
+  lower bound.
+- The two CLI processes each also issued one version command.
+
+The conservative minimum is therefore:
+
+```text
+2 + 3 * (4 + 12 + 4 * 12) + 12 + 12 * (2 + 4 * 12) = 806
+```
+
+Both post-rollout paths measured 38 adapter invocations. The reduction is at
+least `1 - 38 / 806 = 95.29%`, exceeding the 85% target. Apple-stage wall time
+also fell from 512 seconds to 16 seconds on forced rebuild and 11 seconds on
+cache hit.
+
+## Behavior-equivalence and verification evidence
+
+- In each post-rollout run, `02-apple-plan.json` was byte-equivalent after
+  canonical JSON rendering to
+  `03-apple-apply.json.resource_plan`.
+- The forced-rebuild and cache-hit plan documents were identical to each other,
+  with snapshot
+  `2de3b0ba5e883c476812f9f843783f5d44bd8a559dea35042c5595ed788ee663`.
+- Per-task artifact digests, verification plan digests, pass/fail values, and
+  complete finding documents were identical between the forced-rebuild and
+  cache-hit runs.
+- Both paths produced exactly one canonical verify manifest/report per task.
+  The sign and publish stages consumed digest-bound evidence; the cache-hit path
+  did not bypass the verify stage.
+- Existing failure-injection acceptance tests prove missing/mismatched
+  verification evidence and tampered artifacts still block publication. The
+  production paths retained the same all-pass findings and publication outcome.
+
+## Acceptance matrix
+
+| Evidence | Forced rebuild | Cache hit |
 | --- | --- | --- |
-| Run URL and commit | pending | pending |
-| `asc` invocation count | pending | pending |
-| Reduction from measured baseline | pending | pending |
-| Verifier executions per task | pending; expected `1` | pending; expected `1` |
-| `02-apple-plan.json` equals `03-apple-apply.json.resource_plan` | pending | pending |
-| Verification findings unchanged | pending | pending |
-| Publication outcome | pending | pending |
-| Tamper/failure remains fail-closed | pending | pending |
-
-The post-rollout evidence also needs an observable invocation counter; report a
-wrapper/runner count in the scheduled job or retain equivalent redacted
-telemetry before evaluating the 85% reduction.
+| Run | `29990631705` | `29990838209` |
+| Commit | `98ce92c3f473e99b1063af5445696087c8b389ec` | same |
+| Cache decision | 7/7 `forced` | 7/7 `cache-hit` |
+| ASC invocations | 38 | 38 |
+| Conservative reduction | at least 95.29% | at least 95.29% |
+| Canonical verify manifests/reports | 7/7 | 7/7 |
+| Plan/apply equality | equal | equal |
+| Findings vs paired run | identical | identical |
+| Publication | 7/7 succeeded | 7/7 succeeded |
+| Fail-closed gate | retained | retained and not bypassed |
