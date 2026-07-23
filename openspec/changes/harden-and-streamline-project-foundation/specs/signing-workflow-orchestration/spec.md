@@ -30,3 +30,26 @@ Pipeline decision and stage-report files SHALL use the same atomic persistence b
 - **WHEN** the pipeline records rebuild, cache, cancellation, or stage-result evidence
 - **THEN** it SHALL write canonical bytes to a task-scoped temporary path, flush them, and atomically promote the complete file
 - **AND** a process interruption SHALL NOT expose a partially written successful decision
+
+### Requirement: Transaction-scoped Apple profile state reuse
+Apple profile synchronization MUST reuse one normalized account profile snapshot across all selected bundle targets in the transaction without weakening per-profile validation or mutation verification.
+
+#### Scenario: Reconcile multiple existing profiles
+- **WHEN** one apply transaction reconciles profiles for multiple bundle targets
+- **THEN** it SHALL enumerate and normalize the account profile collection once for those targets
+- **AND** it SHALL download and validate every selected profile independently before storing or signing with it
+
+#### Scenario: Reconcile prerequisites without changing profiles
+- **WHEN** App ID and capability reconciliation does not create or replace a profile
+- **THEN** intermediate Apple state refreshes SHALL reuse the transaction's normalized profile collection
+- **AND** they SHALL NOT enumerate every profile again
+
+#### Scenario: Create or recover a profile
+- **WHEN** a profile is created or a create result is uncertain
+- **THEN** synchronization SHALL verify or recover the exact created resource against current remote relationships
+- **AND** refreshed profile state SHALL be used for later targets and final canonical evidence
+
+#### Scenario: Reused profile content changed or cannot be read
+- **WHEN** downloading a selected profile fails or its bytes no longer match the normalized snapshot
+- **THEN** synchronization SHALL fail closed or create a validated additive replacement according to the existing reconciliation policy
+- **AND** stale snapshot evidence SHALL NOT be stored as a successful profile manifest

@@ -49,6 +49,8 @@ The design must reduce those surfaces without weakening independent signed-outpu
 
 11. **Verify behavior before and after each extraction.** Characterization tests are added only where an existing safety or compatibility boundary lacks coverage. Stage extraction proceeds one transaction at a time, with tests and type checks after each section. The default local test command no longer emits HTML coverage; CI invokes the explicit terminal coverage gate, and HTML remains an opt-in diagnostic command. Moving test files or adding abstraction-only tests is rejected.
 
+12. **Reuse normalized Apple profile state within one synchronization transaction.** The apply command reads the complete profile set once, carries that immutable normalized state through prerequisite reconciliation, and supplies it to every per-bundle profile reconciler. Each selected profile is still downloaded and validated against the exact certificate, device set, bundle identifier, entitlements, expiry, and content digest before use. Successful or uncertain profile creation is the only reason to refresh profile state; successful creation must be verified before the refreshed state can be reused. Re-listing every account profile for every bundle was rejected because it makes runtime grow with the product of configured bundles and account profiles without adding an independent trust boundary.
+
 ## Risks / Trade-offs
 
 - [Direct-URL and signing configuration changes reject existing external files] → ship precise field-level migration errors, update all repository configuration in the same section, and document the required checksum command before merging.
@@ -59,6 +61,7 @@ The design must reduce those surfaces without weakening independent signed-outpu
 - [Splitting the orchestrator creates broad mechanical churn] → preserve its facade and extract one stage at a time without changing report schemas or public commands.
 - [Removing qualification or instruction files can surprise an unrecorded consumer] → require repository caller/link inventory and a documented consumer decision before deletion; retain Git recovery and parity evidence.
 - [Security audit findings can be temporarily unfixable upstream] → allow only advisory-specific, owned, expiring exceptions and automatically fail again when a fixed version becomes available.
+- [Reused Apple state could hide a concurrent profile change] → treat the shared state as transaction-scoped identity, download and validate each selected profile immediately before use, fail closed on read or digest mismatch, and refresh after every profile mutation or uncertain create result.
 
 ## Migration Plan
 
@@ -66,7 +69,7 @@ The design must reduce those surfaces without weakening independent signed-outpu
 2. Pin Python/Node/uv contracts, remove the unreachable pre-3.11 dependency, update vulnerable locks, add Dependabot ecosystems and explicit audit gates, and separate the opt-in HTML coverage report.
 3. Add download policy and integrity tests; introduce `ipa_sha256`; migrate direct-source examples; then switch direct-source cache identity and reject insecure/missing-digest configurations.
 4. Add the web registry decoder and failure tests, opt into tagged Data Cache explicitly, require an explicit fixture mode in CI/local validation, and verify authenticated revalidation plus ITMS output.
-5. Add atomic source/inventory manifest loading, prove tamper/mismatch failure, and then extract source, Apple, signing, verification, publication, and reporting transactions while preserving the facade.
+5. Add atomic source/inventory manifest loading, prove tamper/mismatch failure, extract source, Apple, signing, verification, publication, and reporting transactions while preserving the facade, and reuse transaction-scoped Apple profile state without weakening per-profile validation.
 6. Remove the three single-choice configuration fields, consolidate backend qualification, and delete duplicate production decisions and unsupported wrappers after parity/caller checks.
 7. Rewrite current documentation, delete stale plans/insecure examples, decide supported agent clients, and remove or reproducibly synchronize duplicate instructions.
 8. Run the full acceptance stack, compare public CLI/report/object/config migration behavior, and perform one non-publishing local production composition plus the patched-zsign integration contract before acceptance.

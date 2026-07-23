@@ -92,8 +92,10 @@ class FakeGateway:
         self.create_error = create_error
         self.create_calls: list[dict[str, object]] = []
         self.download_calls: list[str] = []
+        self.list_calls = 0
 
     def list(self) -> tuple[AppleProfileState, ...]:
+        self.list_calls += 1
         return tuple(self.profiles)
 
     def create(
@@ -191,6 +193,38 @@ def test_reuses_best_fully_valid_profile_without_creating_or_deleting() -> None:
     assert not hasattr(gateway, "delete")
 
 
+def test_reuses_supplied_profile_snapshot_without_relisting_account() -> None:
+    existing = state("PROFILE_EXISTING", "LiveContainer Dev", b"valid-existing")
+    gateway = FakeGateway(
+        (existing,),
+        {existing.resource_id: b"valid-existing"},
+    )
+
+    result = ProfileReconciler(gateway, FakeValidator()).ensure(
+        sync_request(),
+        profiles=(existing,),
+    )
+
+    assert result.profile.resource_id == existing.resource_id
+    assert result.state == existing
+    assert gateway.list_calls == 0
+    assert gateway.download_calls == [existing.resource_id]
+
+
+def test_profile_creation_is_the_only_success_path_that_refreshes_snapshot() -> None:
+    gateway = FakeGateway((), {})
+
+    result = ProfileReconciler(gateway, FakeValidator()).ensure(
+        sync_request(),
+        profiles=(),
+    )
+
+    assert result.created is True
+    assert result.state is not None
+    assert result.state.resource_id == "PROFILE_NEW"
+    assert gateway.list_calls == 1
+
+
 def test_creates_next_standard_name_after_all_existing_profiles_are_stale() -> None:
     first = state("PROFILE_ONE", "LiveContainer Dev", b"invalid-entitlements")
     second = state(
@@ -226,11 +260,17 @@ def test_creates_next_standard_name_after_all_existing_profiles_are_stale() -> N
 def test_recovers_an_accepted_create_after_an_uncertain_response() -> None:
     gateway = FakeGateway((), {}, create_error=uncertain_error())
 
-    result = ProfileReconciler(gateway, FakeValidator()).ensure(sync_request())
+    result = ProfileReconciler(gateway, FakeValidator()).ensure(
+        sync_request(),
+        profiles=(),
+    )
 
     assert result.created is True
     assert result.profile.resource_id == "PROFILE_NEW"
+    assert result.state is not None
+    assert result.state.resource_id == "PROFILE_NEW"
     assert len(gateway.create_calls) == 1
+    assert gateway.list_calls == 1
 
 
 def test_blocks_ambiguous_uncertain_create_recovery() -> None:
@@ -306,12 +346,6 @@ def test_treats_snapshot_content_mismatch_as_stale_but_propagates_read_failures(
 
 def test_propagates_certain_create_failure_without_relookup() -> None:
     class UnauthorizedGateway(FakeGateway):
-        list_calls = 0
-
-        def list(self) -> tuple[AppleProfileState, ...]:
-            self.list_calls += 1
-            return super().list()
-
         def create(self, **kwargs: object) -> str:
             raise AdapterError(
                 ErrorCode.APPLE_AUTHORIZATION_FAILED,

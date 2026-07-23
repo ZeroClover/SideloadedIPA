@@ -22,6 +22,7 @@ from sideloadedipa.apple.reporting import (
 from sideloadedipa.application import CommandRequest, CommandResult
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
+    AppleProfileState,
     AppleResourcePlan,
     AppleStateSnapshot,
     CapabilityAutomation,
@@ -108,6 +109,21 @@ def _has_prerequisite_blockers(plans: dict[str, AppleResourcePlan]) -> bool:
     )
 
 
+def _with_profile_state(
+    profiles: tuple[AppleProfileState, ...],
+    state: AppleProfileState,
+) -> tuple[AppleProfileState, ...]:
+    return tuple(
+        sorted(
+            (
+                *(profile for profile in profiles if profile.resource_id != state.resource_id),
+                state,
+            ),
+            key=lambda value: value.resource_id,
+        )
+    )
+
+
 def _store_reconciled_profiles(
     *,
     root: Path,
@@ -187,6 +203,7 @@ def sync_command(
             )
         )
 
+    profile_states = snapshot.profiles
     for task in tasks:
         for intent in intents[task.task_name]:
             existing = exact_bundle(snapshot, intent.target_bundle_id)
@@ -194,7 +211,8 @@ def sync_command(
             if existing is None and dependencies.record_created_resource is not None:
                 dependencies.record_created_resource("bundle-id", ensured.resource_id)
 
-    snapshot = backend.collect()
+    snapshot = backend.collect(profiles=profile_states)
+    profile_states = snapshot.profiles
     for task in tasks:
         for intent in intents[task.task_name]:
             bundle = exact_bundle(snapshot, intent.target_bundle_id)
@@ -212,7 +230,8 @@ def sync_command(
                         capability_type=capability_type,
                     )
 
-    snapshot = backend.collect()
+    snapshot = backend.collect(profiles=profile_states)
+    profile_states = snapshot.profiles
     certificate = backend.resolve_certificate(snapshot)
     plans = build_plans(tasks, intents, snapshot, certificate)
     if _has_prerequisite_blockers(plans):
@@ -249,12 +268,19 @@ def sync_command(
                 certificate=certificate,
                 bundle=bundle,
                 config_path=request.config_path,
+                profile_states=profile_states,
             )
             if result.created and dependencies.record_created_resource is not None:
                 dependencies.record_created_resource("profile", result.profile.resource_id)
+            if result.created:
+                if result.state is None:
+                    snapshot = backend.collect()
+                    profile_states = snapshot.profiles
+                else:
+                    profile_states = _with_profile_state(profile_states, result.state)
             reconciled[task.task_name].append((intent, result))
 
-    final_snapshot = backend.collect()
+    final_snapshot = backend.collect() if profile_states != snapshot.profiles else snapshot
     manifests = _store_reconciled_profiles(
         root=dependencies.profile_root,
         tasks=tasks,

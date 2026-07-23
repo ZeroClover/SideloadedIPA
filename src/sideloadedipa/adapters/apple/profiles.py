@@ -74,6 +74,7 @@ class ProfileReconciliationResult:
     content: bytes = field(repr=False)
     created: bool = False
     stale_resource_ids: tuple[str, ...] = ()
+    state: AppleProfileState | None = field(default=None, repr=False)
 
 
 def _invalid_response(message: str, field_name: str) -> AdapterError:
@@ -239,7 +240,12 @@ class ProfileReconciler:
             )
         return matches[0] if matches else None
 
-    def ensure(self, request: ProfileSyncRequest) -> ProfileReconciliationResult:
+    def ensure(
+        self,
+        request: ProfileSyncRequest,
+        *,
+        profiles: tuple[AppleProfileState, ...] | None = None,
+    ) -> ProfileReconciliationResult:
         if not request.base_name or not request.device_resource_ids:
             raise DomainError(
                 ErrorCode.DOMAIN_INVARIANT,
@@ -247,29 +253,30 @@ class ProfileReconciler:
                 bundle_id=request.validation.target_bundle_id,
             )
 
-        initial = self.gateway.list()
+        initial = self.gateway.list() if profiles is None else profiles
         relevant = tuple(
             profile
             for profile in initial
             if profile.bundle_resource_id == request.bundle_resource_id
         )
-        validated: list[tuple[ProvisioningProfile, bytes]] = []
+        validated: list[tuple[AppleProfileState, ProvisioningProfile, bytes]] = []
         for state in relevant:
             if not _matches_relationships(state, request):
                 continue
             try:
-                validated.append(self._validated(state, request))
+                profile, content = self._validated(state, request)
+                validated.append((state, profile, content))
             except (AdapterError, DomainError) as error:
                 if error.code not in _STALE_PROFILE_ERRORS:
                     raise
 
         if validated:
-            profile, content = max(
+            selected_state, profile, content = max(
                 validated,
                 key=lambda value: (
-                    value[0].expires_at,
-                    value[0].created_at,
-                    value[0].resource_id,
+                    value[1].expires_at,
+                    value[1].created_at,
+                    value[1].resource_id,
                 ),
             )
             return ProfileReconciliationResult(
@@ -282,6 +289,7 @@ class ProfileReconciler:
                         if state.resource_id != profile.resource_id
                     )
                 ),
+                state=selected_state,
             )
 
         name = next_profile_name(initial, request.base_name)
@@ -326,4 +334,5 @@ class ProfileReconciler:
             content=content,
             created=True,
             stale_resource_ids=tuple(sorted(profile.resource_id for profile in relevant)),
+            state=created,
         )

@@ -442,17 +442,29 @@ class AppleStateCollector:
     def _profiles(self) -> tuple[AppleProfileState, ...]:
         return collect_profiles(self.client)
 
-    def collect(self) -> AppleStateSnapshot:
+    def collect(
+        self,
+        *,
+        profiles: tuple[AppleProfileState, ...] | None = None,
+    ) -> AppleStateSnapshot:
         """Read and normalize one complete signing-resource snapshot."""
 
         bundle_ids = self._bundle_ids()
+        capabilities = self._capabilities(bundle_ids)
+        certificates = self._certificates()
+        devices = self._devices()
+        profile_values = (
+            self._profiles()
+            if profiles is None
+            else tuple(sorted(profiles, key=lambda value: value.resource_id))
+        )
         snapshot = AppleStateSnapshot(
             snapshot_sha256="",
             bundle_ids=bundle_ids,
-            capabilities=self._capabilities(bundle_ids),
-            certificates=self._certificates(),
-            devices=self._devices(),
-            profiles=self._profiles(),
+            capabilities=capabilities,
+            certificates=certificates,
+            devices=devices,
+            profiles=profile_values,
         )
         digest = hashlib.sha256(
             json.dumps(_snapshot_document(snapshot), sort_keys=True, separators=(",", ":")).encode()

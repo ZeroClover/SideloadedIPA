@@ -150,6 +150,17 @@ def test_snapshot_digest_is_independent_of_api_list_order() -> None:
     assert first == second
 
 
+def test_reuses_normalized_profiles_without_profile_api_calls() -> None:
+    client = FixtureClient(fixture())
+    initial = AppleStateCollector(client).collect()
+    client.calls.clear()
+
+    refreshed = AppleStateCollector(client).collect(profiles=initial.profiles)
+
+    assert refreshed == initial
+    assert not any(args[0] == "profiles" for args, _ in client.calls)
+
+
 def test_normalizes_paginated_null_data_as_an_empty_list() -> None:
     value = fixture()
     value["profiles"] = {"data": None}

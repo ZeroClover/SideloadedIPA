@@ -20,6 +20,7 @@ from sideloadedipa.domain import (
     AppleBundleIdentifierState,
     AppleCapabilityState,
     AppleCertificateState,
+    AppleProfileState,
     AppleStateSnapshot,
     CertificateIdentity,
     EntitlementMode,
@@ -90,7 +91,11 @@ def payload(result: object) -> dict[str, object]:
 @dataclass
 class RecordingBackend:
     bundle_exists: bool = True
+    profile_created: bool = True
+    created_profile_state: AppleProfileState | None = None
     calls: list[str] = field(default_factory=list)
+    collect_profile_inputs: list[tuple[AppleProfileState, ...] | None] = field(default_factory=list)
+    ensure_profile_inputs: list[tuple[AppleProfileState, ...]] = field(default_factory=list)
     mutations: dict[str, int] = field(
         default_factory=lambda: {
             "apple": 0,
@@ -110,8 +115,13 @@ class RecordingBackend:
             seed_id="PREFIX1234",
         )
 
-    def collect(self) -> AppleStateSnapshot:
+    def collect(
+        self,
+        *,
+        profiles: tuple[AppleProfileState, ...] | None = None,
+    ) -> AppleStateSnapshot:
         self.calls.append("collect")
+        self.collect_profile_inputs.append(profiles)
         bundles = (self._bundle(),) if self.bundle_exists else ()
         certificates = (
             AppleCertificateState(
@@ -125,7 +135,14 @@ class RecordingBackend:
                 certificate_sha256=CERTIFICATE_SHA256,
             ),
         )
-        return AppleStateSnapshot("snapshot", bundles, (), certificates, (), ())
+        return AppleStateSnapshot(
+            "snapshot",
+            bundles,
+            (),
+            certificates,
+            (),
+            profiles if profiles is not None else (),
+        )
 
     def resolve_certificate(self, snapshot: AppleStateSnapshot) -> CertificateIdentity:
         self.calls.append("resolve_certificate")
@@ -153,6 +170,9 @@ class RecordingBackend:
     def ensure_profile(self, **kwargs: object) -> ProfileReconciliationResult:
         self.calls.append("ensure_profile")
         self.mutations["apple"] += 1
+        profile_states = kwargs["profile_states"]
+        assert isinstance(profile_states, tuple)
+        self.ensure_profile_inputs.append(profile_states)
         content = b"validated mobileprovision fixture"
         profile = ProvisioningProfile(
             resource_id="PROFILE_ONE",
@@ -169,7 +189,13 @@ class RecordingBackend:
             path=profile_relative_path("Example", "io.example.app"),
             entitlements=(),
         )
-        return ProfileReconciliationResult(profile, content, True, ())
+        return ProfileReconciliationResult(
+            profile,
+            content,
+            self.profile_created,
+            (),
+            self.created_profile_state,
+        )
 
 
 def dependencies(tmp_path: Path, backend: RecordingBackend, configured_task: Task):
@@ -286,3 +312,51 @@ def test_apply_stores_only_validated_profiles_and_redacted_manifest(tmp_path: Pa
     assert "validated mobileprovision fixture" not in manifest
     assert "PREFIX1234.io.example.app" not in manifest
     assert "manifest:" in (result.human_output or "")
+    assert backend.collect_profile_inputs == [None, (), (), None]
+    assert backend.ensure_profile_inputs == [()]
+
+
+def test_apply_reuses_profile_snapshot_when_profiles_do_not_mutate(tmp_path: Path) -> None:
+    backend = RecordingBackend(profile_created=False)
+
+    result = sync_command(
+        request(CommandName.SYNC, apply=True),
+        dependencies(tmp_path, backend, task()),
+    )
+
+    assert result.exit_code == 0
+    assert backend.collect_profile_inputs == [None, (), ()]
+    assert backend.ensure_profile_inputs == [()]
+
+
+def test_apply_merges_created_profile_state_then_refreshes_final_snapshot(
+    tmp_path: Path,
+) -> None:
+    created = AppleProfileState(
+        resource_id="PROFILE_ONE",
+        name="Example Dev",
+        platform="IOS",
+        profile_type=ProfileType.IOS_APP_DEVELOPMENT.value,
+        profile_state="ACTIVE",
+        uuid="UUID-PROFILE_ONE",
+        created_date=NOW.isoformat(),
+        expiration_date=(NOW + timedelta(days=90)).isoformat(),
+        profile_sha256="d" * 64,
+        bundle_resource_id="BUNDLE_ONE",
+        certificate_resource_ids=("CERT_ONE",),
+        device_resource_ids=(),
+    )
+    backend = RecordingBackend(created_profile_state=created)
+    recorded: list[tuple[str, str]] = []
+    deps = AppleCommandDependencies(
+        load=lambda _: TaskConfiguration((task(),)),
+        backend=backend,
+        profile_root=tmp_path / "profiles",
+        record_created_resource=lambda kind, resource_id: recorded.append((kind, resource_id)),
+    )
+
+    result = sync_command(request(CommandName.SYNC, apply=True), deps)
+
+    assert result.exit_code == 0
+    assert recorded == [("profile", created.resource_id)]
+    assert backend.collect_profile_inputs == [None, (), (), None]

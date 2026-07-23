@@ -67,6 +67,7 @@
 - [x] 7.6 Reduce `ProductionPipeline` to command compatibility and ordered coordination using direct typed dependencies; do not add a service container, abstract stage base class, or parallel orchestration engine.
 - [x] 7.7 Replace broad internal facade imports in touched modules with leaf-module imports where this clarifies ownership, and verify the internal import graph remains acyclic.
 - [x] 7.8 Run and accept each extracted stage independently, then run the full pipeline, cancellation, cache, publication failure-injection, CLI compatibility, strict typing, coverage, and import-cycle checks.
+- [x] 7.9 Reuse one normalized Apple profile snapshot across each apply transaction, refresh only after profile mutation or uncertain creation, and add call-count plus fail-closed regression tests proving per-target validation remains independent.
 
 ## 8. Fixed signing invariants and configuration reduction
 

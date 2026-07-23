@@ -26,6 +26,7 @@ from sideloadedipa.apple.intents import BundleResourceIntent
 from sideloadedipa.apple.state_probe import certificate_identity_from_environment
 from sideloadedipa.domain import (
     AppleBundleIdentifierState,
+    AppleProfileState,
     AppleStateSnapshot,
     CertificateIdentity,
     ProfileValidationRequest,
@@ -41,7 +42,11 @@ _IOS_DEVICE_CLASSES = frozenset({"IPHONE", "IPAD"})
 
 
 class AppleCommandBackend(Protocol):
-    def collect(self) -> AppleStateSnapshot: ...
+    def collect(
+        self,
+        *,
+        profiles: tuple[AppleProfileState, ...] | None = None,
+    ) -> AppleStateSnapshot: ...
 
     def resolve_certificate(self, snapshot: AppleStateSnapshot) -> CertificateIdentity: ...
 
@@ -63,6 +68,7 @@ class AppleCommandBackend(Protocol):
         certificate: CertificateIdentity,
         bundle: AppleBundleIdentifierState,
         config_path: Path,
+        profile_states: tuple[AppleProfileState, ...] | None = None,
     ) -> ProfileReconciliationResult: ...
 
 
@@ -73,8 +79,15 @@ class AscAppleCommandBackend:
         self.capabilities = CapabilityReconciler(AscCapabilityGateway(self.client))
         self.profiles = AscProfileGateway(self.client)
 
-    def collect(self) -> AppleStateSnapshot:
-        return AppleStateCollector(self.client).collect()
+    def collect(
+        self,
+        *,
+        profiles: tuple[AppleProfileState, ...] | None = None,
+    ) -> AppleStateSnapshot:
+        collector = AppleStateCollector(self.client)
+        if profiles is None:
+            return collector.collect()
+        return collector.collect(profiles=profiles)
 
     def resolve_certificate(self, snapshot: AppleStateSnapshot) -> CertificateIdentity:
         identity = certificate_identity_from_environment(snapshot)
@@ -115,6 +128,7 @@ class AscAppleCommandBackend:
         certificate: CertificateIdentity,
         bundle: AppleBundleIdentifierState,
         config_path: Path,
+        profile_states: tuple[AppleProfileState, ...] | None = None,
     ) -> ProfileReconciliationResult:
         prefix = application_identifier_prefix(bundle)
         expected = expected_entitlements(
@@ -158,5 +172,6 @@ class AscAppleCommandBackend:
                 certificate_resource_id=certificate.resource_id,
                 device_resource_ids=tuple(sorted(device.resource_id for device in devices)),
                 validation=validation,
-            )
+            ),
+            profiles=snapshot.profiles if profile_states is None else profile_states,
         )

@@ -105,7 +105,7 @@ def backend() -> AscAppleCommandBackend:
 def test_builds_exact_profile_request_from_public_apple_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict[str, ProfileSyncRequest] = {}
+    captured: dict[str, object] = {}
     content = b"validated profile"
     expected_result = ProfileReconciliationResult(
         ProvisioningProfile(
@@ -130,8 +130,14 @@ def test_builds_exact_profile_request_from_public_apple_identity(
         def __init__(self, gateway: object, validator: object) -> None:
             assert gateway is concrete.profiles
 
-        def ensure(self, request: ProfileSyncRequest) -> ProfileReconciliationResult:
+        def ensure(
+            self,
+            request: ProfileSyncRequest,
+            *,
+            profiles: tuple[object, ...] | None = None,
+        ) -> ProfileReconciliationResult:
             captured["request"] = request
+            captured["profiles"] = profiles
             return expected_result
 
     concrete = backend()
@@ -152,10 +158,12 @@ def test_builds_exact_profile_request_from_public_apple_identity(
     )
 
     request = captured["request"]
+    assert isinstance(request, ProfileSyncRequest)
     entitlements = {
         key: thaw_json(value) for key, value in request.validation.expected_entitlements
     }
     assert result is expected_result
+    assert captured["profiles"] == ()
     assert request.device_resource_ids == ("DEVICE_A", "DEVICE_B")
     assert request.validation.device_udid_sha256 == ("hash-a", "hash-b")
     assert request.validation.application_identifier == "PREFIX9876.io.example.app"
