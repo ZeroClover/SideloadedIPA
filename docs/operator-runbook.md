@@ -8,6 +8,38 @@ Install exactly the locked project environment before local operations:
 uv sync --frozen
 ```
 
+The default validation command keeps the 95 percent package gate and terminal
+missing-line report without writing a persistent HTML artifact:
+
+```bash
+uv run pytest
+```
+
+Generate the same scoped coverage as HTML only when diagnosing coverage locally:
+
+```bash
+uv run pytest --cov-report=term-missing --cov-report=html
+```
+
+Validate the download application against its bundled registry only through the
+explicit non-deployment fixture mode:
+
+```bash
+cd web
+npm ci
+npm test
+APPS_DATA_MODE=fixture npm run build
+```
+
+Production Vercel deployments use `APPS_DATA_MODE=origin`, an HTTPS
+`R2_APPS_JSON_URL`, `REVALIDATE_SECRET`, and `SITE_PUBLIC_BASE_URL`. Vercel's
+`VERCEL_ENV=production` guard rejects fixture mode. Registry reads use the
+persistent Next.js data cache with the `apps` tag; authenticated revalidation
+marks the tag stale with the `max` stale-while-revalidate profile. A refresh
+failure therefore leaves the prior valid cached value eligible, while an
+initial origin, JSON, or schema failure is surfaced rather than rendered as an
+empty catalog.
+
 The package CLI composes `inspect`, `plan`, `sync`, `sign`, `verify`, `publish`,
 and `run`. Each visible command persists a canonical, redacted stage manifest
 under `work/pipeline/<run-id>/`; its successor refuses to run if the predecessor
@@ -62,6 +94,47 @@ deletes App IDs or profiles, disables capabilities, removes App Group
 relationships, or revokes certificates. A capability change invalidates old
 profiles; retain them and let the reconciler choose the next numeric profile
 revision.
+
+## Backend requalification
+
+Requalify before accepting a change to the zsign version, executable digest,
+source commit/archive digest, patch set, profile/entitlement command shape,
+per-bundle entitlement behavior, or supported platform. The reviewed identity
+and trigger surface live in `patches/zsign/qualification-contract.json`.
+
+PR validation builds the checksum-pinned patched binary and runs the
+deterministic four-bundle fixture through the real production `ZsignBackend`.
+That contract proves ordered profile/entitlement pairs, distinct embedded
+profiles and entitlements, a profile-free helper, complete signatures, and a
+tampered-output failure.
+
+The single operator entry point is:
+
+```bash
+uv run sideloadedipa-qualify-backend \
+  --run-id "backend-$(date +%Y%m%d%H%M%S)" \
+  --evidence work/qualification/backend-qualification.json
+```
+
+Export `ZSIGN_BIN` and its exact `ZSIGN_SHA256` plus the normal Apple/P12
+environment first. The command reuses production `inspect`, read-only `plan`,
+and `sync`; add `--apply` only after reviewing the Apple plan when current
+profiles must be created or refreshed. It has no deletion or resource-reset
+mode.
+
+A complete requalification also requires the independent macOS codesign oracle.
+On the Mac holding the temporary test identity, pass `--codesign-identity` and
+`--codesign-keychain`; alternatively pass a retained `--oracle-summary` that is
+bound to the exact current fixture digest. On Linux, or on macOS without the
+identity, keychain, `codesign`, and `security`, the command writes
+`status = manual-gate-unmet` evidence and exits `3`; it never reports the absent
+oracle as success.
+
+The schema-versioned evidence contains only the fixture, contract, backend,
+plan, output, oracle, and comparison documents plus their SHA-256 digests. It
+does not retain IPAs, profiles, private keys, certificate passwords, paths, or
+raw command output. Exit `0` is reserved for a digest-bound oracle comparison
+that passes.
 
 ## Signing, verification, and publication
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,7 @@ from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
 
 _API_VERSION = "2026-03-10"
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,9 +185,12 @@ def select_release_asset(release: Mapping[str, object], glob_pattern: str) -> Gi
             "release asset size must be a non-negative integer", f"assets[{index}].size"
         )
     digest = raw_asset.get("digest")
-    if digest is not None and not isinstance(digest, str):
+    if digest is not None and (
+        not isinstance(digest, str) or _SHA256_DIGEST.fullmatch(digest) is None
+    ):
         raise _invalid_release(
-            "release asset digest must be a string when present", f"assets[{index}].digest"
+            "release asset digest must be a canonical SHA-256 when present",
+            f"assets[{index}].digest",
         )
     return GitHubReleaseAsset(
         index=index,
@@ -193,5 +198,5 @@ def select_release_asset(release: Mapping[str, object], glob_pattern: str) -> Gi
         name=name,
         browser_download_url=url,
         size=size,
-        digest=digest,
+        digest=digest.lower() if digest is not None else None,
     )

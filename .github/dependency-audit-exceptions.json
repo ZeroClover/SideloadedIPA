@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "npm": [
+    {
+      "advisory": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "severity": "high",
+      "affectedDependencyPath": "next@16.2.11 > sharp@0.34.5",
+      "reachability": "The web application deliberately renders registry icons with a plain HTML img element and does not import next/image or expose an image-optimizer route, so untrusted image bytes do not reach sharp in the supported application routes.",
+      "owner": "@ZeroClover",
+      "remediationCondition": "Upgrade to the first stable Next.js release whose optional dependency permits sharp 0.35.0 or newer, or remove the exception after a separately reviewed and fully tested compatible override.",
+      "expiresOn": "2026-08-23"
+    }
+  ]
+}

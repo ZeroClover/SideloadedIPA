@@ -24,6 +24,7 @@ from sideloadedipa.domain import (
     SigningPlan,
     SourceAsset,
     normalize_entitlements,
+    thaw_json,
 )
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
@@ -153,6 +154,13 @@ def test_every_cache_input_category_changes_the_fingerprint() -> None:
     mutations: list[FixtureInputs] = []
 
     mutations.append(replace(original, source=replace(original.source, asset_id="OTHER")))
+    mutations.append(
+        replace(
+            original,
+            source=replace(original.source, source_url="https://download.example/Other.ipa"),
+        )
+    )
+    mutations.append(replace(original, source=replace(original.source, sha256="0" * 64)))
     mutations.append(replace(original, policy_sha256="0" * 64))
     mutations.append(replace(original, graph=replace(original.graph, graph_sha256="0" * 64)))
     mutations.append(
@@ -177,6 +185,20 @@ def test_every_cache_input_category_changes_the_fingerprint() -> None:
 
     assert len({build(value).sha256 for value in mutations}) == len(mutations)
     assert all(build(value).sha256 != baseline for value in mutations)
+
+
+def test_direct_source_fingerprint_retains_digest_and_redacted_url_identity() -> None:
+    values = inputs()
+    fingerprint = build(values)
+    components = dict(fingerprint.components)
+    source = thaw_json(components["source"])
+    assert isinstance(source, dict)
+
+    assert source["sha256"] == values.source.sha256
+    assert source["source_url_sha256"] == (
+        "28bf531defc4f99dce864f4de75da8210866659a1e5da87bd92ec32fc0038f56"
+    )
+    assert "private" not in repr(fingerprint.components)
 
 
 def test_unrelated_task_fingerprint_remains_stable() -> None:

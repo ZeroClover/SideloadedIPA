@@ -1,15 +1,13 @@
-#!/usr/bin/env python3
-"""Exercise upstream zsign's multi-profile behavior against the qualification IPA."""
+"""Exercise zsign's multi-profile behavior for the supported qualification command."""
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import plistlib
 import subprocess
-import sys
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
@@ -45,6 +43,18 @@ ROOT_ONLY_KEYS = {
 
 class BackendExerciseError(RuntimeError):
     """The backend exercise could not produce trustworthy evidence."""
+
+
+@dataclass(frozen=True, slots=True)
+class ZsignExerciseRequest:
+    zsign: Path
+    fixture_ipa: Path
+    private_key: Path
+    certificate: Path
+    profiles_dir: Path
+    output_dir: Path
+    config: Path | None = None
+    per_profile_entitlements: bool = True
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -375,7 +385,7 @@ def entitlement_evidence(entitlements: Mapping[str, Mapping[str, Any]]) -> dict[
     }
 
 
-def exercise(args: argparse.Namespace) -> dict[str, Any]:
+def exercise(args: ZsignExerciseRequest) -> dict[str, Any]:
     args.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     signed_ipa = args.output_dir / "signed.ipa"
     entitlements_dir = None
@@ -456,42 +466,3 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
         "signing_order": order,
         "violations": violations,
     }
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--zsign", type=Path, required=True)
-    parser.add_argument("--fixture-ipa", type=Path, required=True)
-    parser.add_argument("--private-key", type=Path, required=True)
-    parser.add_argument("--certificate", type=Path, required=True)
-    parser.add_argument("--profiles-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
-    parser.add_argument("--config", type=Path)
-    parser.add_argument("--per-profile-entitlements", action="store_true")
-    return parser.parse_args()
-
-
-def main() -> int:
-    try:
-        args = parse_args()
-        if args.per_profile_entitlements and args.config is None:
-            raise BackendExerciseError("--config is required with --per-profile-entitlements")
-        summary = exercise(args)
-        args.summary.parent.mkdir(parents=True, exist_ok=True)
-        args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-        print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
-        if not summary["contract_pass"]:
-            print(
-                "[backend-exercise-error] upstream zsign failed the per-bundle contract",
-                file=sys.stderr,
-            )
-            return 2
-        return 0
-    except (BackendExerciseError, OSError, ValueError, zipfile.BadZipFile) as error:
-        print(f"[backend-exercise-error] {error}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -11,14 +11,13 @@ from sideloadedipa.config import load_configuration, parse_configuration
 from sideloadedipa.domain import (
     BatchPublicationPolicy,
     EntitlementMode,
-    IdentifierStrategy,
     ProfileType,
     PublicationConfig,
     R2Config,
     SourceKind,
-    UnknownProfileBundlePolicy,
 )
 from sideloadedipa.errors import ConfigurationError, ErrorCode
+from sideloadedipa.pipeline.sign_stage import policy_sha256
 
 
 def direct_task(**overrides: object) -> dict[str, object]:
@@ -27,6 +26,7 @@ def direct_task(**overrides: object) -> dict[str, object]:
         "app_name": "Direct App",
         "bundle_id": "com.example.direct",
         "ipa_url": "https://example.com/Direct.ipa",
+        "ipa_sha256": "a" * 64,
     }
     task.update(overrides)
     return task
@@ -51,6 +51,14 @@ def test_loads_current_production_configuration() -> None:
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
     assert all(task.publication_enabled for task in configuration.tasks)
+    assert {
+        task.task_name: policy_sha256(task)
+        for task in configuration.tasks
+        if task.signing is not None
+    } == {
+        "LiveContainer": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
+        "Reynard": "413b9b8d80376d7025aa9b0221b6209b96afa966b28be76da804934a89365d93",
+    }
 
 
 def test_every_production_task_declares_publication_enabled_explicitly() -> None:
@@ -137,6 +145,7 @@ def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> 
     assert task.slug == "Legacy_Name"
     assert task.source.kind is SourceKind.DIRECT_URL
     assert task.source.release_glob is None
+    assert task.source.ipa_sha256 == "a" * 64
     assert task.publication_enabled is False
     assert configuration.r2 == R2Config(ipa_prefix="signed/apps", registry_key="registry/apps.json")
 
@@ -192,10 +201,8 @@ def test_parses_existing_repository_source_options_and_icons() -> None:
 
 def test_parses_multi_bundle_signing_schema() -> None:
     task = direct_task(
+        bundle_id="io.zeroclover.app.livecontainer",
         signing={
-            "id_strategy": "preserve-source-suffix",
-            "unknown_profile_bundles": "error",
-            "profile_type": "IOS_APP_DEVELOPMENT",
             "app_groups": {
                 "shared": "group.io.zeroclover.livecontainer",
                 "secondary_group": "group.io.zeroclover.secondary",
@@ -217,15 +224,13 @@ def test_parses_multi_bundle_signing_schema() -> None:
                     "entitlement_mode": "preserve-source",
                 },
             ],
-        }
+        },
     )
 
-    signing = parse_configuration({"tasks": [task]}).tasks[0].signing
+    parsed_task = parse_configuration({"tasks": [task]}).tasks[0]
+    signing = parsed_task.signing
 
     assert signing is not None
-    assert signing.id_strategy is IdentifierStrategy.PRESERVE_SOURCE_SUFFIX
-    assert signing.unknown_profile_bundles is UnknownProfileBundlePolicy.ERROR
-    assert signing.profile_type is ProfileType.IOS_APP_DEVELOPMENT
     assert signing.app_groups == (
         ("secondary_group", "group.io.zeroclover.secondary"),
         ("shared", "group.io.zeroclover.livecontainer"),
@@ -236,24 +241,100 @@ def test_parses_multi_bundle_signing_schema() -> None:
     assert root.entitlement_policy.mode is EntitlementMode.TEMPLATE
     assert str(root.entitlement_policy.template_path) == "configs/signing/livecontainer/root.plist"
     assert root.entitlement_policy.allowed_drops == ("com.apple.developer.example",)
+    intents = derive_bundle_resource_intents(parsed_task)
+    assert {intent.profile_type for intent in intents} == {ProfileType.IOS_APP_DEVELOPMENT}
+    assert {intent.source_bundle_id: intent.target_bundle_id for intent in intents} == {
+        "com.kdt.livecontainer": "io.zeroclover.app.livecontainer",
+        "com.kdt.livecontainer.ShareExtension": ("io.zeroclover.app.livecontainer.ShareExtension"),
+    }
 
 
-def test_signing_schema_uses_documented_defaults() -> None:
+def test_signing_schema_exposes_only_operator_choices() -> None:
     signing = parse_configuration({"tasks": [direct_task(signing={})]}).tasks[0].signing
 
     assert signing is not None
-    assert signing.id_strategy is IdentifierStrategy.PRESERVE_SOURCE_SUFFIX
-    assert signing.unknown_profile_bundles is UnknownProfileBundlePolicy.ERROR
-    assert signing.profile_type is ProfileType.IOS_APP_DEVELOPMENT
     assert signing.app_groups == ()
     assert signing.manual_app_group_associations == ()
     assert signing.bundles == ()
+    assert not any(
+        hasattr(signing, field)
+        for field in ("id_strategy", "unknown_profile_bundles", "profile_type")
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "fixed_behavior"),
+    [
+        (
+            "id_strategy",
+            "preserve-source-suffix",
+            "preserve-source-suffix identifier mapping is now a fixed package invariant",
+        ),
+        (
+            "unknown_profile_bundles",
+            "error",
+            "uncovered profile-bearing bundles are now always rejected",
+        ),
+        (
+            "profile_type",
+            "IOS_APP_DEVELOPMENT",
+            "package profiles now always use IOS_APP_DEVELOPMENT",
+        ),
+    ],
+)
+def test_rejects_removed_signing_fields_with_precise_migration_guidance(
+    field: str,
+    value: object,
+    fixed_behavior: str,
+) -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        parse_configuration({"tasks": [direct_task(signing={field: value})]})
+
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.message == f"{field} has been removed because {fixed_behavior}"
+    assert caught.value.safe_details == (("field", field),)
+    assert caught.value.remediation == f"remove signing.{field}; {fixed_behavior}"
 
 
 def test_parses_per_task_publication_gate() -> None:
     task = parse_configuration({"tasks": [direct_task(publication_enabled=False)]}).tasks[0]
 
     assert task.publication_enabled is False
+
+
+def test_normalizes_direct_source_sha256_to_canonical_lowercase() -> None:
+    task = parse_configuration({"tasks": [direct_task(ipa_sha256="A" * 64)]}).tasks[0]
+
+    assert task.source.ipa_sha256 == "a" * 64
+
+
+@pytest.mark.parametrize("ipa_sha256", [None, "short", f"sha256:{'a' * 64}", "g" * 64])
+def test_direct_source_requires_canonical_sha256_with_migration_command(
+    ipa_sha256: str | None,
+) -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        parse_configuration({"tasks": [direct_task(ipa_sha256=ipa_sha256)]})
+
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.safe_details == (("field", "ipa_sha256"),)
+    assert caught.value.remediation is not None
+    assert "shasum -a 256" in caught.value.remediation
+
+
+def test_github_source_rejects_direct_source_digest() -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        parse_configuration(
+            {
+                "tasks": [
+                    direct_task(
+                        ipa_url=None,
+                        repo_url="https://github.com/example/repo",
+                    )
+                ]
+            }
+        )
+
+    assert caught.value.safe_details == (("field", "ipa_sha256"),)
 
 
 @pytest.mark.parametrize(
@@ -264,9 +345,14 @@ def test_parses_per_task_publication_gate() -> None:
         (direct_task(bundle_id="bad bundle"), "bundle_id"),
         (direct_task(repo_url="https://github.com/example/repo"), "ipa_url|repo_url"),
         (direct_task(ipa_url=None), "ipa_url|repo_url"),
+        (direct_task(ipa_url="http://example.com/App.ipa"), "ipa_url"),
         (direct_task(ipa_url="ftp://example.com/App.ipa"), "ipa_url"),
         (
-            direct_task(ipa_url=None, repo_url="https://gitlab.com/example/repo"),
+            direct_task(
+                ipa_url=None,
+                ipa_sha256=None,
+                repo_url="https://gitlab.com/example/repo",
+            ),
             "repo_url",
         ),
         (direct_task(slug="bad/slug"), "slug"),
@@ -306,9 +392,6 @@ def test_rejects_non_string_optional_field() -> None:
     ("signing", "field"),
     [
         ("invalid", "signing"),
-        ({"id_strategy": "replace-all"}, "id_strategy"),
-        ({"unknown_profile_bundles": "ignore"}, "unknown_profile_bundles"),
-        ({"profile_type": 1}, "profile_type"),
         ({"app_groups": []}, "signing.app_groups"),
         ({"app_groups": {"bad alias": "group.example"}}, "signing.app_groups"),
         ({"app_groups": {"shared": 42}}, "signing.app_groups.shared"),
@@ -374,3 +457,7 @@ def test_example_configuration_parses_through_the_production_loader() -> None:
     configuration = load_configuration(Path("configs/tasks.toml.example"))
 
     assert configuration.tasks
+    livecontainer = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
+    assert policy_sha256(livecontainer) == (
+        "1dc7d2fffb3a46f8466d192b1fbe0f62c9d8ab52e1410777b005cf0fb4f9c66b"
+    )

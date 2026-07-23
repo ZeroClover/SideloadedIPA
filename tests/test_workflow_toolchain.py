@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 from sideloadedipa.adapters.apple.asc import SUPPORTED_ASC_VERSION
@@ -17,10 +18,15 @@ SSH_DEBUG_ACTION = ACTION_DIR / "ssh-debug" / "action.yml"
 ASC_ACTION = ACTION_DIR / "install-asc" / "action.yml"
 ZSIGN_ACTION = ACTION_DIR / "build-patched-zsign" / "action.yml"
 ASC_CONTRACT = ROOT / "tests" / "fixtures" / "asc" / "3.1.1-contract.json"
+DEPENDABOT = ROOT / ".github" / "dependabot.yml"
+DEPENDENCY_AUDIT = ROOT / "scripts" / "check_dependency_audits.py"
 
 ASC_SHA256 = "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
 ZSIGN_SOURCE_COMMIT = "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
 ZSIGN_SOURCE_SHA256 = "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
+PYTHON_VERSION = "3.11.15"
+NODE_VERSION = "22.23.1"
+UV_VERSION = "0.11.31"
 
 
 def workflow_text() -> str:
@@ -48,6 +54,26 @@ def test_workflows_pin_current_canonical_tool_releases() -> None:
     assert workflows.count(ASC_SHA256) == 2
     assert workflows.count(ZSIGN_SOURCE_COMMIT) == 2
     assert workflows.count(ZSIGN_SOURCE_SHA256) == 2
+
+
+def test_local_and_ci_runtime_declarations_are_exact_and_synchronized() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    python_version = (ROOT / ".python-version").read_text().strip()
+    node_version = (ROOT / "web" / ".node-version").read_text().strip()
+
+    assert python_version == PYTHON_VERSION
+    assert node_version == NODE_VERSION
+    assert project["tool"]["uv"]["required-version"] == f"=={UV_VERSION}"
+
+    for workflow in (SIGN_WORKFLOW.read_text(), PR_WORKFLOW.read_text()):
+        assert 'version-file: "pyproject.toml"' in workflow
+        assert f'python-version: "{PYTHON_VERSION}"' in workflow
+        assert f'uv --version | awk \'{{print $2}}\')" = "{UV_VERSION}"' in workflow
+        assert "platform.python_version()" in workflow
+
+    pull_request = PR_WORKFLOW.read_text()
+    assert 'node-version-file: "web/.node-version"' in pull_request
+    assert 'test "$(node --version)" = "v$(tr -d \'\\n\' < .node-version)"' in pull_request
 
 
 def test_workflows_verify_published_checksum_pin_and_runtime_version() -> None:
@@ -190,6 +216,41 @@ def test_external_actions_use_immutable_pins_with_version_comments() -> None:
     for path, use in external_uses:
         match = re.fullmatch(r"uses: [^@\s]+@([0-9a-f]{40}) # v\d+\.\d+\.\d+", use)
         assert match is not None, f"mutable or undocumented Action pin in {path}: {use}"
+
+
+def test_dependabot_covers_each_supported_dependency_ecosystem() -> None:
+    config = DEPENDABOT.read_text()
+
+    assert config.count("package-ecosystem:") == 3
+    assert 'package-ecosystem: uv\n    directory: "/"' in config
+    assert 'package-ecosystem: npm\n    directory: "/web"' in config
+    assert 'package-ecosystem: github-actions\n    directory: "/"' in config
+    assert config.count("interval: weekly") == 3
+
+
+def test_pr_validation_audits_frozen_locks_with_reviewed_exceptions() -> None:
+    pull_request = PR_WORKFLOW.read_text()
+    audit_script = DEPENDENCY_AUDIT.read_text()
+
+    assert "uv audit --frozen" in pull_request
+    assert "uv run --frozen python scripts/check_dependency_audits.py" in pull_request
+    for token in ("npm", "audit", "--package-lock-only", "--audit-level=high", "--json"):
+        assert f'"{token}"' in audit_script
+    assert "npm audit fix --force" not in pull_request
+    assert "npm audit fix --force" not in audit_script
+
+
+def test_default_coverage_is_terminal_only_and_html_is_explicit() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    addopts = project["tool"]["pytest"]["ini_options"]["addopts"]
+    runbook = (ROOT / "docs" / "operator-runbook.md").read_text()
+
+    assert "--cov=sideloadedipa" in addopts
+    assert "--cov-report=term-missing" in addopts
+    assert "--cov-report=html" not in addopts
+    assert project["tool"]["coverage"]["run"]["source"] == ["sideloadedipa"]
+    assert project["tool"]["coverage"]["report"]["fail_under"] == 95
+    assert "uv run pytest --cov-report=term-missing --cov-report=html" in runbook
 
 
 def test_actions_aware_validation_replaces_generic_yaml_shape_check() -> None:

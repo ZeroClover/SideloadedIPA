@@ -15,8 +15,6 @@ from sideloadedipa.domain import (
     BundleRule,
     EntitlementMode,
     EntitlementPolicy,
-    IdentifierStrategy,
-    ProfileType,
     PublicationConfig,
     R2Config,
     SigningPolicy,
@@ -24,7 +22,6 @@ from sideloadedipa.domain import (
     SourceKind,
     Task,
     TaskConfiguration,
-    UnknownProfileBundlePolicy,
 )
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 
@@ -34,14 +31,39 @@ _GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^(?:https?://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?/?$"
 )
 _ALIAS_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+_DIRECT_DIGEST_REMEDIATION = (
+    "run 'shasum -a 256 <path-to-ipa>' and add the reviewed digest as ipa_sha256"
+)
+_REMOVED_SIGNING_FIELDS = (
+    (
+        "id_strategy",
+        "preserve-source-suffix identifier mapping is now a fixed package invariant",
+    ),
+    (
+        "unknown_profile_bundles",
+        "uncovered profile-bearing bundles are now always rejected",
+    ),
+    (
+        "profile_type",
+        "package profiles now always use IOS_APP_DEVELOPMENT",
+    ),
+)
 _EnumValue = TypeVar("_EnumValue", bound=StrEnum)
 
 
-def _fail(message: str, field: str, task_name: str | None = None) -> NoReturn:
+def _fail(
+    message: str,
+    field: str,
+    task_name: str | None = None,
+    *,
+    remediation: str | None = None,
+) -> NoReturn:
     raise ConfigurationError(
         ErrorCode.CONFIG_INVALID,
         message,
         task_name=task_name,
+        remediation=remediation,
         safe_details=(("field", field),),
     )
 
@@ -107,6 +129,17 @@ def _http_url(value: str, field: str, task_name: str) -> None:
         _fail(f"{field} must be an HTTP or HTTPS URL", field, task_name)
 
 
+def _https_url(value: str, field: str, task_name: str) -> None:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        _fail(f"{field} must be an HTTPS URL with a valid authority", field, task_name)
+
+
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     return re.sub(r"_+", "_", slug).strip("._-") or "app"
@@ -115,6 +148,7 @@ def _slugify(value: str) -> str:
 def _parse_source(raw: Mapping[str, object], task_name: str) -> SourceConfig:
     ipa_url = _optional_string(raw, "ipa_url", task_name=task_name)
     repo_url = _optional_string(raw, "repo_url", task_name=task_name)
+    ipa_sha256 = _optional_string(raw, "ipa_sha256", task_name=task_name)
     if (ipa_url is None) == (repo_url is None):
         _fail(
             "exactly one of ipa_url or repo_url must be configured",
@@ -128,16 +162,33 @@ def _parse_source(raw: Mapping[str, object], task_name: str) -> SourceConfig:
         _fail("use_prerelease must be a boolean", "use_prerelease", task_name)
 
     if ipa_url is not None:
-        _http_url(ipa_url, "ipa_url", task_name)
+        _https_url(ipa_url, "ipa_url", task_name)
+        if ipa_sha256 is None or _SHA256_PATTERN.fullmatch(ipa_sha256) is None:
+            _fail(
+                "ipa_sha256 must be the canonical 64-character digest of the reviewed IPA",
+                "ipa_sha256",
+                task_name,
+                remediation=_DIRECT_DIGEST_REMEDIATION,
+            )
         if release_glob is not None or use_prerelease:
             _fail(
                 "release_glob and use_prerelease require repo_url",
                 "release_glob|use_prerelease",
                 task_name,
             )
-        return SourceConfig(kind=SourceKind.DIRECT_URL, location=ipa_url)
+        return SourceConfig(
+            kind=SourceKind.DIRECT_URL,
+            location=ipa_url,
+            ipa_sha256=ipa_sha256.lower(),
+        )
 
     assert repo_url is not None
+    if ipa_sha256 is not None:
+        _fail(
+            "ipa_sha256 is valid only with ipa_url; GitHub owns release asset digest evidence",
+            "ipa_sha256",
+            task_name,
+        )
     if not _GITHUB_REPOSITORY_PATTERN.fullmatch(repo_url):
         _fail("repo_url must identify a GitHub repository", "repo_url", task_name)
     return SourceConfig(
@@ -203,6 +254,14 @@ def _parse_bundle_rule(value: object, index: int, task_name: str) -> BundleRule:
 
 def _parse_signing(value: object, task_name: str) -> SigningPolicy:
     raw = _mapping(value, "signing")
+    for field, fixed_behavior in _REMOVED_SIGNING_FIELDS:
+        if field in raw:
+            _fail(
+                f"{field} has been removed because {fixed_behavior}",
+                field,
+                task_name,
+                remediation=f"remove signing.{field}; {fixed_behavior}",
+            )
     app_groups_raw = _mapping(raw.get("app_groups", {}), "signing.app_groups")
     app_groups: list[tuple[str, str]] = []
     for alias, identifier in app_groups_raw.items():
@@ -235,24 +294,6 @@ def _parse_signing(value: object, task_name: str) -> SigningPolicy:
         _fail("signing.bundles must be an array of tables", "signing.bundles", task_name)
 
     return SigningPolicy(
-        id_strategy=_enum_value(
-            IdentifierStrategy,
-            raw.get("id_strategy", IdentifierStrategy.PRESERVE_SOURCE_SUFFIX.value),
-            "id_strategy",
-            task_name,
-        ),
-        unknown_profile_bundles=_enum_value(
-            UnknownProfileBundlePolicy,
-            raw.get("unknown_profile_bundles", UnknownProfileBundlePolicy.ERROR.value),
-            "unknown_profile_bundles",
-            task_name,
-        ),
-        profile_type=_enum_value(
-            ProfileType,
-            raw.get("profile_type", ProfileType.IOS_APP_DEVELOPMENT.value),
-            "profile_type",
-            task_name,
-        ),
         app_groups=tuple(sorted(app_groups)),
         manual_app_group_associations=tuple(
             sorted({group_identifiers[alias] for alias in manual_association_aliases})

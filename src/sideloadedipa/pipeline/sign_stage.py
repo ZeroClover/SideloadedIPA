@@ -18,6 +18,12 @@ from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.service import PackageSigningRequest, plan_package_signing
 from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, file_sha256
 
+_SIGNING_POLICY_FINGERPRINT_INVARIANTS = {
+    "id_strategy": "preserve-source-suffix",
+    "unknown_profile_bundles": "error",
+    "profile_type": "IOS_APP_DEVELOPMENT",
+}
+
 
 def json_digest(value: object) -> str:
     return hashlib.sha256(canonical_json(value, default=str)).hexdigest()
@@ -64,7 +70,13 @@ def build_fingerprint(
 
 
 def policy_sha256(task: Task) -> str:
-    return json_digest(asdict(task))
+    document = asdict(task)
+    signing = document.get("signing")
+    if isinstance(signing, dict):
+        # Policy hashes are a durable cache contract. Retain the former fixed
+        # fields in the fingerprint document after removing them from config.
+        signing.update(_SIGNING_POLICY_FINGERPRINT_INVARIANTS)
+    return json_digest(document)
 
 
 def device_set_sha256(request: PackageSigningRequest) -> str:

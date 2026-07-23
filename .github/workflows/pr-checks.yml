@@ -39,11 +39,20 @@ jobs:
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version-file: "pyproject.toml"
+          python-version: "3.11.15"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install locked Python dependencies
-        run: uv sync --frozen
+      - name: Install and verify locked Python toolchain
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          test "$(uv --version | awk '{print $2}')" = "0.11.31"
+          test "$(uv run --frozen python -c 'import platform; print(platform.python_version())')" = "$(tr -d '\n' < .python-version)"
+
+      - name: Audit frozen Python dependency graph
+        run: uv audit --frozen
 
       - name: Install checksum-verified App Store Connect CLI
         uses: ./.github/actions/install-asc
@@ -95,13 +104,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version-file: "web/.node-version"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Install locked web dependencies
         working-directory: web
-        run: npm ci
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v$(tr -d '\n' < .node-version)"
+          npm ci
+
+      - name: Audit locked web dependency graph
+        run: uv run --frozen python scripts/check_dependency_audits.py
 
       - name: Check plist golden files
         working-directory: web
@@ -109,6 +124,8 @@ jobs:
 
       - name: Build web application
         working-directory: web
+        env:
+          APPS_DATA_MODE: fixture
         run: npm run build
 
       - name: "Debug: Start SSH session"

@@ -11,13 +11,10 @@ from sideloadedipa.domain import (
     BundleRule,
     EntitlementMode,
     EntitlementPolicy,
-    IdentifierStrategy,
-    ProfileType,
     SigningPolicy,
     SourceConfig,
     SourceKind,
     Task,
-    UnknownProfileBundlePolicy,
     reconcile_bundle_rules,
 )
 
@@ -61,9 +58,6 @@ def task(*rules: BundleRule, legacy: bool = False) -> Task:
             None
             if legacy
             else SigningPolicy(
-                IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-                UnknownProfileBundlePolicy.ERROR,
-                ProfileType.IOS_APP_DEVELOPMENT,
                 bundles=rules,
             )
         ),

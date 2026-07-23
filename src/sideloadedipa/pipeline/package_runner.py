@@ -54,6 +54,7 @@ def prepare_package_signing(
     zsign_executable: Path,
     zsign_sha256: str,
     repository_root: Path,
+    graph: BundleGraph,
     now: datetime | None = None,
 ) -> PackageSigningRequest:
     """Load current authenticated inputs without invoking the signing backend."""
@@ -75,17 +76,13 @@ def prepare_package_signing(
         resource_id=certificate_ids[0],
         output_directory=private_directory,
     )
-    profile_type = (
-        task.signing.profile_type if task.signing is not None else ProfileType.IOS_APP_DEVELOPMENT
-    )
     profiles = load_synced_profiles(
         profile_root=profile_root,
         manifest=manifest,
-        profile_type=profile_type,
+        profile_type=ProfileType.IOS_APP_DEVELOPMENT,
         certificate=certificate.identity,
         now=current_time,
     )
-    graph = inspect_source_graph(source_ipa, task=task)
     backend = ZsignBackend(
         executable=zsign_executable,
         expected_executable_sha256=zsign_sha256,

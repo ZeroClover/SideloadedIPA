@@ -1,23 +1,19 @@
-#!/usr/bin/env python3
-"""Produce independent macOS codesign evidence for the backend qualification fixture."""
+"""Produce independent macOS codesign evidence for backend qualification."""
 
 from __future__ import annotations
 
-import argparse
 import hashlib
-import json
 import plistlib
 import re
 import shutil
 import subprocess
-import sys
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from sideloadedipa.tools.exercise_zsign_backend import (
     TARGETS,
-    BackendExerciseError,
     entitlement_evidence,
     evaluate_contract,
     materialize_entitlements,
@@ -28,6 +24,15 @@ from sideloadedipa.tools.exercise_zsign_backend import (
 
 class CodesignOracleError(RuntimeError):
     """The macOS oracle could not produce trustworthy evidence."""
+
+
+@dataclass(frozen=True, slots=True)
+class CodesignOracleRequest:
+    fixture_ipa: Path
+    identity: str
+    keychain: Path
+    profiles_dir: Path
+    output_dir: Path
 
 
 def run(command: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
@@ -112,7 +117,7 @@ def inspect_codesign_entitlements(bundle: Path, expected: Mapping[str, Any]) -> 
     }
 
 
-def exercise(args: argparse.Namespace) -> dict[str, Any]:
+def exercise(args: CodesignOracleRequest) -> dict[str, Any]:
     extracted = args.output_dir / "extracted"
     entitlements_dir = args.output_dir / "entitlements"
     args.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -195,39 +200,3 @@ def exercise(args: argparse.Namespace) -> dict[str, Any]:
         "source_fixture_sha256": sha256_file(args.fixture_ipa),
         "violations": violations,
     }
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fixture-ipa", type=Path, required=True)
-    parser.add_argument("--identity", required=True)
-    parser.add_argument("--keychain", type=Path, required=True)
-    parser.add_argument("--profiles-dir", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
-    return parser.parse_args()
-
-
-def main() -> int:
-    try:
-        args = parse_args()
-        summary = exercise(args)
-        args.summary.parent.mkdir(parents=True, exist_ok=True)
-        args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-        print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
-        if not summary["contract_pass"]:
-            return 2
-        return 0
-    except (
-        BackendExerciseError,
-        CodesignOracleError,
-        OSError,
-        ValueError,
-        zipfile.BadZipFile,
-    ) as error:
-        print(f"[codesign-oracle-error] {error}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

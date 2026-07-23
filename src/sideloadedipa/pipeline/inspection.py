@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import BundleGraph, BundleNode, SourceKind, Task, TaskConfiguration
-from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.ipa import discover_bundle_graph, discover_bundle_structure, extract_ipa_safely
 from sideloadedipa.sources import (
     DownloadedSource,
@@ -45,8 +45,7 @@ class SourceDownloader(Protocol):
         destination: Path,
         *,
         expected_sha256: str | None = None,
-        timeout_seconds: float = 60,
-        chunk_size: int = 1024 * 1024,
+        expected_size: int | None = None,
     ) -> DownloadedSource: ...
 
 
@@ -103,10 +102,18 @@ def resolve_source(
     task: Task, dependencies: InspectDependencies, token: str | None
 ) -> ResolvedSource:
     if task.source.kind is SourceKind.DIRECT_URL:
+        if task.source.ipa_sha256 is None:
+            raise ConfigurationError(
+                ErrorCode.CONFIG_INVALID,
+                "direct source is missing its reviewed SHA-256",
+                task_name=task.task_name,
+                remediation=("run 'shasum -a 256 <path-to-ipa>' and add the digest as ipa_sha256"),
+                safe_details=(("field", "ipa_sha256"),),
+            )
         asset_name = unquote(Path(urlsplit(task.source.location).path).name) or "source.ipa"
         return ResolvedSource(
             url=task.source.location,
-            expected_sha256=None,
+            expected_sha256=task.source.ipa_sha256,
             advertised_size=None,
             evidence={
                 "kind": task.source.kind.value,
@@ -116,8 +123,17 @@ def resolve_source(
                 "asset_id": None,
                 "asset_name": asset_name,
                 "advertised_size": None,
-                "advertised_sha256": None,
+                "advertised_sha256": task.source.ipa_sha256,
+                "configured_sha256": task.source.ipa_sha256,
             },
+        )
+
+    if task.source.ipa_sha256 is not None:
+        raise ConfigurationError(
+            ErrorCode.CONFIG_INVALID,
+            "GitHub release source cannot declare a direct-source digest",
+            task_name=task.task_name,
+            safe_details=(("field", "ipa_sha256"),),
         )
 
     release = dependencies.fetch_release(

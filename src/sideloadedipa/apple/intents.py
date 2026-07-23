@@ -122,7 +122,7 @@ def derive_bundle_resource_intents(task: Task) -> tuple[BundleResourceIntent, ..
                 profile_name=f"{display_name} Dev",
                 source_bundle_id=rule.source_bundle_id,
                 target_bundle_id=targets[rule.source_bundle_id],
-                profile_type=task.signing.profile_type,
+                profile_type=ProfileType.IOS_APP_DEVELOPMENT,
                 required_capabilities=capabilities,
                 app_groups=(configured_groups if "APP_GROUPS" in capabilities else ()),
                 entitlement_policy=rule.entitlement_policy,

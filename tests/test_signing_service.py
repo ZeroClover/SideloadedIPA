@@ -23,7 +23,6 @@ from sideloadedipa.domain import (
     EntitlementMode,
     EntitlementPolicy,
     ExpectedNodeEntitlements,
-    IdentifierStrategy,
     ProfileManifestEntry,
     ProfileType,
     ProvisioningProfile,
@@ -34,7 +33,6 @@ from sideloadedipa.domain import (
     SigningPolicy,
     SigningResult,
     Task,
-    UnknownProfileBundlePolicy,
     VerificationFinding,
     VerificationResult,
     normalize_entitlements,
@@ -283,9 +281,6 @@ def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> N
     configured = replace(
         fixture.task,
         signing=SigningPolicy(
-            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-            UnknownProfileBundlePolicy.ERROR,
-            ProfileType.IOS_APP_DEVELOPMENT,
             bundles=(
                 BundleRule(
                     source_bundle_id,
@@ -327,9 +322,6 @@ def test_rejects_template_policy_without_template_path(tmp_path: Path) -> None:
     configured = replace(
         fixture.task,
         signing=SigningPolicy(
-            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-            UnknownProfileBundlePolicy.ERROR,
-            ProfileType.IOS_APP_DEVELOPMENT,
             bundles=(
                 BundleRule(
                     source_bundle_id,

@@ -5,7 +5,8 @@
 # - task_name: Identifier for this task (used for profile lookup)
 # - app_name: Human-friendly app name (used for profile naming: "{app_name} Dev")
 # - bundle_id: iOS Bundle Identifier (must exist in Apple Developer Portal)
-# - repo_url / ipa_url: source of the unsigned IPA (mutually exclusive)
+# - repo_url / ipa_url: source of the unsigned IPA (mutually exclusive);
+#   ipa_url also requires its reviewed canonical ipa_sha256
 # - slug: Optional. Stable key for R2 object paths and the apps.json registry /
 #   download-page URLs (defaults to a slugified app_name). Keep the legacy
 #   download-page directory value so existing links stay stable.
@@ -85,9 +86,6 @@ icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
 publication_enabled = true
 
 [tasks.signing]
-id_strategy = "preserve-source-suffix"
-unknown_profile_bundles = "error"
-profile_type = "IOS_APP_DEVELOPMENT"
 # The Account Holder confirmed this group is registered and assigned to every
 # configured App ID. The public API exposes APP_GROUPS but not this relationship;
 # generated profiles still have to authorize the exact group before signing.
@@ -131,9 +129,6 @@ icon_path = "browser/Reynard/Resources/Assets.xcassets/AppIcon.appiconset/icon.p
 publication_enabled = true
 
 [tasks.signing]
-id_strategy = "preserve-source-suffix"
-unknown_profile_bundles = "error"
-profile_type = "IOS_APP_DEVELOPMENT"
 
 [[tasks.signing.bundles]]
 source_bundle_id = "com.minh-ton.Reynard"

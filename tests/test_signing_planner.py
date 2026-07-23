@@ -20,7 +20,6 @@ from sideloadedipa.domain import (
     EntitlementMode,
     EntitlementPolicy,
     ExpectedNodeEntitlements,
-    IdentifierStrategy,
     ProfileManifestEntry,
     ProfileResourceManifest,
     ProfileType,
@@ -31,7 +30,6 @@ from sideloadedipa.domain import (
     SourceConfig,
     SourceKind,
     Task,
-    UnknownProfileBundlePolicy,
     normalize_entitlements,
     reconcile_bundle_rules,
 )
@@ -53,9 +51,6 @@ def task() -> Task:
         source=SourceConfig(SourceKind.DIRECT_URL, "https://example.com/App.ipa"),
         slug="Example",
         signing=SigningPolicy(
-            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-            UnknownProfileBundlePolicy.ERROR,
-            ProfileType.IOS_APP_DEVELOPMENT,
             bundles=(
                 BundleRule(
                     "com.upstream.app",

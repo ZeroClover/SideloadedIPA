@@ -20,10 +20,10 @@
 # apps_json_key = "site/apps.json" # registry key consumed by the Vercel front-end
 
 # ========================================
-# Option 1: Direct IPA URL (Legacy)
+# Option 1: Immutable direct IPA URL
 # ========================================
-# Tasks with ipa_url will always rebuild on every run.
-# No version tracking or caching.
+# Direct tasks require the reviewed SHA-256 of the exact IPA bytes. The URL and
+# digest form a cacheable identity; changing either invalidates the cache.
 
 [[tasks]]
 # Identifier used to look up the provisioning profile and output files
@@ -39,6 +39,10 @@ bundle_id = "com.example.myapp"
 # Direct download URL of the original IPA to sign
 ipa_url = "https://example.com/path/to/MyApp.ipa"
 
+# Required for ipa_url. Calculate this from the reviewed IPA with
+# `shasum -a 256 MyApp.ipa`; replace this illustrative digest.
+ipa_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 # Optional: stable key for R2 object paths and the apps.json registry /
 # download-page URLs. Defaults to a slugified app_name ("MyApp" here).
 # slug = "myapp"
@@ -48,7 +52,7 @@ ipa_url = "https://example.com/path/to/MyApp.ipa"
 # icon_path = "ipa:"
 
 # ========================================
-# Option 2: GitHub Release Tracking (New, with Caching)
+# Option 2: GitHub Release Tracking
 # ========================================
 # Tasks with repo_url will track GitHub releases and only rebuild
 # when the release version or timestamp changes.
@@ -119,9 +123,6 @@ icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
 publication_enabled = false
 
 [tasks.signing]
-id_strategy = "preserve-source-suffix"
-unknown_profile_bundles = "error"
-profile_type = "IOS_APP_DEVELOPMENT"
 # After an Account Holder/Admin registers and assigns the group to every relevant
 # App ID, record the reviewed alias here. Profile validation remains mandatory.
 # manual_app_group_associations = ["shared"]

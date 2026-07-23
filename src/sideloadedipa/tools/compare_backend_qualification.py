@@ -1,11 +1,8 @@
-#!/usr/bin/env python3
-"""Compare redacted Linux zsign and macOS codesign qualification summaries."""
+"""Compare redacted zsign and macOS codesign qualification summaries."""
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any, Mapping, cast
 
@@ -166,33 +163,3 @@ def compare_summaries(
         "root_last": True,
         "xml_der_evidence_complete": True,
     }
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--linux-summary", type=Path, required=True)
-    parser.add_argument("--macos-summary", type=Path, required=True)
-    parser.add_argument("--negative-control-summary", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
-    return parser.parse_args()
-
-
-def main() -> int:
-    try:
-        args = parse_args()
-        result = compare_summaries(
-            load_summary(args.linux_summary),
-            load_summary(args.macos_summary),
-            load_summary(args.negative_control_summary),
-        )
-        args.summary.parent.mkdir(parents=True, exist_ok=True)
-        args.summary.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
-    except (ComparisonError, OSError, ValueError, json.JSONDecodeError) as error:
-        print(f"[backend-comparison-error] {error}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -3,6 +3,7 @@ task_name = "root-only"
 app_name = "Root Only"
 bundle_id = "io.example.root-only"
 ipa_url = "https://example.com/RootOnly.ipa"
+ipa_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 [[tasks]]
 task_name = "multiple-extensions"
@@ -12,9 +13,6 @@ repo_url = "https://github.com/LiveContainer/LiveContainer"
 release_glob = "LiveContainer.ipa"
 
 [tasks.signing]
-id_strategy = "preserve-source-suffix"
-unknown_profile_bundles = "error"
-profile_type = "IOS_APP_DEVELOPMENT"
 
 [tasks.signing.app_groups]
 shared = "group.io.zeroclover.livecontainer"
@@ -48,6 +46,7 @@ task_name = "non-descendant"
 app_name = "Non Descendant"
 bundle_id = "io.example.non-descendant"
 ipa_url = "https://example.com/NonDescendant.ipa"
+ipa_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 [tasks.signing]
 
@@ -64,6 +63,7 @@ task_name = "duplicate-source-ids"
 app_name = "Duplicate IDs"
 bundle_id = "io.example.duplicate"
 ipa_url = "https://example.com/Duplicate.ipa"
+ipa_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 [tasks.signing]
 

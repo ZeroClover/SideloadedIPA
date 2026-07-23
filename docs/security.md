@@ -23,6 +23,9 @@ characters: [Python subprocess security considerations](https://docs.python.org/
   not receive them at job scope.
 - Never print secret values, private paths, raw profile payloads, P12 bytes, or
   private keys. Structured reports contain stable resource IDs and hashes only.
+- Backend-qualification evidence is canonical and digest-bound but retains no
+  IPA, profile, private key, certificate password, private path, or raw command
+  output. A missing macOS oracle is an explicit non-passing manual gate.
 - GitHub warns that automatic masking is not guaranteed for transformed values,
   so application-level redaction remains mandatory:
   [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use).

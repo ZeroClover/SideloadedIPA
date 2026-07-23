@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-"""Build a deterministic four-bundle IPA for backend qualification."""
+"""Build the deterministic four-bundle IPA used by backend qualification."""
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import plistlib
 import zipfile
@@ -107,22 +105,3 @@ def build_fixture(source_ipa: Path, output_ipa: Path, expected_source_sha256: st
                 zip_info(f"{bundle_path}/{executable}", executable=True),
                 source.read(SOURCE_EXECUTABLES[role]),
             )
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--source-ipa", type=Path, required=True)
-    parser.add_argument("--output-ipa", type=Path, required=True)
-    parser.add_argument("--expected-source-sha256", required=True)
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
-    build_fixture(args.source_ipa, args.output_ipa, args.expected_source_sha256)
-    print(f"qualification fixture sha256: {sha256_file(args.output_ipa)}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

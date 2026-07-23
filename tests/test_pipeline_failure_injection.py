@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from contextlib import contextmanager
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
 import sideloadedipa.pipeline.production as production
 import sideloadedipa.pipeline.publish_stage as publish_stage
+import sideloadedipa.pipeline.stages.apple as production_apple_stage
+import sideloadedipa.pipeline.stages.publication as production_publication_stage
+import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
+import sideloadedipa.pipeline.stages.verification as production_verification_stage
 from sideloadedipa.application import CommandName, CommandResult
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.config import load_configuration
@@ -19,9 +25,12 @@ from sideloadedipa.domain import (
     TaskConfiguration,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.ipa.graph import canonical_graph_json
 from sideloadedipa.ipa.metadata import IpaMetadata
 from sideloadedipa.pipeline.production import PreparedContext, ProductionPipeline
 from sideloadedipa.signing.preflight import PreflightResult
+from sideloadedipa.sources import DownloadedSource
+from sideloadedipa.util.atomics import canonical_json
 from tests.conftest import FixtureCopyBackend as CopyBackend
 from tests.conftest import package_request as request_for
 from tests.conftest import production_command as command
@@ -37,7 +46,34 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
 ) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     signing_request = request_for(task, tmp_path)
-    context = source_context(tmp_path, task, signing_request.graph)
+    graph_document = json.loads(canonical_graph_json(signing_request.graph))
+    graph_document.pop("graph_sha256")
+    graph = replace(
+        signing_request.graph,
+        graph_sha256=hashlib.sha256(canonical_json(graph_document)).hexdigest(),
+    )
+    context = source_context(tmp_path, task, graph)
+    source_path = signing_request.source_ipa
+    source_sha256 = graph.source_sha256
+    context = replace(
+        context,
+        resolved=replace(
+            context.resolved,
+            expected_sha256=f"sha256:{source_sha256}",
+            evidence={**context.resolved.evidence, "kind": task.source.kind.value},
+            advertised_size=source_path.stat().st_size,
+        ),
+        downloaded=DownloadedSource(
+            source_path,
+            source_path.stat().st_size,
+            source_sha256,
+        ),
+        source=replace(
+            context.source,
+            path=PurePosixPath(source_path.name),
+            sha256=source_sha256,
+        ),
+    )
     prepared = PreparedContext(
         context,
         signing_request,
@@ -64,17 +100,24 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
     )
 
     def resolve_source(selected, value):  # type: ignore[no-untyped-def]
-        del selected, value
-        return context.resolved, context.downloaded, context.source
+        del value
+        path = pipeline._source_path(selected, task)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(context.downloaded.path.read_bytes())
+        return (
+            context.resolved,
+            replace(context.downloaded, path=path),
+            replace(context.source, path=PurePosixPath(path.name)),
+        )
 
     def inspect_graph(path, *, task):  # type: ignore[no-untyped-def]
         del path, task
         return context.graph
 
     monkeypatch.setattr(pipeline, "_resolve_source_asset", resolve_source)
-    monkeypatch.setattr(production, "inspect_source_graph", inspect_graph)
+    monkeypatch.setattr(source_inventory_stage, "inspect_source_graph", inspect_graph)
     monkeypatch.setattr(
-        production,
+        source_inventory_stage,
         "validate_signing_preflight",
         lambda *args, **kwargs: PreflightResult(()),
     )
@@ -89,8 +132,8 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
         apple_effects.append(PipelineStage.RESOURCE_APPLY)
         return CommandResult(payload=(("status", "applied"),))
 
-    monkeypatch.setattr(production, "apple_plan_command", apple_plan)
-    monkeypatch.setattr(production, "apple_sync_command", apple_sync)
+    monkeypatch.setattr(production_apple_stage, "apple_plan_command", apple_plan)
+    monkeypatch.setattr(production_apple_stage, "apple_sync_command", apple_sync)
 
     @contextmanager
     def prepared_contexts(selected, contexts):  # type: ignore[no-untyped-def]
@@ -99,14 +142,23 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
 
     monkeypatch.setattr(pipeline, "_prepared", prepared_contexts)
 
-    original_verify = production.verify_package_artifact
+    original_verify = production_verification_stage.verify_package_artifact
 
     def verify_artifact(*args, **kwargs):  # type: ignore[no-untyped-def]
         nonlocal verify_calls
         verify_calls += 1
         return original_verify(*args, **kwargs)
 
-    monkeypatch.setattr(production, "verify_package_artifact", verify_artifact)
+    monkeypatch.setattr(
+        production_verification_stage,
+        "verify_package_artifact",
+        verify_artifact,
+    )
+    monkeypatch.setattr(
+        production_publication_stage,
+        "verify_package_artifact",
+        verify_artifact,
+    )
 
     class PublicationStore:
         def upload_icon(self, slug, content):  # type: ignore[no-untyped-def]
@@ -131,7 +183,7 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
             )
 
     monkeypatch.setattr(
-        production,
+        production_publication_stage,
         "publication_runtime",
         lambda configuration, environment: (PublicationStore(), Publisher()),
     )
@@ -140,9 +192,11 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
     )
     monkeypatch.setattr(publish_stage, "build_icon_png", lambda *args, **kwargs: b"icon")
 
-    original_record = pipeline._record_success
+    evidence_type = type(pipeline._evidence)
+    original_record = evidence_type.record_success
 
     def record_success(
+        evidence,
         store,
         task_name,
         stage,
@@ -159,6 +213,7 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
                     task_name=task_name,
                 )
         return original_record(
+            evidence,
             store,
             task_name,
             stage,
@@ -167,7 +222,7 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
             **kwargs,
         )
 
-    monkeypatch.setattr(pipeline, "_record_success", record_success)
+    monkeypatch.setattr(evidence_type, "record_success", record_success)
 
     with pytest.raises(DomainError):
         pipeline.run(request)

@@ -17,14 +17,6 @@ class BatchPublicationPolicy(StrEnum):
     INDEPENDENT = "independent"
 
 
-class IdentifierStrategy(StrEnum):
-    PRESERVE_SOURCE_SUFFIX = "preserve-source-suffix"
-
-
-class UnknownProfileBundlePolicy(StrEnum):
-    ERROR = "error"
-
-
 class ProfileType(StrEnum):
     IOS_APP_DEVELOPMENT = "IOS_APP_DEVELOPMENT"
 
@@ -41,6 +33,7 @@ class SourceConfig:
     location: str
     release_glob: str | None = None
     use_prerelease: bool = False
+    ipa_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,9 +55,6 @@ class BundleRule:
 
 @dataclass(frozen=True, slots=True)
 class SigningPolicy:
-    id_strategy: IdentifierStrategy
-    unknown_profile_bundles: UnknownProfileBundlePolicy
-    profile_type: ProfileType
     app_groups: tuple[tuple[str, str], ...] = ()
     manual_app_group_associations: tuple[str, ...] = ()
     bundles: tuple[BundleRule, ...] = ()

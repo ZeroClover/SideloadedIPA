@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from sideloadedipa.ipa import (
     discover_bundle_structure,
     extract_ipa_safely,
 )
-from sideloadedipa.sources import download_source_asset
+from sideloadedipa.sources import DEFAULT_DOWNLOAD_POLICY, download_source_asset
 
 BASELINE_PATH = Path(__file__).parent / "fixtures" / "baseline" / "livecontainer-3.8.0.json"
 STANDARD_IDS = {
@@ -59,7 +60,8 @@ def test_pinned_livecontainer_inventory(asset: dict[str, object], tmp_path: Path
         url,
         tmp_path / name,
         expected_sha256=expected_sha256,
-        timeout_seconds=180,
+        expected_size=expected_size,
+        policy=replace(DEFAULT_DOWNLOAD_POLICY, timeout_seconds=180),
     )
     assert downloaded.size == expected_size
     extracted = tmp_path / "extracted"

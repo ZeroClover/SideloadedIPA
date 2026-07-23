@@ -24,7 +24,6 @@ from sideloadedipa.domain import (
     CertificateIdentity,
     EntitlementMode,
     EntitlementPolicy,
-    IdentifierStrategy,
     ProfileType,
     ProvisioningProfile,
     SigningPolicy,
@@ -32,7 +31,6 @@ from sideloadedipa.domain import (
     SourceKind,
     Task,
     TaskConfiguration,
-    UnknownProfileBundlePolicy,
     thaw_json,
 )
 from sideloadedipa.errors import ConfigurationError
@@ -50,9 +48,6 @@ def task(*, manual_capability: bool = False, manual_app_group: bool = False) -> 
 
         required_capability = "APP_GROUPS" if manual_app_group else "INCREASED_MEMORY_LIMIT"
         signing = SigningPolicy(
-            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-            UnknownProfileBundlePolicy.ERROR,
-            ProfileType.IOS_APP_DEVELOPMENT,
             app_groups=(("shared", "group.io.example.shared"),) if manual_app_group else (),
             manual_app_group_associations=("group.io.example.shared",) if manual_app_group else (),
             bundles=(

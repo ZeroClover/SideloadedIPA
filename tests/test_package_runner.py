@@ -120,7 +120,11 @@ def test_wires_synced_inputs_to_one_prepared_package_request(tmp_path: Path, mon
         return profiles
 
     monkeypatch.setattr(runner, "load_synced_profiles", load_profiles)
-    monkeypatch.setattr(runner, "inspect_source_graph", lambda path, *, task: graph)
+    monkeypatch.setattr(
+        runner,
+        "inspect_source_graph",
+        lambda *args, **kwargs: pytest.fail("signing preparation re-inventoried unsigned input"),
+    )
 
     class Backend:
         def __init__(self, **kwargs):
@@ -155,6 +159,7 @@ def test_wires_synced_inputs_to_one_prepared_package_request(tmp_path: Path, mon
         zsign_executable=tmp_path / "zsign",
         zsign_sha256="c" * 64,
         repository_root=tmp_path,
+        graph=graph,
         now=NOW,
     )
 
@@ -187,6 +192,7 @@ def test_rejects_mixed_certificate_manifest_before_private_key_load(
             zsign_executable=tmp_path / "zsign",
             zsign_sha256="c" * 64,
             repository_root=tmp_path,
+            graph=BundleGraph(PurePosixPath("Payload/App.app"), (), "a" * 64, "b" * 64),
             now=NOW,
         )
 

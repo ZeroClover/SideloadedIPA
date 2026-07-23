@@ -112,10 +112,11 @@ def test_repository_name_and_adapter_failures_are_safe(monkeypatch: pytest.Monke
 
 
 def test_selects_one_asset_and_records_complete_evidence() -> None:
+    digest = f"sha256:{'A' * 64}"
     selected = select_release_asset(
         {
             "assets": [
-                asset("App.ipa", id=42, size=2048, digest="sha256:abc"),
+                asset("App.ipa", id=42, size=2048, digest=digest),
                 asset("notes.txt"),
             ]
         },
@@ -128,7 +129,7 @@ def test_selects_one_asset_and_records_complete_evidence() -> None:
         name="App.ipa",
         browser_download_url="https://example.com/App.ipa",
         size=2048,
-        digest="sha256:abc",
+        digest=digest.lower(),
     )
 
 
@@ -199,6 +200,8 @@ def test_no_match_lists_every_available_name() -> None:
         ),
         ({"assets": [asset("App.ipa", size=-1)]}, "assets[0].size"),
         ({"assets": [asset("App.ipa", digest=42)]}, "assets[0].digest"),
+        ({"assets": [asset("App.ipa", digest="sha256:abc")]}, "assets[0].digest"),
+        ({"assets": [asset("App.ipa", digest=f"sha512:{'a' * 64}")]}, "assets[0].digest"),
     ],
 )
 def test_rejects_malformed_release_evidence(release: dict[str, object], field: str) -> None:

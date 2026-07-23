@@ -1,0 +1,39 @@
+{
+  "backend": {
+    "contract_version": "1",
+    "name": "zsign",
+    "patch_path": "patches/zsign/v1.1.1-per-profile-entitlements.patch",
+    "patch_sha256": "aee64cc685eb0fd19c547b299dbcc58edcd5dc22858a20e610ce3c04a7920de8",
+    "source_commit": "d6e929c97b5b564c2cc1f82afe226a44da7149a0",
+    "source_sha256": "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670",
+    "version": "1.1.1+sideloadedipa.3"
+  },
+  "command_shape": {
+    "adjacent_profile_entitlement_pairs": true,
+    "entitlement_count": 4,
+    "profile_count": 4,
+    "recursive": true,
+    "root_last": true
+  },
+  "fixture": {
+    "policy_sha256": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
+    "roles": [
+      "launch",
+      "process",
+      "root",
+      "share"
+    ],
+    "target_bundle_ids": [
+      "io.zeroclover.app.livecontainer",
+      "io.zeroclover.app.livecontainer.LaunchAppExtension",
+      "io.zeroclover.app.livecontainer.LiveProcess",
+      "io.zeroclover.app.livecontainer.ShareExtension"
+    ],
+    "task_name": "LiveContainer"
+  },
+  "schema_version": 1,
+  "supported_platforms": [
+    "linux-amd64",
+    "macos"
+  ]
+}

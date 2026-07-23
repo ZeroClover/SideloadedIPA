@@ -474,6 +474,7 @@ task_name = "DirectURLApp"
 app_name = "Direct URL App"
 bundle_id = "com.example.directurl"
 ipa_url = "https://example.com/app.ipa"
+ipa_sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 """
     toml_path = tmp_path / "configs" / "tasks.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)

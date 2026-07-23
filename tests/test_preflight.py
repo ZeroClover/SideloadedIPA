@@ -12,13 +12,10 @@ from sideloadedipa.domain import (
     BundleRule,
     EntitlementMode,
     EntitlementPolicy,
-    IdentifierStrategy,
-    ProfileType,
     SigningPolicy,
     SourceConfig,
     SourceKind,
     Task,
-    UnknownProfileBundlePolicy,
 )
 from sideloadedipa.signing.preflight import execute_after_preflight, validate_signing_preflight
 
@@ -47,9 +44,6 @@ def task(*rules: BundleRule) -> Task:
         source=SourceConfig(SourceKind.DIRECT_URL, "https://example.com/App.ipa"),
         slug="Broken",
         signing=SigningPolicy(
-            IdentifierStrategy.PRESERVE_SOURCE_SUFFIX,
-            UnknownProfileBundlePolicy.ERROR,
-            ProfileType.IOS_APP_DEVELOPMENT,
             app_groups=(("shared", "group.io.example.shared"),),
             bundles=rules,
         ),

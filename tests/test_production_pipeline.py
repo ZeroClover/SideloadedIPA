@@ -16,8 +16,12 @@ import pytest
 import sideloadedipa.pipeline.production as production
 import sideloadedipa.pipeline.publish_stage as publish_stage
 import sideloadedipa.pipeline.sign_stage as sign_stage
+import sideloadedipa.pipeline.stages.apple as production_apple_stage
+import sideloadedipa.pipeline.stages.publication as production_publication_stage
+import sideloadedipa.pipeline.stages.signing as production_signing_stage
+import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
 from sideloadedipa.application import CommandName, CommandRequest, CommandResult, OutputFormat
-from sideloadedipa.cache.decisions import RebuildReason
+from sideloadedipa.cache.decisions import RebuildDecision, RebuildReason
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
 from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
@@ -27,6 +31,8 @@ from sideloadedipa.domain import (
     PipelineStage,
     PublicationResult,
     SourceAsset,
+    SourceConfig,
+    SourceKind,
     StageStatus,
     TaskConfiguration,
 )
@@ -43,6 +49,8 @@ from sideloadedipa.pipeline.production import (
 )
 from sideloadedipa.signing.preflight import PreflightResult
 from sideloadedipa.sources import DownloadedSource
+from sideloadedipa.util import atomics
+from sideloadedipa.util.atomics import canonical_json
 from tests.conftest import FixtureCopyBackend as CopyBackend
 from tests.conftest import package_request as request_for
 
@@ -100,11 +108,23 @@ def source_context(tmp_path: Path, task, graph: BundleGraph | None = None) -> So
     path = tmp_path / f"{task.slug}.ipa"
     path.write_bytes(task.task_name.encode())
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    bundle_graph = graph or BundleGraph(PurePosixPath("Payload/App.app"), (), digest, "b" * 64)
+    graph_document = {
+        "schema_version": 1,
+        "source_sha256": digest,
+        "root_path": "Payload/App.app",
+        "nodes": [],
+    }
+    bundle_graph = graph or BundleGraph(
+        PurePosixPath("Payload/App.app"),
+        (),
+        digest,
+        hashlib.sha256(canonical_json(graph_document)).hexdigest(),
+    )
     resolved = ResolvedSource(
         f"https://example.invalid/{task.slug}.ipa",
         digest,
         {
+            "kind": task.source.kind.value,
             "asset_id": task.task_name,
             "asset_name": path.name,
             "release_tag": "v1",
@@ -123,6 +143,21 @@ def source_context(tmp_path: Path, task, graph: BundleGraph | None = None) -> So
         digest,
     )
     return SourceContext(task, resolved, downloaded, asset, bundle_graph)
+
+
+def materialize_source(
+    pipeline: ProductionPipeline,
+    request: CommandRequest,
+    context: SourceContext,
+) -> tuple[ResolvedSource, DownloadedSource, SourceAsset]:
+    path = pipeline._source_path(request, context.task)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(context.downloaded.path.read_bytes())
+    return (
+        context.resolved,
+        replace(context.downloaded, path=path),
+        replace(context.source, path=PurePosixPath(path.name)),
+    )
 
 
 def test_optional_icon_absence_or_processing_failure_is_non_blocking(
@@ -163,6 +198,29 @@ def test_optional_icon_absence_or_processing_failure_is_non_blocking(
     )
 
 
+def test_cache_decision_promotion_is_atomic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    request = command(tmp_path, CommandName.SIGN)
+    original = (RebuildDecision("task", True, RebuildReason.FIRST_RUN, "a" * 64, None),)
+    pipeline._write_decisions(request, original)
+    path = pipeline._store(request).run_root / "cache-decisions.json"
+    retained = path.read_bytes()
+
+    def interrupt_before_promotion(source: Path, destination: Path) -> None:
+        raise OSError("fixture interrupted promotion")
+
+    monkeypatch.setattr(atomics.os, "replace", interrupt_before_promotion)
+    changed = (RebuildDecision("task", False, RebuildReason.CACHE_HIT, "b" * 64, "c" * 64),)
+
+    with pytest.raises(OSError, match="interrupted promotion"):
+        pipeline._write_decisions(request, changed)
+
+    assert path.read_bytes() == retained
+    assert not tuple(path.parent.glob(f".{path.name}.*"))
+
+
 def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monkeypatch) -> None:
     tasks = load_configuration(Path("configs/tasks.toml")).tasks[:2]
     pipeline = ProductionPipeline(dependencies(tmp_path))
@@ -177,19 +235,15 @@ def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monke
     monkeypatch.setattr(
         pipeline,
         "_resolve_source_asset",
-        lambda request, task: (
-            contexts[task.task_name].resolved,
-            contexts[task.task_name].downloaded,
-            contexts[task.task_name].source,
-        ),
+        lambda request, task: materialize_source(pipeline, request, contexts[task.task_name]),
     )
     monkeypatch.setattr(
-        production,
+        source_inventory_stage,
         "inspect_source_graph",
         lambda path, *, task: contexts[task.task_name].graph,
     )
     monkeypatch.setattr(
-        production,
+        source_inventory_stage,
         "validate_signing_preflight",
         lambda task, graph, **kwargs: PreflightResult(
             (
@@ -208,17 +262,16 @@ def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monke
         apple_called = True
         return CommandResult()
 
-    monkeypatch.setattr(production, "apple_plan_command", apple_plan)
+    monkeypatch.setattr(production_apple_stage, "apple_plan_command", apple_plan)
 
+    request = command(tmp_path, CommandName.INSPECT, *(task.task_name for task in tasks))
     with pytest.raises(DomainError) as caught:
-        pipeline.plan(command(tmp_path, CommandName.PLAN, *(task.task_name for task in tasks)))
+        pipeline.inspect(request)
 
     assert apple_called is False
     assert len(dict(caught.value.safe_details)["diagnostics"]) == 2
     for task in tasks:
-        manifest = pipeline._store(command(tmp_path, CommandName.PLAN)).load(
-            task.task_name, PipelineStage.POLICY
-        )
+        manifest = pipeline._store(request).load(task.task_name, PipelineStage.POLICY)
         assert manifest is not None and manifest.status is StageStatus.FAILED
 
 
@@ -266,6 +319,61 @@ def test_source_failure_is_retained_as_preflight_evidence(tmp_path: Path, monkey
         )
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        production.ErrorCode.SOURCE_TRANSFER_LIMIT,
+        production.ErrorCode.SOURCE_ADVERTISED_SIZE_MISMATCH,
+        production.ErrorCode.SOURCE_DIGEST_MISMATCH,
+        production.ErrorCode.SOURCE_REDIRECT_REJECTED,
+        production.ErrorCode.SOURCE_RETRY_EXHAUSTED,
+    ],
+)
+def test_source_intake_errors_stop_inventory_and_later_side_effects(
+    code: production.ErrorCode,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda path: TaskConfiguration((task,)),
+    )
+
+    def fail_source(request, selected):  # type: ignore[no-untyped-def]
+        raise DomainError(code, "fixture bounded source failure", task_name=selected.task_name)
+
+    monkeypatch.setattr(pipeline, "_resolve_source_asset", fail_source)
+    monkeypatch.setattr(
+        source_inventory_stage,
+        "inspect_source_graph",
+        lambda *args, **kwargs: pytest.fail("inventory started after source failure"),
+    )
+    monkeypatch.setattr(
+        source_inventory_stage,
+        "validate_signing_preflight",
+        lambda *args, **kwargs: pytest.fail("policy started after source failure"),
+    )
+    monkeypatch.setattr(
+        production_apple_stage,
+        "apple_plan_command",
+        lambda *args, **kwargs: pytest.fail("Apple planning started after source failure"),
+    )
+    request = command(tmp_path, CommandName.INSPECT, task.task_name)
+
+    with pytest.raises(DomainError) as caught:
+        pipeline.inspect(request)
+
+    assert dict(caught.value.safe_details)["diagnostics"] == (f"{task.task_name}:{code.value}",)
+    source_manifest = pipeline._store(request).load(task.task_name, PipelineStage.SOURCE)
+    assert source_manifest is not None
+    assert source_manifest.status is StageStatus.FAILED
+    assert source_manifest.diagnostics[0].code == code.value
+    assert pipeline._store(request).load(task.task_name, PipelineStage.INVENTORY) is None
+
+
 def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     pipeline = ProductionPipeline(replace(dependencies(tmp_path), clock=IncrementingClock()))
@@ -275,37 +383,42 @@ def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkey
         "load_configuration",
         lambda path: TaskConfiguration((task,)),
     )
+
+    def resolve_source(request, selected):  # type: ignore[no-untyped-def]
+        return materialize_source(pipeline, request, context)
+
+    monkeypatch.setattr(pipeline, "_resolve_source_asset", resolve_source)
+    inventory_calls = 0
+
+    def inspect_graph(path, *, task):  # type: ignore[no-untyped-def]
+        nonlocal inventory_calls
+        inventory_calls += 1
+        return context.graph
+
+    monkeypatch.setattr(source_inventory_stage, "inspect_source_graph", inspect_graph)
     monkeypatch.setattr(
-        pipeline,
-        "_resolve_source_asset",
-        lambda request, selected: (context.resolved, context.downloaded, context.source),
-    )
-    monkeypatch.setattr(
-        production,
-        "inspect_source_graph",
-        lambda path, *, task: context.graph,
-    )
-    monkeypatch.setattr(
-        production,
+        source_inventory_stage,
         "validate_signing_preflight",
         lambda *args, **kwargs: PreflightResult(()),
     )
     monkeypatch.setattr(
-        production,
+        production_apple_stage,
         "apple_plan_command",
         lambda request, deps: CommandResult(payload=(("status", "ready"),)),
     )
     monkeypatch.setattr(
-        production,
+        production_apple_stage,
         "apple_sync_command",
         lambda request, deps: CommandResult(payload=(("status", "applied"),)),
     )
     request = command(tmp_path, CommandName.INSPECT, task.task_name)
 
     pipeline.inspect(request)
+    pipeline.inspect(request)
     pipeline.plan(replace(request, command=CommandName.PLAN))
     pipeline.sync(replace(request, command=CommandName.SYNC, apply=True))
 
+    assert inventory_calls == 1
     stages = pipeline._store(request).completed(task.task_name)
     assert [stage.stage for stage in stages] == list(PipelineStage)[:5]
     assert all(
@@ -315,6 +428,69 @@ def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkey
     assert all(
         stage.completed_at is not None and stage.completed_at > stage.started_at for stage in stages
     )
+
+
+@pytest.mark.parametrize("mutation", ["missing", "truncated", "source-tampered"])
+def test_invalid_canonical_inputs_stop_downstream_side_effects(
+    mutation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    context = source_context(tmp_path, task)
+    monkeypatch.setattr(
+        production,
+        "load_configuration",
+        lambda path: TaskConfiguration((task,)),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_source_asset",
+        lambda request, selected: materialize_source(pipeline, request, context),
+    )
+    monkeypatch.setattr(
+        source_inventory_stage,
+        "inspect_source_graph",
+        lambda path, *, task: context.graph,
+    )
+    monkeypatch.setattr(
+        source_inventory_stage,
+        "validate_signing_preflight",
+        lambda *args, **kwargs: PreflightResult(()),
+    )
+    request = command(tmp_path, CommandName.INSPECT, task.task_name)
+    pipeline.inspect(request)
+    inputs = pipeline._inputs(request)
+    if mutation == "missing":
+        inputs.inventory_manifest_path(task.task_name).unlink()
+    elif mutation == "truncated":
+        inputs.inventory_manifest_path(task.task_name).write_bytes(b'{"truncated":')
+    else:
+        inputs.source_path(task.task_name).write_bytes(b"tampered unsigned source")
+
+    side_effects: list[str] = []
+
+    def forbidden(name: str):
+        def fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+            side_effects.append(name)
+            pytest.fail(f"{name} started after canonical input failure")
+
+        return fail
+
+    monkeypatch.setattr(production_apple_stage, "apple_plan_command", forbidden("apple-plan"))
+    monkeypatch.setattr(production_apple_stage, "apple_sync_command", forbidden("apple-sync"))
+    monkeypatch.setattr(production_signing_stage, "prepare_package_signing", forbidden("signing"))
+    monkeypatch.setattr(
+        production_publication_stage, "publication_runtime", forbidden("publication")
+    )
+
+    with pytest.raises(ConfigurationError):
+        pipeline.plan(replace(request, command=CommandName.PLAN))
+
+    assert side_effects == []
+    assert pipeline._store(request).load(task.task_name, PipelineStage.RESOURCE_PLAN) is None
+    assert not (pipeline._store(request).run_root / "cache-decisions.json").exists()
 
 
 def _prime_apply_stages(
@@ -343,11 +519,19 @@ def _prime_apply_stages(
         )
 
 
-def test_second_run_cache_hit_reopens_artifact_without_resigning(
+def test_unchanged_direct_source_cache_hit_reopens_artifact_without_resigning(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = replace(
+        configured,
+        source=SourceConfig(
+            SourceKind.DIRECT_URL,
+            "https://downloads.example/reviewed.ipa",
+            ipa_sha256="a" * 64,
+        ),
+    )
     signing_request = request_for(task, tmp_path)
     context = SourceContext(
         task,
@@ -372,7 +556,7 @@ def test_second_run_cache_hit_reopens_artifact_without_resigning(
     prepared = PreparedContext(context, signing_request, fingerprint)
     pipeline = ProductionPipeline(dependencies(tmp_path))
 
-    monkeypatch.setattr(pipeline, "_inspect_contexts", lambda request: (context,))
+    monkeypatch.setattr(pipeline, "_load_contexts", lambda request: (context,))
 
     @contextmanager
     def prepared_contexts(request, contexts):  # type: ignore[no-untyped-def]
@@ -433,6 +617,15 @@ def test_second_run_cache_hit_reopens_artifact_without_resigning(
     pipeline.sign(fourth)
 
     assert pipeline._read_decisions(fourth)[0].reason is RebuildReason.CACHE_REJECTED
+    assert backend.called is True
+
+    backend.called = False
+    fifth = replace(first, run_id="fifth", force_rebuild=True)
+    _prime_apply_stages(pipeline, fifth, context)
+
+    pipeline.sign(fifth)
+
+    assert pipeline._read_decisions(fifth)[0].reason is RebuildReason.FORCED
     assert backend.called is True
 
 
@@ -592,7 +785,7 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
         "load_configuration",
         lambda path: TaskConfiguration((task,)),
     )
-    monkeypatch.setattr(pipeline, "_inspect_contexts", lambda selected: (context,))
+    monkeypatch.setattr(pipeline, "_load_contexts", lambda selected: (context,))
 
     @contextmanager
     def prepared_contexts(selected, contexts):  # type: ignore[no-untyped-def]
@@ -625,7 +818,7 @@ def test_publish_reverifies_records_and_promotes_cache(tmp_path: Path, monkeypat
             )
 
     monkeypatch.setattr(
-        production,
+        production_publication_stage,
         "publication_runtime",
         lambda configuration, environment: (PublicationStore(), Publisher()),
     )
@@ -739,18 +932,26 @@ def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, mo
     resolved = ResolvedSource(
         "https://example.invalid/app.ipa",
         f"sha256:{hashlib.sha256(b'source').hexdigest()}",
-        {"asset_name": "app.ipa", "release_tag": "v1"},
+        {"asset_id": "42", "asset_name": "app.ipa", "release_tag": "v1"},
         6,
     )
     downloads = 0
     resolutions = 0
 
-    def download(url, destination, *, expected_sha256):  # type: ignore[no-untyped-def]
+    def download(  # type: ignore[no-untyped-def]
+        url, destination, *, expected_sha256, expected_size
+    ):
         nonlocal downloads
         downloads += 1
+        assert expected_size == resolved.advertised_size
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"source")
-        return DownloadedSource(destination, 6, hashlib.sha256(b"source").hexdigest())
+        return DownloadedSource(
+            destination,
+            6,
+            hashlib.sha256(b"source").hexdigest(),
+            attempts=2,
+        )
 
     package = replace(
         dependencies(tmp_path).package,
@@ -763,8 +964,12 @@ def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, mo
         resolutions += 1
         return resolved
 
-    monkeypatch.setattr(production, "resolve_source", select_source)
-    monkeypatch.setattr(production, "inspect_source_graph", lambda path, *, task: graph)
+    monkeypatch.setattr(source_inventory_stage, "resolve_source", select_source)
+    monkeypatch.setattr(
+        source_inventory_stage,
+        "inspect_source_graph",
+        lambda path, *, task: graph,
+    )
     request = command(tmp_path, CommandName.INSPECT, task.task_name)
 
     first = pipeline._resolve_source(request, task)
@@ -772,9 +977,54 @@ def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, mo
 
     assert first.source.sha256 == resolved.expected_sha256.removeprefix("sha256:")
     assert second.downloaded.path == first.downloaded.path
+    assert first.resolved.evidence["actual_size"] == 6
+    assert first.resolved.evidence["actual_sha256"] == first.downloaded.sha256
+    assert first.resolved.evidence["download_attempts"] == 2
+    assert second.resolved == first.resolved
     assert downloads == 1
     assert resolutions == 1
     assert pipeline._source_selection_path(request, task).is_file()
+
+
+def test_direct_source_digest_flows_through_download_and_canonical_evidence(
+    tmp_path: Path,
+) -> None:
+    content = b"reviewed direct IPA"
+    digest = hashlib.sha256(content).hexdigest()
+    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = replace(
+        configured,
+        source=SourceConfig(
+            SourceKind.DIRECT_URL,
+            "https://downloads.example/App.ipa",
+            ipa_sha256=digest,
+        ),
+    )
+    observed: list[tuple[str | None, int | None]] = []
+
+    def download(  # type: ignore[no-untyped-def]
+        url, destination, *, expected_sha256, expected_size
+    ):
+        observed.append((expected_sha256, expected_size))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+        return DownloadedSource(destination, len(content), digest)
+
+    package = replace(
+        dependencies(tmp_path).package,
+        inspect=InspectDependencies(download=download),
+    )
+    pipeline = ProductionPipeline(replace(dependencies(tmp_path), package=package))
+    request = command(tmp_path, CommandName.INSPECT, task.task_name)
+
+    resolved, downloaded, _source = pipeline._resolve_source_asset(request, task)
+
+    assert observed == [(digest, None)]
+    assert downloaded.sha256 == digest
+    assert resolved.expected_sha256 == f"sha256:{digest}"
+    assert resolved.evidence["configured_sha256"] == digest
+    assert resolved.evidence["expected_sha256"] == digest
+    assert resolved.evidence["actual_sha256"] == digest
 
 
 def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint(
@@ -803,11 +1053,13 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
         signing_request.graph,
     )
     pipeline = ProductionPipeline(dependencies(tmp_path))
-    monkeypatch.setattr(
-        production,
-        "prepare_package_signing",
-        lambda **kwargs: signing_request,
-    )
+    observed: dict[str, object] = {}
+
+    def prepare(**kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return signing_request
+
+    monkeypatch.setattr(production_signing_stage, "prepare_package_signing", prepare)
 
     with pipeline._prepared(
         command(tmp_path, CommandName.SIGN, task.task_name),
@@ -817,6 +1069,7 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
         assert prepared[0].fingerprint.task_name == task.task_name
 
     assert sign_stage.device_set_sha256(signing_request)
+    assert observed["graph"] is context.graph
     livecontainer = next(
         value
         for value in load_configuration(Path("configs/tasks.toml")).tasks

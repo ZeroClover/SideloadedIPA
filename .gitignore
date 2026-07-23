@@ -26,7 +26,6 @@ ENV/
 
 # Local configuration
 /.claude/
-/.python-version
 
 # Serena MCP
 .serena/

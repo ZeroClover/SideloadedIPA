@@ -1,4 +1,5 @@
 import { revalidateTag } from "next/cache";
+import { handleRevalidation } from "@/lib/revalidation";
 
 /**
  * CI webhook: after the signing pipeline updates apps.json on R2, it calls
@@ -6,10 +7,5 @@ import { revalidateTag } from "next/cache";
  * The next page / plist request then re-reads apps.json — no redeploy needed.
  */
 export async function GET(request: Request) {
-  const secret = request.headers.get("x-revalidate-secret");
-  if (!secret || secret !== process.env.REVALIDATE_SECRET) {
-    return Response.json({ message: "invalid secret" }, { status: 401 });
-  }
-  revalidateTag("apps", "max");
-  return Response.json({ revalidated: true, now: Date.now() });
+  return handleRevalidation(request, process.env.REVALIDATE_SECRET, revalidateTag);
 }

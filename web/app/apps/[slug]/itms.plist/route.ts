@@ -1,5 +1,4 @@
-import { getApps } from "@/lib/apps";
-import { buildItmsPlist } from "@/lib/plist";
+import { handleItmsRequest } from "@/lib/itms-route";
 
 /**
  * Dynamic itms-services manifest: /apps/<slug>/itms.plist
@@ -14,14 +13,5 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const app = (await getApps()).find((a) => a.slug === slug);
-  if (!app) {
-    return new Response("not found", { status: 404 });
-  }
-  return new Response(buildItmsPlist(app.ipaUrl, app.bundleId, app.version, app.name), {
-    headers: {
-      "Content-Type": "text/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, must-revalidate",
-    },
-  });
+  return handleItmsRequest(slug);
 }

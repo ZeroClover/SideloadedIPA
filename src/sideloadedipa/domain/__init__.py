@@ -46,7 +46,6 @@ from sideloadedipa.domain.config import (
     BundleRule,
     EntitlementMode,
     EntitlementPolicy,
-    IdentifierStrategy,
     ProfileType,
     PublicationConfig,
     R2Config,
@@ -55,7 +54,6 @@ from sideloadedipa.domain.config import (
     SourceKind,
     Task,
     TaskConfiguration,
-    UnknownProfileBundlePolicy,
 )
 from sideloadedipa.domain.entitlements import (
     EntitlementContext,
@@ -131,7 +129,6 @@ __all__ = [
     "FrozenJsonObject",
     "freeze_json",
     "thaw_json",
-    "IdentifierStrategy",
     "MaterializedEntitlements",
     "OperationDisposition",
     "P12CertificateIdentity",
@@ -162,7 +159,6 @@ __all__ = [
     "StoredArtifact",
     "Task",
     "TaskConfiguration",
-    "UnknownProfileBundlePolicy",
     "VerificationFinding",
     "VerificationResult",
     "derive_identifier_mappings",

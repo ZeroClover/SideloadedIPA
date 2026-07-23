@@ -40,7 +40,7 @@ from sideloadedipa.tools.exercise_zsign_backend import (
     signing_order,
     zsign_command,
 )
-from sideloadedipa.verification import inspect_signed_entitlements
+from sideloadedipa.verification import inspect_signed_entitlements, verify_signed_signatures
 
 HELPER = PurePosixPath("Payload/Qualification.app/Frameworks/helper")
 
@@ -505,3 +505,13 @@ def test_real_patched_zsign_pairs_generated_profiles_and_entitlements(tmp_path: 
         HELPER,
         *(PurePosixPath(bundle) for bundle, _, _ in TARGETS.values()),
     }
+    assert all(finding.passed for finding in verify_signed_signatures(plan, signed))
+
+    tampered = tmp_path / "tampered.ipa"
+    with zipfile.ZipFile(signed) as source, zipfile.ZipFile(tampered, "w") as destination:
+        for info in source.infolist():
+            content = source.read(info.filename)
+            if info.filename == HELPER.as_posix():
+                content = bytes((content[0] ^ 1,)) + content[1:]
+            destination.writestr(info, content)
+    assert any(not finding.passed for finding in verify_signed_signatures(plan, tampered))
