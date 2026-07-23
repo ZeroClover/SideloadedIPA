@@ -97,7 +97,7 @@ def _validate_backend_result(
     plan: SigningPlan,
     result: SigningResult,
     output_ipa: Path,
-) -> str:
+) -> None:
     if not output_ipa.is_file():
         raise _execution_error(plan, "signing backend did not create its requested output")
     actual_sha256 = file_sha256(output_ipa)
@@ -151,7 +151,6 @@ def _validate_backend_result(
             "signing backend result does not match the requested plan or output",
             details=tuple(mismatches),
         )
-    return actual_sha256
 
 
 def execute_signing_plan(

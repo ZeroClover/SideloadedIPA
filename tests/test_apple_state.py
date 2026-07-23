@@ -45,24 +45,6 @@ class FixtureClient:
             value = self.fixture["devices"]
         elif args[:2] == ("profiles", "list"):
             value = self.fixture["profiles"]
-        elif args[:4] == ("profiles", "links", "bundle-id", "--id"):
-            links = self.fixture["profile_links"]
-            assert isinstance(links, dict)
-            profile_links = links[args[-1]]
-            assert isinstance(profile_links, dict)
-            value = profile_links["bundle_id"]
-        elif args[:4] == ("profiles", "links", "certificates", "--id"):
-            links = self.fixture["profile_links"]
-            assert isinstance(links, dict)
-            profile_links = links[args[-1]]
-            assert isinstance(profile_links, dict)
-            value = profile_links["certificates"]
-        elif args[:4] == ("profiles", "links", "devices", "--id"):
-            links = self.fixture["profile_links"]
-            assert isinstance(links, dict)
-            profile_links = links[args[-1]]
-            assert isinstance(profile_links, dict)
-            value = profile_links["devices"]
         else:
             details = self.fixture["profile_details"]
             assert isinstance(details, dict)
