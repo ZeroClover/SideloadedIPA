@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -51,8 +50,6 @@ class ProfileGateway(Protocol):
         certificate_resource_id: str,
         device_resource_ids: tuple[str, ...],
     ) -> str: ...
-
-    def download(self, resource_id: str) -> bytes: ...
 
 
 class ProfileContentValidator(Protocol):
@@ -150,28 +147,6 @@ class AscProfileGateway:
             raise AssertionError("unreachable profile resource ID type")
         return resource_id
 
-    def download(self, resource_id: str) -> bytes:
-        data = _response_data(
-            self.client.run_json(("profiles", "view", "--id", resource_id)),
-            resource_id,
-        )
-        attributes = data.get("attributes")
-        if not isinstance(attributes, Mapping):
-            raise _invalid_response("profile response has no attributes", "data.attributes")
-        content = attributes.get("profileContent")
-        if not isinstance(content, str) or not content:
-            raise _invalid_response(
-                "profile response has no downloadable content",
-                "data.attributes.profileContent",
-            )
-        try:
-            return base64.b64decode(content, validate=True)
-        except (ValueError, binascii.Error) as error:
-            raise _invalid_response(
-                "profile response content is not valid base64",
-                "data.attributes.profileContent",
-            ) from error
-
 
 def next_profile_name(existing: tuple[AppleProfileState, ...], base_name: str) -> str:
     """Choose the first unoccupied numeric revision while preserving account naming style."""
@@ -211,13 +186,30 @@ class ProfileReconciler:
         state: AppleProfileState,
         request: ProfileSyncRequest,
     ) -> tuple[ProvisioningProfile, bytes]:
-        content = self.gateway.download(state.resource_id)
-        validation = replace(request.validation, resource_id=state.resource_id)
-        profile = self.validator.validate(content, validation)
-        if state.profile_sha256 is not None and state.profile_sha256 != profile.profile_sha256:
+        content = state.profile_content
+        if content is None:
             raise DomainError(
                 ErrorCode.APPLE_PROFILE_INVALID,
-                "downloaded provisioning profile differs from the normalized Apple snapshot",
+                "normalized Apple profile state has no held content",
+                bundle_id=request.validation.target_bundle_id,
+                remediation="refresh Apple state before another profile reconciliation",
+                safe_details=(("resource_id", state.resource_id),),
+            )
+        held_sha256 = hashlib.sha256(content).hexdigest()
+        if state.profile_sha256 is None or state.profile_sha256 != held_sha256:
+            raise DomainError(
+                ErrorCode.APPLE_PROFILE_INVALID,
+                "held provisioning profile differs from the normalized Apple snapshot",
+                bundle_id=request.validation.target_bundle_id,
+                remediation="refresh Apple state before another profile reconciliation",
+                safe_details=(("resource_id", state.resource_id),),
+            )
+        validation = replace(request.validation, resource_id=state.resource_id)
+        profile = self.validator.validate(content, validation)
+        if state.profile_sha256 != profile.profile_sha256:
+            raise DomainError(
+                ErrorCode.APPLE_PROFILE_INVALID,
+                "validated provisioning profile differs from the normalized Apple snapshot",
                 bundle_id=request.validation.target_bundle_id,
                 remediation="refresh Apple state before another profile reconciliation",
                 safe_details=(("resource_id", state.resource_id),),

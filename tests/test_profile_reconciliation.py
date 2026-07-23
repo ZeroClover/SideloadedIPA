@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
@@ -56,6 +57,7 @@ def state(
         bundle_resource_id=bundle_resource_id,
         certificate_resource_ids=certificate_ids,
         device_resource_ids=device_ids,
+        profile_content=content,
     )
 
 
@@ -92,7 +94,6 @@ class FakeGateway:
         self.contents = contents
         self.create_error = create_error
         self.create_calls: list[dict[str, object]] = []
-        self.download_calls: list[str] = []
         self.view_calls: list[str] = []
         self.list_calls = 0
 
@@ -129,10 +130,6 @@ class FakeGateway:
     def view(self, resource_id: str) -> AppleProfileState:
         self.view_calls.append(resource_id)
         return next(profile for profile in self.profiles if profile.resource_id == resource_id)
-
-    def download(self, resource_id: str) -> bytes:
-        self.download_calls.append(resource_id)
-        return self.contents[resource_id]
 
 
 class FakeValidator:
@@ -195,7 +192,7 @@ def test_reuses_best_fully_valid_profile_without_creating_or_deleting() -> None:
     assert result.created is False
     assert result.stale_resource_ids == ("PROFILE_OLD", "PROFILE_WRONG_CERT")
     assert gateway.create_calls == []
-    assert gateway.download_calls == ["PROFILE_OLD", "PROFILE_NEWEST"]
+    assert not hasattr(gateway, "download")
     assert not hasattr(gateway, "delete")
 
 
@@ -214,7 +211,7 @@ def test_reuses_supplied_profile_snapshot_without_relisting_account() -> None:
     assert result.profile.resource_id == existing.resource_id
     assert result.state == existing
     assert gateway.list_calls == 0
-    assert gateway.download_calls == [existing.resource_id]
+    assert not hasattr(gateway, "download")
 
 
 def test_successful_profile_creation_uses_one_targeted_view_without_relisting() -> None:
@@ -322,34 +319,45 @@ def test_does_not_retry_or_hide_an_unrecovered_create_failure() -> None:
     assert len(gateway.create_calls) == 1
 
 
-def test_treats_snapshot_content_mismatch_as_stale_but_propagates_read_failures() -> None:
-    mismatched = state("PROFILE_OLD", "LiveContainer Dev", b"snapshot-content")
+@pytest.mark.parametrize("held_content", [None, b"different-held-content"])
+def test_treats_invalid_held_content_as_stale_without_downloading(
+    held_content: bytes | None,
+) -> None:
+    mismatched = replace(
+        state("PROFILE_OLD", "LiveContainer Dev", b"snapshot-content"),
+        profile_content=held_content,
+    )
     mismatch_gateway = FakeGateway(
         (mismatched,),
-        {mismatched.resource_id: b"different-downloaded-content"},
+        {},
     )
 
     replacement = ProfileReconciler(mismatch_gateway, FakeValidator()).ensure(sync_request())
 
     assert replacement.created is True
     assert replacement.stale_resource_ids == ("PROFILE_OLD",)
+    assert not hasattr(mismatch_gateway, "download")
 
-    class ReadFailureGateway(FakeGateway):
-        def download(self, resource_id: str) -> bytes:
-            raise AdapterError(
-                ErrorCode.APPLE_AUTHORIZATION_FAILED,
-                "fixture authorization failure",
-                adapter="asc",
-                operation="profiles-view",
-            )
 
-    read_failure_gateway = ReadFailureGateway(
-        (mismatched,),
-        {mismatched.resource_id: b"snapshot-content"},
-    )
-    with pytest.raises(AdapterError) as read_failure:
-        ProfileReconciler(read_failure_gateway, FakeValidator()).ensure(sync_request())
-    assert read_failure.value.code is ErrorCode.APPLE_AUTHORIZATION_FAILED
+def test_treats_validator_digest_mismatch_as_stale() -> None:
+    existing = state("PROFILE_OLD", "LiveContainer Dev", b"snapshot-content")
+    gateway = FakeGateway((existing,), {})
+
+    class DigestMismatchingValidator(FakeValidator):
+        def validate(
+            self,
+            content: bytes,
+            request: ProfileValidationRequest,
+        ) -> ProvisioningProfile:
+            profile = super().validate(content, request)
+            if content == b"snapshot-content":
+                return replace(profile, profile_sha256="0" * 64)
+            return profile
+
+    replacement = ProfileReconciler(gateway, DigestMismatchingValidator()).ensure(sync_request())
+
+    assert replacement.created is True
+    assert replacement.stale_resource_ids == ("PROFILE_OLD",)
 
 
 def test_propagates_certain_create_failure_without_relookup() -> None:
@@ -478,19 +486,13 @@ class GatewayClient:
                 }
             }
         else:
-            document = {
-                "data": {
-                    "type": "profiles",
-                    "id": args[-1],
-                    "attributes": {"profileContent": self.content},
-                }
-            }
+            raise AssertionError(f"unexpected ASC command: {args}")
         frozen = freeze_json(document)
         assert isinstance(frozen, FrozenJsonObject)
         return AscResponse(frozen, ("asc", *args), 0.01)
 
 
-def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> None:
+def test_asc_gateway_uses_exact_create_and_included_view_contract() -> None:
     client = GatewayClient()
     gateway = AscProfileGateway(client)
 
@@ -502,12 +504,11 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
         device_resource_ids=DEVICE_RESOURCE_IDS,
     )
     state_value = gateway.view(resource_id)
-    content = gateway.download(resource_id)
 
     assert resource_id == "PROFILE_CREATED"
     assert state_value.resource_id == resource_id
     assert state_value.bundle_resource_id == BUNDLE_RESOURCE_ID
-    assert content == b"profile"
+    assert state_value.profile_content == b"profile"
     assert client.calls == [
         (
             (
@@ -537,12 +538,11 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
             ),
             False,
         ),
-        (("profiles", "view", "--id", "PROFILE_CREATED"), False),
     ]
 
     invalid_gateway = AscProfileGateway(GatewayClient("not-base64"))
     with pytest.raises(AdapterError) as invalid:
-        invalid_gateway.download("PROFILE_CREATED")
+        invalid_gateway.view("PROFILE_CREATED")
     assert invalid.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
     assert "not-base64" not in str(invalid.value.safe_details)
 
@@ -558,7 +558,7 @@ def test_asc_gateway_uses_exact_create_contract_and_strict_base64_download() -> 
         {"data": {"type": "profiles", "id": "PROFILE_CREATED", "attributes": {}}},
     ],
 )
-def test_asc_gateway_rejects_malformed_download_responses(
+def test_asc_gateway_rejects_malformed_included_view_responses(
     document: dict[str, object] | None,
 ) -> None:
     class StaticClient:
@@ -574,7 +574,7 @@ def test_asc_gateway_rejects_malformed_download_responses(
             return AscResponse(frozen, ("asc", *args), 0.01)
 
     with pytest.raises(AdapterError) as caught:
-        AscProfileGateway(StaticClient()).download("PROFILE_CREATED")
+        AscProfileGateway(StaticClient()).view("PROFILE_CREATED")
 
     assert caught.value.code is ErrorCode.ADAPTER_RESPONSE_INVALID
 
@@ -582,6 +582,8 @@ def test_asc_gateway_rejects_malformed_download_responses(
 def test_reconciliation_result_repr_does_not_expose_profile_content() -> None:
     gateway = FakeGateway((), {})
     result = ProfileReconciler(gateway, FakeValidator()).ensure(sync_request())
+    state_value = state("PROFILE_REPR", "LiveContainer Dev", b"valid-repr")
 
     assert base64.b64encode(result.content).decode() not in repr(result)
     assert "valid-new" not in repr(result)
+    assert "valid-repr" not in repr(state_value)

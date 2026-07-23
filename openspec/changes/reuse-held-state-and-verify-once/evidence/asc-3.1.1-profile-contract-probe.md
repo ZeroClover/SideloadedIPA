@@ -16,7 +16,7 @@ The release asset was downloaded to a private temporary directory, its digest
 was checked before execution, and no credential or profile payload was written
 to this change directory.
 
-## Commands probed
+## Local binary probe
 
 The pinned binary's help accepts both intended commands:
 
@@ -34,52 +34,76 @@ The read-only list probe exited with status 3 before reaching App Store Connect:
 Error: profiles list: missing authentication.
 ```
 
-No ASC credential variables or local ASC configuration were available. It was
-therefore not possible to establish that every live list item contains
-`attributes.profileContent`, nor that a live included view carries all three
-relationship payloads inline.
+This local environment had no ASC credential variables or local ASC
+configuration, so the response-shape probe continued in an authenticated
+production debug session.
 
-## Production CI debug follow-up (pre-fix)
+## Authenticated production CI debug probe
 
-A production `workflow_dispatch` run with `debug=true` was started and
-completed successfully:
+A corrected production `workflow_dispatch` run with `debug=true` was started
+and completed successfully:
 
-- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29981889230
-- Commit: `351820490f933199cc2316f53df3071b4e924cd5`
-- The Apple plan and apply steps both completed successfully, establishing that
-  their step-scoped ASC credentials were valid.
-- The published Cloudflare tunnel was reached with the repository's configured
-  SSH key, and the runner exposed the pinned Linux `asc` 3.1.1 binary.
-- The then-current debug action removed all ASC credential variables before
-  starting the SSH server, tunnel, and hold process. Dropbear also cleared its
-  server process environment by default. The SSH login environment contained no
-  ASC credential variables, ASC config, or `.p8` key.
-- Re-running the read-only list command over SSH exited with status 3 and the
-  same `missing authentication` result.
+- Run: https://github.com/ZeroClover/SideloadedIPA/actions/runs/29988342462
+- Commit: `7111977683f5508d778e4afb7d245291a6c418f8`
+- Binary: `asc` 3.1.1 (`cf3457b`)
+- The production Apple, signing, publication, and notification credential
+  variables were present in the SSH child. Only variable names and presence
+  were checked; no value was printed or persisted.
+- The debug action performed no credential cleanup and started Dropbear with
+  environment preservation enabled.
 
-No attempt was made to recover secrets from completed step processes or bypass
-the debug action's credential boundary.
+Raw command responses were written only under a runner-private temporary
+directory and deleted before the tunnel was stopped. The probe output retained
+only JSON keys, counts, booleans, lengths, and content digests.
 
-The debug implementation is now corrected so a manually dispatched production
-debug session receives the production step's explicit ASC, signing, R2, GitHub,
-Vercel, and webhook environment. The action no longer unsets credentials and
-starts Dropbear with `-e`, which preserves the caller environment for the SSH
-child. PR validation debug sessions do not receive these production-secret
-mappings. A run from the corrected workflow is still required before replacing
-the conservative D2 fallback with an authenticated response-shape contract.
+### List response
+
+`asc profiles list --profile-type IOS_APP_DEVELOPMENT --output json` returned:
+
+- root keys `data`, `links`, and `meta`;
+- 20 profile resources;
+- the same complete attribute keys for every resource:
+  `createdDate`, `expirationDate`, `name`, `platform`, `profileContent`,
+  `profileState`, `profileType`, and `uuid`;
+- non-empty `profileContent` for all 20 resources; every value decoded under
+  strict base64 validation (encoded lengths ranged from 17,156 to 38,772);
+- relationship keys `bundleId`, `certificates`, and `devices`, whose values
+  contained only `links` and `meta`; none contained relationship `data`.
+
+The pinned CLI's `profiles list --help` has no `--include` option.
+
+### Included view response
+
+For one profile selected without retaining its identifier,
+`asc profiles view --id <id> --include bundleId,certificates,devices --output
+json` returned:
+
+- root keys `data`, `included`, and `links`;
+- the complete profile attributes including `profileContent`;
+- relationship `data` shaped as one bundle object, a certificate array, and a
+  device array;
+- one bundle, one certificate, and ten devices in the sampled response;
+- matching `included` resources for every relationship identifier.
+
+A plain `profiles view --id <id> --output json` also returned the complete
+attributes. Strictly decoded profile bytes from the list item, included view,
+and plain view were byte-identical. Only the sampled byte count and SHA-256
+were compared; the profile body was never printed.
 
 ## Selected adapter contract
 
-Because the primary response-shape contract could not be authenticated, the
-implementation takes D2's fail-closed fallback:
+The authenticated response shape selects D2's primary path:
 
-- keep one `profiles view --include bundleId,certificates,devices` read per
-  enumerated profile;
+- decode and retain attributes, `profileContent`, and its digest from the one
+  list response;
+- use one `profiles view --include bundleId,certificates,devices` read per
+  enumerated profile only for relationship identifiers;
 - remove the three independent `profiles links` calls;
-- keep `_validated` downloading and validating profile content;
+- require list and included-view content digests to match;
+- make `_validated` validate the digest-bound held bytes with no content
+  download;
 - use one targeted included view to verify a successful create instead of
   re-enumerating the profile collection.
 
-This still removes three calls per existing profile and bounds successful-create
-verification to one profile resource without relying on an unobserved response
-shape.
+Malformed base64, missing content, malformed relationship identifiers, and
+list/view content mismatches all remain fail-closed adapter errors.

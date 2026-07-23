@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -80,6 +80,7 @@ class AppleProfileState:
     bundle_resource_id: str
     certificate_resource_ids: tuple[str, ...]
     device_resource_ids: tuple[str, ...]
+    profile_content: bytes | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

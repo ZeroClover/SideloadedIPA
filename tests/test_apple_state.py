@@ -98,6 +98,7 @@ def test_collects_sorted_redacted_snapshot_from_one_read_session() -> None:
     assert snapshot.profiles[0].certificate_resource_ids == ("CERTIFICATE_ONE",)
     assert snapshot.profiles[0].device_resource_ids == ("DEVICE_ONE",)
     assert snapshot.profiles[0].profile_sha256 == hashlib.sha256(b"profile-fixture").hexdigest()
+    assert snapshot.profiles[0].profile_content == b"profile-fixture"
     assert redacted_summary(snapshot) == {
         "schema_version": 1,
         "snapshot_sha256": snapshot.snapshot_sha256,
@@ -208,10 +209,22 @@ def test_normalizes_paginated_null_data_as_an_empty_list() -> None:
             "certificateContent",
         ),
         (
+            lambda value: value["profiles"]["data"][0]["attributes"].update(
+                {"profileContent": "not-base64"}
+            ),
+            "profiles.data[0].attributes.profileContent",
+        ),
+        (
             lambda value: value["profile_details"]["PROFILE_ONE"]["data"].update(
                 {"id": "PROFILE_OTHER"}
             ),
             "profile.data.id",
+        ),
+        (
+            lambda value: value["profile_details"]["PROFILE_ONE"]["data"]["attributes"].update(
+                {"profileContent": "ZGlmZmVyZW50"}
+            ),
+            "profiles.data[0].attributes.profileContent",
         ),
     ],
 )

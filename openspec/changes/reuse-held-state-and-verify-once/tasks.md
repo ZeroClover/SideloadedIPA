@@ -1,20 +1,20 @@
 ## 1. asc CLI contract probe (blocking input for D2)
 
 - [x] 1.1 Against pinned `asc` 3.1.1, confirm `profiles list --profile-type IOS_APP_DEVELOPMENT --output json` returns full attributes including `profileContent` for every item, and record the evidence in this change directory
-- [x] 1.2 Against pinned `asc` 3.1.1, confirm `profiles view --id <id> --include bundleId,certificates,devices` exists and returns relationship data inline; if either probe fails, record the fallback selection (per-profile `view` without `links` calls, keep `_validated` download) in `design.md`
+- [x] 1.2 Against pinned `asc` 3.1.1, confirm `profiles view --id <id> --include bundleId,certificates,devices` exists and returns relationship data inline; record the authenticated list/view contract and selected primary path in `design.md`
 
 ## 2. Apple read reuse (spec: bounded state collection, App ID and capability reconciliation)
 
 - [x] 2.1 Extend `AppleStateCollector.collect` to accept held `certificates`/`devices`/`bundle_ids`/`capabilities` slices alongside the existing `profiles` parameter, and normalize merged slices identically to enumerated ones (`src/sideloadedipa/adapters/apple/state.py`)
-- [x] 2.2 Rewrite `collect_profiles` per the recorded probe outcome: use one included `view` for attributes and relationships and drop the 3 separate `links` calls (`src/sideloadedipa/adapters/apple/state.py`)
+- [x] 2.2 Rewrite `collect_profiles` per the authenticated probe: decode attributes/content from the list, use one included `view` only for relationships, and drop the 3 separate `links` calls (`src/sideloadedipa/adapters/apple/state.py`)
 - [x] 2.3 Scope `_capabilities` enumeration to the transaction's managed App IDs and update snapshot-hash tests accordingly (`src/sideloadedipa/adapters/apple/state.py`)
 - [x] 2.4 Add snapshot-slice parameters to `BundleIdReconciler.ensure`, deciding existence from held state and merging the validated create response; keep the uncertain-create recovery re-list limited to the bundle-identifier collection (`src/sideloadedipa/adapters/apple/bundle_ids.py`)
 - [x] 2.5 Add snapshot-slice parameters to `CapabilityReconciler.ensure`, decide existence from held state, verify from the documented add response, and remove the unconditional post-add `lookup()` re-list (`src/sideloadedipa/adapters/apple/capabilities.py`)
 - [x] 2.6 Replace the successful-create full re-enumeration in `ProfileReconciler.ensure` with a targeted single-resource read of the created profile, merging the verified state into held profiles (`src/sideloadedipa/adapters/apple/profiles.py`)
-- [x] 2.7 Follow the recorded fallback by keeping `_validated`'s digest-bound content download until live list-content attributes can be authenticated (`src/sideloadedipa/adapters/apple/profiles.py`)
+- [x] 2.7 Retain digest-bound list content in normalized state and make `_validated` reuse those held bytes without another ASC request (`src/sideloadedipa/adapters/apple/profiles.py`)
 - [x] 2.8 Restructure `sync_command` to one enumeration per collection: thread the full snapshot through bundle, capability, and profile phases with merge-on-write, and replace the final unconditional `backend.collect()` with the merged snapshot (`src/sideloadedipa/apple/commands.py`)
 - [x] 2.9 Update `AppleCommandBackend` protocol and `AscAppleCommandBackend` signatures for the threaded state, keeping fixture backends in tests aligned (`src/sideloadedipa/apple/backend.py`)
-- [x] 2.10 Add adapter-call-count assertions proving one initial collection, zero ensure-path re-lists on definite responses, zero profile `links` calls, the fallback's single validated content download, and one read of immutable collections (`tests/test_apple_commands.py`, `tests/test_profile_reconciliation.py`, `tests/test_bundle_id_reconciliation.py`, `tests/test_capability_reconciliation.py`, `tests/test_apple_state.py`)
+- [x] 2.10 Add adapter-call-count assertions proving one initial collection, zero ensure-path re-lists on definite responses, one included relationship view per profile, zero profile `links` calls, zero validation downloads, and one read of immutable collections (`tests/test_apple_commands.py`, `tests/test_profile_reconciliation.py`, `tests/test_bundle_id_reconciliation.py`, `tests/test_capability_reconciliation.py`, `tests/test_apple_state.py`)
 
 ## 3. Single-pass, single-extraction verification (spec: signed-ipa-verification, multi-bundle-signing)
 

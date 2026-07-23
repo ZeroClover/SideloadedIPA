@@ -36,17 +36,22 @@ Constraints: fail-closed behavior at trust boundaries must not weaken (downloade
 `BundleIdReconciler.ensure` and `CapabilityReconciler.ensure` accept the transaction snapshot slices; `sync_command` merges creation results back with the existing `decode_bundle_identifier_response` / `decode_capability_response` decoders and a generalization of `_with_profile_state`. The two intermediate `backend.collect()` calls in `sync_command` disappear; certificates and devices are read once per transaction. *Alternative rejected:* per-reconciler memoized gateways — hides state flow, and the uncertain-create recovery path must still force a genuine re-list of the affected collection.
 
 **D2 — Profile enumeration keeps content; relationships come from one targeted read.**
-`collect_profiles` decodes the list response's attributes directly (dropping the per-profile `view`) and retains raw `profileContent` alongside the existing sha256 so `ProfileReconciler._validated` consumes held bytes instead of re-downloading. Post-create verification reads only the created resource (`profiles view --id <id> --include bundleId,certificates,devices`) instead of re-enumerating. *Alternative considered:* deriving certificate/device relationships from the embedded `.mobileprovision` payload (zero extra calls); deferred — it changes what the relationship prefilter means, and `MobileProvisionValidator` already provides the authoritative content-level check, so the marginal saving (M targeted reads on the create path only) does not justify the semantic change now. *Verify at implementation time:* pinned `asc` 3.1.1 supports `--include` on `profiles view` and returns full attributes (incl. `profileContent`) in `profiles list`; if either fails, fall back to `view` per profile (still removes the three `links` calls) and keep the download in `_validated`.
+`collect_profiles` decodes attributes and raw `profileContent` from the list response, then makes one included `view` per profile solely to obtain relationship identifiers. The held list bytes and sha256 flow into `ProfileReconciler._validated`, which validates them without another request. Post-create verification reads only the created resource (`profiles view --id <id> --include bundleId,certificates,devices`) instead of re-enumerating. *Alternative considered:* deriving certificate/device relationships from the embedded `.mobileprovision` payload (zero extra calls); deferred — it changes what the relationship prefilter means, and `MobileProvisionValidator` already provides the authoritative content-level check, so the marginal saving (M targeted reads on the create path only) does not justify the semantic change now.
 
-**D2 probe outcome (2026-07-23) — conservative fallback selected.**
-The checksum-verified macOS arm64 `asc` 3.1.1 binary exposes
-`profiles view --include bundleId,certificates,devices`, but the implementation
-environment has no App Store Connect credentials, so neither live list
-attributes nor inline relationship data could be established. The adapter
-therefore keeps one included `view` per enumerated profile, removes the three
-separate relationship `links` calls, and keeps the validated content download
-in `_validated`. The targeted included `view` is also used after profile
-creation. See `evidence/asc-3.1.1-profile-contract-probe.md`.
+**D2 probe outcome (2026-07-23) — primary contract authenticated.**
+Production debug run
+[`29988342462`](https://github.com/ZeroClover/SideloadedIPA/actions/runs/29988342462)
+exposed the normal production ASC environment to its SSH child without
+credential cleanup. Against the run's pinned `asc` 3.1.1, all 20 development
+profile list items carried the complete expected attribute set and non-empty,
+strictly decodable `profileContent`. List relationships carried only
+`links`/`meta`; `profiles list` has no `--include` option. One
+`profiles view --include bundleId,certificates,devices` returned inline
+relationship identifiers and matching included resources. The decoded content
+from list, included view, and plain view was byte-identical for the sampled
+profile. D2 therefore uses list content plus one included relationship view per
+profile and removes `_validated`'s extra content read. See
+`evidence/asc-3.1.1-profile-contract-probe.md`.
 
 **D3 — Capabilities enumerated only for managed App IDs.**
 `snapshot.capabilities` is consumed exclusively through per-bundle filters (`exact_capability_matches`), so collection narrows to the transaction's target bundle IDs. The snapshot hash consequently covers managed scope only; the hash is an in-run evidence binder, not a cross-run identity, so no cache-key migration is needed (cache fingerprints already list profile/certificate/device identities explicitly).
@@ -66,7 +71,7 @@ creation. See `evidence/asc-3.1.1-profile-contract-probe.md`.
 ## Risks / Trade-offs
 
 - [Stale snapshot between enumeration and mutation (TOCTOU widens slightly without intermediate re-lists)] → Mutations remain additive and idempotent; create/add conflicts surface as typed `APPLE_RESOURCE_CONFLICT` and the uncertain-create recovery path still re-lists the affected collection before deciding.
-- [`asc` 3.1.1 list/view behavior differs from documented main-branch behavior] → D2 fallback path; task list includes an explicit contract probe before adapter changes land.
+- [`asc` 3.1.1 list/view behavior differs from documented main-branch behavior] → The authenticated D2 probe records the exact pinned-release contract; decoders fail closed if list content, included relationships, or the two content digests disagree.
 - [Removing sign-stage verification delays failure detection from sign to verify stage] → Same run, same fail-closed outcome, no side effect occurs between the two stages (cache promotion and publication both sit after verify); backend-evidence validation still catches malformed backend output at sign time.
 - [Larger in-memory snapshot (profile content ~10–20 KB × M)] → ~300 KB peak; negligible.
 - [Two active changes touch `signing-workflow-orchestration`] → This change only ADDs requirements to that spec and MODIFIES requirements the other change does not touch; archive either change in any order.
@@ -80,7 +85,4 @@ creation. See `evidence/asc-3.1.1-profile-contract-probe.md`.
 
 ## Open Questions
 
-- Live profile-list attributes and included relationship payloads could not be
-  authenticated in the implementation environment; D2's conservative fallback
-  is selected. The pinned binary does expose `profiles view --include`.
 - Should the plan document produced inside `sync --apply` continue to be uploaded as a separate CI artifact for audit parity with today's `02-apple-plan.json`? (Default: yes, emit both documents from the single step.)

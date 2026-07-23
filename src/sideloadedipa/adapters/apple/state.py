@@ -7,7 +7,7 @@ import binascii
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Protocol
 
 from sideloadedipa.adapters.apple.asc import AscResponse
@@ -179,15 +179,63 @@ def collect_capabilities(
     return tuple(sorted(values, key=lambda value: (value.capability_type, value.resource_id)))
 
 
-def _content_sha256(value: object, field: str) -> str | None:
+def _decoded_content(value: object, field: str) -> bytes | None:
     encoded = _optional_string(value, field)
     if encoded is None:
         return None
     try:
-        decoded = base64.b64decode(encoded, validate=True)
+        return base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error) as error:
         raise _invalid(f"{field} is not valid base64", field) from error
-    return hashlib.sha256(decoded).hexdigest()
+
+
+def _content_sha256(value: object, field: str) -> str | None:
+    decoded = _decoded_content(value, field)
+    return None if decoded is None else hashlib.sha256(decoded).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _ProfileAttributes:
+    resource_id: str
+    name: str
+    platform: str | None
+    profile_type: str
+    profile_state: str | None
+    uuid: str | None
+    created_date: str | None
+    expiration_date: str | None
+    profile_sha256: str
+    profile_content: bytes
+
+
+def _decode_profile_attributes(
+    resource: Mapping[str, object],
+    field: str,
+) -> _ProfileAttributes:
+    resource_id, attributes = _resource(resource, field, "profiles")
+    content_field = f"{field}.attributes.profileContent"
+    profile_content = _decoded_content(attributes.get("profileContent"), content_field)
+    if profile_content is None:
+        raise _invalid(f"{content_field} must be a non-empty string", content_field)
+    return _ProfileAttributes(
+        resource_id=resource_id,
+        name=_string(attributes.get("name"), f"{field}.attributes.name"),
+        platform=_optional_string(attributes.get("platform"), f"{field}.attributes.platform"),
+        profile_type=_string(attributes.get("profileType"), f"{field}.attributes.profileType"),
+        profile_state=_optional_string(
+            attributes.get("profileState"), f"{field}.attributes.profileState"
+        ),
+        uuid=_optional_string(attributes.get("uuid"), f"{field}.attributes.uuid"),
+        created_date=_optional_string(
+            attributes.get("createdDate"), f"{field}.attributes.createdDate"
+        ),
+        expiration_date=_optional_string(
+            attributes.get("expirationDate"),
+            f"{field}.attributes.expirationDate",
+        ),
+        profile_sha256=hashlib.sha256(profile_content).hexdigest(),
+        profile_content=profile_content,
+    )
 
 
 def _relationship_ids(
@@ -250,7 +298,23 @@ def _snapshot_document(snapshot: AppleStateSnapshot) -> dict[str, object]:
         ],
         "certificates": [asdict(value) for value in snapshot.certificates],
         "devices": [asdict(value) for value in snapshot.devices],
-        "profiles": [asdict(value) for value in snapshot.profiles],
+        "profiles": [
+            {
+                "resource_id": value.resource_id,
+                "name": value.name,
+                "platform": value.platform,
+                "profile_type": value.profile_type,
+                "profile_state": value.profile_state,
+                "uuid": value.uuid,
+                "created_date": value.created_date,
+                "expiration_date": value.expiration_date,
+                "profile_sha256": value.profile_sha256,
+                "bundle_resource_id": value.bundle_resource_id,
+                "certificate_resource_ids": value.certificate_resource_ids,
+                "device_resource_ids": value.device_resource_ids,
+            }
+            for value in snapshot.profiles
+        ],
     }
 
 
@@ -264,8 +328,8 @@ def decode_profile_response(
 
     document = _response_mapping(response, field)
     resource = _mapping(document.get("data"), f"{field}.data")
-    resource_id, attributes = _resource(resource, f"{field}.data", "profiles")
-    if expected_resource_id is not None and resource_id != expected_resource_id:
+    attributes = _decode_profile_attributes(resource, f"{field}.data")
+    if expected_resource_id is not None and attributes.resource_id != expected_resource_id:
         raise _invalid("profile detail ID differs from requested ID", f"{field}.data.id")
     bundle_ids = _relationship_ids(
         resource,
@@ -294,28 +358,19 @@ def decode_profile_response(
         many=True,
     )
     return AppleProfileState(
-        resource_id=resource_id,
-        name=_string(attributes.get("name"), f"{field}.data.attributes.name"),
-        platform=_optional_string(attributes.get("platform"), f"{field}.data.attributes.platform"),
-        profile_type=_string(attributes.get("profileType"), f"{field}.data.attributes.profileType"),
-        profile_state=_optional_string(
-            attributes.get("profileState"), f"{field}.data.attributes.profileState"
-        ),
-        uuid=_optional_string(attributes.get("uuid"), f"{field}.data.attributes.uuid"),
-        created_date=_optional_string(
-            attributes.get("createdDate"), f"{field}.data.attributes.createdDate"
-        ),
-        expiration_date=_optional_string(
-            attributes.get("expirationDate"),
-            f"{field}.data.attributes.expirationDate",
-        ),
-        profile_sha256=_content_sha256(
-            attributes.get("profileContent"),
-            f"{field}.data.attributes.profileContent",
-        ),
+        resource_id=attributes.resource_id,
+        name=attributes.name,
+        platform=attributes.platform,
+        profile_type=attributes.profile_type,
+        profile_state=attributes.profile_state,
+        uuid=attributes.uuid,
+        created_date=attributes.created_date,
+        expiration_date=attributes.expiration_date,
+        profile_sha256=attributes.profile_sha256,
         bundle_resource_id=bundle_ids[0],
         certificate_resource_ids=certificate_ids,
         device_resource_ids=device_ids,
+        profile_content=attributes.profile_content,
     )
 
 
@@ -349,8 +404,30 @@ def collect_profiles(client: AscStateReader) -> tuple[AppleProfileState, ...]:
     )
     values = []
     for index, summary in enumerate(resources):
-        profile_id, _ = _resource(summary, f"profiles.data[{index}]", "profiles")
-        values.append(collect_profile(client, profile_id))
+        attributes = _decode_profile_attributes(summary, f"profiles.data[{index}]")
+        relationship_state = collect_profile(client, attributes.resource_id)
+        if relationship_state.profile_sha256 != attributes.profile_sha256:
+            raise _invalid(
+                "profile list content differs from the included profile view",
+                f"profiles.data[{index}].attributes.profileContent",
+            )
+        values.append(
+            AppleProfileState(
+                resource_id=attributes.resource_id,
+                name=attributes.name,
+                platform=attributes.platform,
+                profile_type=attributes.profile_type,
+                profile_state=attributes.profile_state,
+                uuid=attributes.uuid,
+                created_date=attributes.created_date,
+                expiration_date=attributes.expiration_date,
+                profile_sha256=attributes.profile_sha256,
+                bundle_resource_id=relationship_state.bundle_resource_id,
+                certificate_resource_ids=relationship_state.certificate_resource_ids,
+                device_resource_ids=relationship_state.device_resource_ids,
+                profile_content=attributes.profile_content,
+            )
+        )
     return tuple(sorted(values, key=lambda value: value.resource_id))
 
 
