@@ -17,7 +17,7 @@ from sideloadedipa.domain import (
     SourceKind,
 )
 from sideloadedipa.errors import ConfigurationError, ErrorCode
-from sideloadedipa.pipeline.sign_stage import policy_sha256
+from sideloadedipa.pipeline.stages.signing_cache import policy_sha256
 
 
 def direct_task(**overrides: object) -> dict[str, object]:

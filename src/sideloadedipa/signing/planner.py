@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, replace
 
 from sideloadedipa.apple.intents import BundleResourceIntent, derive_bundle_resource_intents
@@ -22,11 +20,13 @@ from sideloadedipa.domain import (
     SigningPlan,
     Task,
     normalize_entitlements,
-    thaw_json,
+    thaw_json_object,
 )
+from sideloadedipa.domain.entitlement_keys import APPLICATION_IDENTIFIER
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.order import signing_order
 from sideloadedipa.signing.profile_validation import validate_expected_entitlements
+from sideloadedipa.util.atomics import json_sha256
 
 _SUPPORTED_NODE_KINDS = frozenset(BundleNodeKind)
 _REQUIRED_BACKEND_FEATURES = frozenset(
@@ -59,9 +59,7 @@ def _node_document(node: SigningNodePlan) -> dict[str, object]:
         "profile_resource_id": node.profile_resource_id,
         "profile_path": node.profile_path.as_posix() if node.profile_path is not None else None,
         "profile_sha256": node.profile_sha256,
-        "expected_entitlements": {
-            key: thaw_json(value) for key, value in node.expected_entitlements
-        },
+        "expected_entitlements": thaw_json_object(node.expected_entitlements),
         "expected_entitlements_sha256": node.expected_entitlements_sha256,
     }
 
@@ -85,9 +83,7 @@ def _plan_document(plan: SigningPlan) -> dict[str, object]:
 
 
 def _plan_sha256(plan: SigningPlan) -> str:
-    return hashlib.sha256(
-        json.dumps(_plan_document(plan), sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return json_sha256(_plan_document(plan))
 
 
 def _fail(
@@ -196,7 +192,7 @@ def _validate_request(request: SigningPlanRequest) -> None:
     )
 
     for value in request.expected_entitlements:
-        normalized = normalize_entitlements({key: thaw_json(child) for key, child in value.values})
+        normalized = normalize_entitlements(thaw_json_object(value.values))
         if normalized.values != value.values or normalized.sha256 != value.sha256:
             raise _fail(
                 request,
@@ -302,9 +298,9 @@ def _validate_request(request: SigningPlanRequest) -> None:
         intent = intent_by_source[match.source_bundle_id.casefold()]
         profile = profiles_by_target[intent.target_bundle_id.casefold()][0]
         expected = expected_by_path[match.node_path]
-        expected_document = {key: thaw_json(value) for key, value in expected.values}
+        expected_document = thaw_json_object(expected.values)
         if expected_document.get(
-            "application-identifier"
+            APPLICATION_IDENTIFIER
         ) != profile.application_identifier or not profile.application_identifier.endswith(
             f".{intent.target_bundle_id}"
         ):
@@ -315,7 +311,7 @@ def _validate_request(request: SigningPlanRequest) -> None:
                 safe_details=(("profile_resource_id", profile.resource_id),),
             )
         validate_expected_entitlements(
-            {key: thaw_json(value) for key, value in profile.entitlements},
+            thaw_json_object(profile.entitlements),
             expected_document,
             bundle_id=profile.bundle_id,
         )

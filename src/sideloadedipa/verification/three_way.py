@@ -13,7 +13,7 @@ from sideloadedipa.domain import (
     SigningPlan,
     VerificationFinding,
     normalize_entitlements,
-    thaw_json,
+    thaw_json_object,
 )
 from sideloadedipa.verification.artifact import (
     EntitlementRepresentationEvidence,
@@ -29,7 +29,7 @@ from sideloadedipa.verification.entitlements import (
 
 
 def _document(values: tuple[tuple[str, FrozenJsonValue], ...]) -> dict[str, object]:
-    return {key: thaw_json(value) for key, value in values}
+    return thaw_json_object(values)
 
 
 def _diagnostics(

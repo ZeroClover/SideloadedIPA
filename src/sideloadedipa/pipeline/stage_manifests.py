@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import replace
 from datetime import datetime
@@ -18,7 +17,7 @@ from sideloadedipa.domain import (
     freeze_json,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
-from sideloadedipa.util.atomics import canonical_json, diagnostic_document
+from sideloadedipa.util.atomics import canonical_json, diagnostic_document, json_sha256
 
 STAGE_MANIFEST_SCHEMA_VERSION = 1
 PIPELINE_STAGE_ORDER = (
@@ -52,7 +51,7 @@ def _document(manifest: StageManifest) -> dict[str, object]:
 
 
 def stage_manifest_sha256(manifest: StageManifest) -> str:
-    return hashlib.sha256(canonical_json(_document(manifest))).hexdigest()
+    return json_sha256(_document(manifest))
 
 
 def canonical_stage_manifest_json(manifest: StageManifest) -> bytes:
@@ -243,42 +242,5 @@ def finish_stage(
             completed_at=completed_at,
             diagnostics=diagnostics,
             manifest_sha256="",
-        )
-    )
-
-
-def skip_stage(
-    *,
-    task_name: str,
-    stage: PipelineStage,
-    skipped_at: datetime,
-    predecessor: StageManifest,
-    diagnostics: tuple[Diagnostic, ...] = (),
-) -> StageManifest:
-    """Record the exact successor as skipped after a failed or skipped stage."""
-
-    if predecessor.task_name != task_name or _next_stage(predecessor.stage) is not stage:
-        raise _transition_error(task_name, "skipped pipeline stage is out of order", stage=stage)
-    if predecessor.status not in {StageStatus.FAILED, StageStatus.SKIPPED}:
-        raise _transition_error(
-            task_name,
-            "stages can be skipped only after a failed or skipped predecessor",
-            stage=stage,
-        )
-    if predecessor.manifest_sha256 != stage_manifest_sha256(predecessor):
-        raise _transition_error(task_name, "predecessor manifest digest is invalid", stage=stage)
-    return _with_digest(
-        StageManifest(
-            STAGE_MANIFEST_SCHEMA_VERSION,
-            task_name,
-            stage,
-            StageStatus.SKIPPED,
-            None,
-            predecessor.manifest_sha256,
-            None,
-            skipped_at,
-            skipped_at,
-            diagnostics,
-            "",
         )
     )

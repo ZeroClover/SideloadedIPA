@@ -14,11 +14,11 @@ from types import SimpleNamespace
 import pytest
 
 import sideloadedipa.pipeline.production as production
-import sideloadedipa.pipeline.publish_stage as publish_stage
-import sideloadedipa.pipeline.sign_stage as sign_stage
 import sideloadedipa.pipeline.stages.apple as production_apple_stage
+import sideloadedipa.pipeline.stages.publication as publish_stage
 import sideloadedipa.pipeline.stages.publication as production_publication_stage
 import sideloadedipa.pipeline.stages.signing as production_signing_stage
+import sideloadedipa.pipeline.stages.signing_cache as signing_cache
 import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
 from sideloadedipa.application import CommandName, CommandRequest, CommandResult, OutputFormat
 from sideloadedipa.cache.decisions import RebuildDecision, RebuildReason
@@ -52,9 +52,9 @@ from sideloadedipa.signing.preflight import PreflightResult
 from sideloadedipa.sources import DownloadedSource
 from sideloadedipa.util import atomics
 from sideloadedipa.util.atomics import canonical_json
-from tests.conftest import FixtureCopyBackend as CopyBackend
-from tests.conftest import FixturePassingVerifier
 from tests.conftest import package_request as request_for
+from tests.fakes import FixtureCopyBackend as CopyBackend
+from tests.fakes import FixturePassingVerifier
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
 
@@ -1239,13 +1239,13 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
         assert prepared[0].request is signing_request
         assert prepared[0].fingerprint.task_name == task.task_name
 
-    assert sign_stage.device_set_sha256(signing_request)
+    assert signing_cache.device_set_sha256(signing_request)
     assert observed["graph"] is context.graph
     livecontainer = next(
         value
         for value in load_configuration(Path("configs/tasks.toml")).tasks
         if value.task_name == "LiveContainer"
     )
-    template_digests = sign_stage.template_digests(livecontainer, Path.cwd())
+    template_digests = signing_cache.template_digests(livecontainer, Path.cwd())
     assert len(template_digests) == 2
     assert len({path for path, _ in template_digests}) == 1

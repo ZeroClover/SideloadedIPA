@@ -17,7 +17,7 @@ from sideloadedipa.domain import (
     SourceKind,
     Task,
 )
-from sideloadedipa.signing.preflight import execute_after_preflight, validate_signing_preflight
+from sideloadedipa.signing.preflight import validate_signing_preflight
 
 
 def bundle(path: str, identifier: str) -> BundleNode:
@@ -95,16 +95,8 @@ def test_aggregates_independent_errors_before_apple_or_signing(
         team_id="TEAM123456",
         app_identifier_prefix="TEAM123456.",
     )
-    effects = {"apple": 0, "signing": 0}
 
-    executed = execute_after_preflight(
-        result,
-        apply_apple_changes=lambda: effects.__setitem__("apple", effects["apple"] + 1),
-        start_signing=lambda: effects.__setitem__("signing", effects["signing"] + 1),
-    )
-
-    assert executed is False
-    assert effects == {"apple": 0, "signing": 0}
+    assert result.valid is False
     assert {diagnostic.code for diagnostic in result.diagnostics} == {
         "config.unconfigured_bundle",
         "config.absent_bundle_rule",
@@ -115,7 +107,7 @@ def test_aggregates_independent_errors_before_apple_or_signing(
     assert all(diagnostic.remediation for diagnostic in result.diagnostics)
 
 
-def test_valid_preflight_releases_effects_in_order(tmp_path: Path) -> None:
+def test_valid_preflight_reports_no_diagnostics(tmp_path: Path) -> None:
     root_rule = BundleRule(
         source_bundle_id="com.example.app",
         entitlement_policy=EntitlementPolicy(EntitlementMode.PROFILE),
@@ -127,14 +119,6 @@ def test_valid_preflight_releases_effects_in_order(tmp_path: Path) -> None:
         team_id="TEAM123456",
         app_identifier_prefix="TEAM123456.",
     )
-    effects: list[str] = []
-
-    executed = execute_after_preflight(
-        result,
-        apply_apple_changes=lambda: effects.append("apple"),
-        start_signing=lambda: effects.append("signing"),
-    )
 
     assert result.valid is True
-    assert executed is True
-    assert effects == ["apple", "signing"]
+    assert result.diagnostics == ()

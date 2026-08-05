@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
 from sideloadedipa.domain import FrozenJsonValue, freeze_json, thaw_json
+from sideloadedipa.domain.entitlement_keys import APPLICATION_GROUPS as _APP_GROUPS
+from sideloadedipa.domain.entitlement_keys import APPLICATION_IDENTIFIER as _APPLICATION_IDENTIFIER
+from sideloadedipa.domain.entitlement_keys import KEYCHAIN_ACCESS_GROUPS as _KEYCHAIN_GROUPS
+from sideloadedipa.domain.entitlement_keys import TEAM_IDENTIFIER as _TEAM_IDENTIFIER
+from sideloadedipa.util.atomics import json_sha256
 
-_APPLICATION_IDENTIFIER = "application-identifier"
-_TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
-_KEYCHAIN_GROUPS = "keychain-access-groups"
-_APP_GROUPS = "com.apple.security.application-groups"
 _DEFAULT_SET_LIKE_KEYS = frozenset({_KEYCHAIN_GROUPS, _APP_GROUPS})
 _PROFILE_WILDCARD_KEYS = frozenset({_APPLICATION_IDENTIFIER, _KEYCHAIN_GROUPS})
 _MISSING = object()
@@ -52,13 +51,7 @@ def _digest(value: object) -> str | None:
     if value is _MISSING:
         return None
     frozen: FrozenJsonValue = freeze_json(value)
-    encoded = json.dumps(
-        thaw_json(frozen),
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return json_sha256(thaw_json(frozen))
 
 
 def _difference(path: str, reason: str, expected: object, actual: object) -> EntitlementDifference:

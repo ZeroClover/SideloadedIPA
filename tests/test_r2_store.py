@@ -21,7 +21,6 @@ from sideloadedipa.adapters.publication.r2_store import (
     JSON_CACHE_CONTROL,
     JSON_CONTENT_TYPE,
     R2Store,
-    referenced_keys_from_apps,
 )
 from sideloadedipa.errors import ConfigurationError
 
@@ -266,16 +265,11 @@ class TestCleanupStale:
             ],
         )
         store = _store(client)
-        referenced = referenced_keys_from_apps(
-            store,
-            [
-                {
-                    "slug": "ehpanda",
-                    "ipaUrl": f"{BASE_URL}/apps/ehpanda/2.7.4/EhPanda.ipa",
-                    "iconUrl": f"{BASE_URL}/apps/ehpanda/icon-bbbbbbbbbbbb.png",
-                }
-            ],
-        )
+        # merge_apps marked the current IPA and refreshed icon as referenced.
+        referenced = {
+            "apps/ehpanda/2.7.4/EhPanda.ipa",
+            "apps/ehpanda/icon-bbbbbbbbbbbb.png",
+        }
 
         deleted = store.cleanup_stale(["ehpanda"], referenced)
 
@@ -290,10 +284,7 @@ class TestCleanupStale:
         )
         store = _store(client)
         # merge_apps preserved the pre-existing iconUrl, so it is still referenced.
-        referenced = referenced_keys_from_apps(
-            store,
-            [{"slug": "ehpanda", "iconUrl": f"{BASE_URL}/apps/ehpanda/icon-aaaaaaaaaaaa.png"}],
-        )
+        referenced = {"apps/ehpanda/icon-aaaaaaaaaaaa.png"}
 
         assert store.cleanup_stale(["ehpanda"], referenced) == []
         client.delete_objects.assert_not_called()
@@ -308,31 +299,6 @@ class TestCleanupStale:
 
         paginate_kwargs = client.get_paginator.return_value.paginate.call_args.kwargs
         assert paginate_kwargs["Prefix"] == "apps/JHenTai/"
-
-
-class TestReferencedKeysFromApps:
-    """Whitelist derivation from apps.json entries."""
-
-    def test_collects_ipa_and_icon_keys(self) -> None:
-        store = _store()
-        apps = [
-            {
-                "slug": "ehpanda",
-                "ipaUrl": f"{BASE_URL}/apps/ehpanda/2.7.4/EhPanda.ipa",
-                "iconUrl": f"{BASE_URL}/apps/ehpanda/icon.png",
-            },
-            {
-                # manual app still hosted elsewhere: contributes no keys
-                "slug": "legacy",
-                "ipaUrl": "https://itms.zeroclover.io/legacy/legacy.ipa",
-                "iconUrl": "",
-            },
-        ]
-        keys = referenced_keys_from_apps(store, apps)
-        assert keys == {
-            "apps/ehpanda/2.7.4/EhPanda.ipa",
-            "apps/ehpanda/icon.png",
-        }
 
 
 class TestUploadIcon:

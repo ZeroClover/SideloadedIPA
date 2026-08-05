@@ -15,8 +15,14 @@ from sideloadedipa.domain import (
     ProfileType,
     ProfileValidationRequest,
     ProvisioningProfile,
+    is_string_sequence,
     normalize_entitlements,
-    thaw_json,
+    thaw_json_object,
+)
+from sideloadedipa.domain.entitlement_keys import (
+    APPLICATION_IDENTIFIER,
+    GET_TASK_ALLOW,
+    TEAM_IDENTIFIER,
 )
 from sideloadedipa.errors import AdapterError, DomainError, ErrorCode
 from sideloadedipa.util.atomics import utc_now
@@ -26,8 +32,6 @@ from sideloadedipa.verification.entitlements import (
     compare_entitlements,
 )
 
-_APPLICATION_IDENTIFIER = "application-identifier"
-_TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
 DEFAULT_PROFILE_REFRESH_THRESHOLD = timedelta(days=30)
 
 
@@ -139,33 +143,13 @@ def _utc_datetime(value: object, field: str, request: ProfileValidationRequest) 
 
 
 def _string_list(value: object, field: str, request: ProfileValidationRequest) -> tuple[str, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        raise _invalid_profile(
-            "provisioning profile has an invalid string array",
-            request,
-            safe_details=(("field", field),),
-        )
-    if any(not isinstance(item, str) for item in value):
+    if not is_string_sequence(value):
         raise _invalid_profile(
             "provisioning profile has an invalid string array",
             request,
             safe_details=(("field", field),),
         )
     return tuple(value)
-
-
-def validate_entitlement_authorization(
-    profile_entitlements: Mapping[str, object],
-    expected_entitlements: Mapping[str, object],
-    request: ProfileValidationRequest,
-) -> None:
-    """Require every claimed entitlement value to be allowed by the profile."""
-
-    validate_expected_entitlements(
-        profile_entitlements,
-        expected_entitlements,
-        bundle_id=request.target_bundle_id,
-    )
 
 
 def validate_expected_entitlements(
@@ -233,13 +217,13 @@ def validate_provisioning_profile(
     ):
         raise _invalid_profile("provisioning profile has no valid entitlement dictionary", request)
     profile_entitlements = {str(key): value for key, value in entitlements.items()}
-    if profile_entitlements.get(_APPLICATION_IDENTIFIER) != request.application_identifier:
+    if profile_entitlements.get(APPLICATION_IDENTIFIER) != request.application_identifier:
         raise _invalid_profile(
             "provisioning profile application identifier does not match the signing plan",
             request,
             safe_details=(("expected_application_identifier", request.application_identifier),),
         )
-    if profile_entitlements.get(_TEAM_IDENTIFIER) != request.team_id:
+    if profile_entitlements.get(TEAM_IDENTIFIER) != request.team_id:
         raise _invalid_profile(
             "provisioning profile entitlement team does not match the signing plan",
             request,
@@ -265,7 +249,7 @@ def validate_provisioning_profile(
     if request.profile_type is not ProfileType.IOS_APP_DEVELOPMENT:
         raise _invalid_profile("unsupported provisioning profile type", request)
     if (
-        profile_entitlements.get("get-task-allow") is not True
+        profile_entitlements.get(GET_TASK_ALLOW) is not True
         or document.get("ProvisionsAllDevices") is True
     ):
         raise _invalid_profile(
@@ -317,8 +301,12 @@ def validate_provisioning_profile(
             ),
         )
 
-    expected_entitlements = {key: thaw_json(value) for key, value in request.expected_entitlements}
-    validate_entitlement_authorization(profile_entitlements, expected_entitlements, request)
+    expected_entitlements = thaw_json_object(request.expected_entitlements)
+    validate_expected_entitlements(
+        profile_entitlements,
+        expected_entitlements,
+        bundle_id=request.target_bundle_id,
+    )
     normalized_entitlements = normalize_entitlements(profile_entitlements)
     return ProvisioningProfile(
         resource_id=request.resource_id,

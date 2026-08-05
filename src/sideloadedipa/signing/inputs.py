@@ -16,8 +16,10 @@ from sideloadedipa.domain import (
     ProfileType,
     ProfileValidationRequest,
     ProvisioningProfile,
+    is_string_sequence,
     normalize_entitlements,
 )
+from sideloadedipa.domain.entitlement_keys import APPLICATION_IDENTIFIER
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.profile_validation import (
     DEFAULT_PROFILE_REFRESH_THRESHOLD,
@@ -45,11 +47,7 @@ def _profile_error(entry: ProfileManifestEntry, message: str) -> DomainError:
 
 
 def _strings(value: object, field: str, entry: ProfileManifestEntry) -> tuple[str, ...]:
-    if (
-        not isinstance(value, Sequence)
-        or isinstance(value, (str, bytes, bytearray))
-        or any(not isinstance(item, str) or not item for item in value)
-    ):
+    if not is_string_sequence(value, allow_empty=False):
         raise _profile_error(entry, f"provisioning profile has invalid {field}")
     return tuple(value)
 
@@ -87,7 +85,7 @@ def load_synced_profile(
         raise _profile_error(entry, "synced provisioning profile digest changed after sync")
     document = decoder(path, bundle_id=entry.target_bundle_id)
     entitlements = _entitlements(document, entry)
-    application_identifier = entitlements.get("application-identifier")
+    application_identifier = entitlements.get(APPLICATION_IDENTIFIER)
     if not isinstance(application_identifier, str) or not application_identifier:
         raise _profile_error(entry, "provisioning profile has invalid application-identifier")
     teams = _strings(document.get("TeamIdentifier"), "TeamIdentifier", entry)

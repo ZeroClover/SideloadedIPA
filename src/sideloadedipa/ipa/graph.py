@@ -23,7 +23,7 @@ from sideloadedipa.domain import (
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.ipa.discovery import _discover_profile_bundle, discover_root_app
 from sideloadedipa.ipa.entitlements import LiefEntitlementInspector, MachOEntitlementEvidence
-from sideloadedipa.util.atomics import canonical_json, file_sha256
+from sideloadedipa.util.atomics import canonical_json, file_sha256, json_sha256
 
 _MACHO_MAGICS = {
     b"\xce\xfa\xed\xfe",
@@ -247,9 +247,7 @@ def canonical_graph_json(graph: BundleGraph) -> bytes:
 
 
 def _graph_digest(root_path: PurePosixPath, nodes: list[BundleNode], source_sha256: str) -> str:
-    return hashlib.sha256(
-        canonical_json(_graph_document(root_path, nodes, source_sha256))
-    ).hexdigest()
+    return json_sha256(_graph_document(root_path, nodes, source_sha256))
 
 
 def _raw_digest(values: list[tuple[str, bytes]]) -> str | None:

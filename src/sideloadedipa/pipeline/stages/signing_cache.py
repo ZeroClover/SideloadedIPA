@@ -1,4 +1,8 @@
-"""Signing-cache fingerprinting and retained report validation."""
+"""Signing-cache fingerprinting and retained report validation.
+
+Leaf module for the signing stage: it must not import
+`pipeline/stages/signing.py`, keeping the stage import graph acyclic.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +17,13 @@ from sideloadedipa.cache.fingerprint import (
     ToolFingerprint,
     build_signing_cache_fingerprint,
 )
-from sideloadedipa.domain import BundleGraph, SigningPlan, SourceAsset, Task
+from sideloadedipa.domain.bundle import BundleGraph
+from sideloadedipa.domain.config import Task
+from sideloadedipa.domain.pipeline import SourceAsset
+from sideloadedipa.domain.signing import SigningPlan
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.service import PackageSigningRequest, plan_package_signing
-from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, file_sha256
+from sideloadedipa.util.atomics import atomic_write_bytes, file_sha256, json_sha256
 
 _SIGNING_POLICY_FINGERPRINT_INVARIANTS = {
     "id_strategy": "preserve-source-suffix",
@@ -26,7 +33,7 @@ _SIGNING_POLICY_FINGERPRINT_INVARIANTS = {
 
 
 def json_digest(value: object) -> str:
-    return hashlib.sha256(canonical_json(value, default=str)).hexdigest()
+    return json_sha256(value, default=str)
 
 
 def template_digests(task: Task, repository_root: Path) -> tuple[tuple[str, str], ...]:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,7 +41,7 @@ from sideloadedipa.signing.profile_storage import (
     store_profile,
     store_profile_manifest,
 )
-from sideloadedipa.util.atomics import canonical_json
+from sideloadedipa.util.atomics import canonical_json, json_sha256
 
 __all__ = [
     "AppleCommandBackend",
@@ -182,6 +181,10 @@ def _with_snapshot_slices(
     )
 
 
+def _profile_device_set_sha256(device_ids: tuple[str, ...]) -> str:
+    return json_sha256(sorted(device_ids))
+
+
 def _store_reconciled_profiles(
     *,
     root: Path,
@@ -213,9 +216,7 @@ def _store_reconciled_profiles(
                 intent.target_bundle_id,
                 "validated profile target App ID disappeared from final Apple state",
             )
-            device_set_sha256 = hashlib.sha256(
-                canonical_json(sorted(result.profile.device_ids))
-            ).hexdigest()
+            device_set_sha256 = _profile_device_set_sha256(result.profile.device_ids)
             entries.append(
                 ProfileManifestEntry(
                     target_bundle_id=intent.target_bundle_id,

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeAlias
+from typing import TypeAlias, TypeGuard
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,40 @@ def thaw_json(value: FrozenJsonValue) -> object:
     if isinstance(value, tuple):
         return [thaw_json(item) for item in value]
     return value
+
+
+def thaw_json_object(values: Iterable[tuple[str, FrozenJsonValue]]) -> dict[str, object]:
+    """Convert immutable domain JSON value pairs back into a dictionary."""
+
+    return {key: thaw_json(value) for key, value in values}
+
+
+def is_string_sequence(value: object, *, allow_empty: bool = True) -> TypeGuard[Sequence[str]]:
+    """Report whether a value is a non-string sequence of strings."""
+
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return False
+    return all(isinstance(item, str) and (allow_empty or bool(item)) for item in value)
+
+
+def canonical_json_bytes(
+    document: object,
+    *,
+    default: Callable[[object], object] | None = None,
+) -> bytes:
+    """Serialize one JSON-compatible document with deterministic byte output.
+
+    Non-finite numbers are rejected: durable digest contracts must never
+    depend on the non-standard NaN/Infinity JSON extensions.
+    """
+
+    return json.dumps(
+        document,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=default,
+        allow_nan=False,
+    ).encode()
 
 
 class DiagnosticSeverity(StrEnum):

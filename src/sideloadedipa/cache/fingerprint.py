@@ -14,9 +14,9 @@ from sideloadedipa.domain import (
     SigningPlan,
     SourceAsset,
     freeze_json,
-    thaw_json,
+    thaw_json_object,
 )
-from sideloadedipa.util.atomics import canonical_json
+from sideloadedipa.util.atomics import json_sha256
 
 CACHE_FINGERPRINT_SCHEMA_VERSION = 2
 
@@ -92,9 +92,7 @@ def _component_document(
                 "profile_sha256": profile.profile_sha256,
                 "device_ids": sorted(profile.device_ids),
                 "expires_at": profile.expires_at.isoformat(),
-                "entitlements_sha256": hashlib.sha256(
-                    canonical_json({key: thaw_json(value) for key, value in profile.entitlements})
-                ).hexdigest(),
+                "entitlements_sha256": json_sha256(thaw_json_object(profile.entitlements)),
             }
             for profile in sorted(profiles, key=lambda value: value.resource_id)
         ],
@@ -155,5 +153,5 @@ def build_signing_cache_fingerprint(
         CACHE_FINGERPRINT_SCHEMA_VERSION,
         plan.task_name,
         components,
-        hashlib.sha256(canonical_json(digest_document)).hexdigest(),
+        json_sha256(digest_document),
     )

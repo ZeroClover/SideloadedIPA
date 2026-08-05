@@ -2,21 +2,88 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
+from botocore.exceptions import BotoCoreError, ClientError
+
+from sideloadedipa.adapters.publication.icons import IconError, build_icon_png
+from sideloadedipa.adapters.publication.r2_store import R2Store
 from sideloadedipa.application import CommandRequest, CommandResult
-from sideloadedipa.domain.config import TaskConfiguration
-from sideloadedipa.domain.pipeline import PipelineStage, PublicationCandidate, VerificationResult
+from sideloadedipa.domain.config import Task, TaskConfiguration
+from sideloadedipa.domain.pipeline import (
+    PipelineStage,
+    PublicationCandidate,
+    SourceAsset,
+    VerificationResult,
+)
+from sideloadedipa.domain.signing import SigningPlan
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
+from sideloadedipa.ipa import read_ipa_metadata
 from sideloadedipa.pipeline.cancellation import SideEffectJournal
-from sideloadedipa.pipeline.environment import publication_runtime
-from sideloadedipa.pipeline.publish_stage import build_publication_candidate
+from sideloadedipa.pipeline.environment import publication_runtime, safe_filename
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import SourceContext
 from sideloadedipa.pipeline.stages.results import command_result
 from sideloadedipa.pipeline.stages.signing import PreparedFactory, SigningStage
 from sideloadedipa.pipeline.stages.verification import VerificationStage
 from sideloadedipa.util.atomics import file_sha256
+
+
+def _upload_icon(
+    *,
+    task: Task,
+    source: SourceAsset,
+    source_evidence: Mapping[str, object],
+    artifact: Path,
+    store: R2Store,
+) -> str | None:
+    if task.icon_path is None:
+        return None
+    try:
+        png = build_icon_png(
+            task.icon_path,
+            task.source.location,
+            ref=source.version if source_evidence.get("release_tag") is not None else None,
+            ipa_path=artifact,
+        )
+        return store.upload_icon(task.slug, png)
+    except (BotoCoreError, ClientError, IconError, OSError):
+        return None
+
+
+def build_publication_candidate(
+    *,
+    task: Task,
+    source: SourceAsset,
+    source_evidence: Mapping[str, object],
+    artifact: Path,
+    plan: SigningPlan,
+    verification: VerificationResult,
+    store: R2Store,
+) -> PublicationCandidate:
+    metadata = read_ipa_metadata(artifact)
+    return PublicationCandidate(
+        task.task_name,
+        task.slug,
+        task.app_name,
+        metadata.bundle_id,
+        metadata.version,
+        f"{safe_filename(task.app_name)}.ipa",
+        str(artifact),
+        file_sha256(artifact),
+        _upload_icon(
+            task=task,
+            source=source,
+            source_evidence=source_evidence,
+            artifact=artifact,
+            store=store,
+        ),
+        task.publication_enabled,
+        plan,
+        verification,
+    )
 
 
 @dataclass(frozen=True, slots=True)

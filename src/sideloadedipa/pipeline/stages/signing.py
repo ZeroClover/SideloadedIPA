@@ -29,13 +29,13 @@ from sideloadedipa.pipeline.environment import (
     required_environment,
 )
 from sideloadedipa.pipeline.package_runner import prepare_package_signing
-from sideloadedipa.pipeline.sign_stage import (
-    build_fingerprint,
-    restore_cached_signing_report,
-)
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import PreparedContext, SourceContext
 from sideloadedipa.pipeline.stages.results import command_result
+from sideloadedipa.pipeline.stages.signing_cache import (
+    build_fingerprint,
+    restore_cached_signing_report,
+)
 from sideloadedipa.signing.profile_validation import DEFAULT_PROFILE_REFRESH_THRESHOLD
 from sideloadedipa.signing.reports import canonical_signing_report_json
 from sideloadedipa.signing.service import execute_package_signing, plan_package_signing
@@ -44,6 +44,7 @@ from sideloadedipa.util.atomics import (
     atomic_write_bytes,
     canonical_json,
 )
+
 PreparedFactory = Callable[
     [CommandRequest, tuple[SourceContext, ...]],
     AbstractContextManager[tuple[PreparedContext, ...]],

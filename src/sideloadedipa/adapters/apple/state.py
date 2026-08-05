@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Protocol
@@ -23,6 +22,7 @@ from sideloadedipa.domain import (
     thaw_json,
 )
 from sideloadedipa.errors import AdapterError, ErrorCode
+from sideloadedipa.util.atomics import json_sha256
 
 
 class AscStateReader(Protocol):
@@ -463,9 +463,7 @@ def normalized_apple_state(
         devices=tuple(sorted(devices, key=lambda value: value.resource_id)),
         profiles=tuple(sorted(profiles, key=lambda value: value.resource_id)),
     )
-    digest = hashlib.sha256(
-        json.dumps(_snapshot_document(snapshot), sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    digest = json_sha256(_snapshot_document(snapshot))
     return AppleStateSnapshot(
         snapshot_sha256=digest,
         bundle_ids=snapshot.bundle_ids,

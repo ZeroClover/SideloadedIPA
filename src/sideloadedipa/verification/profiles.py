@@ -41,10 +41,6 @@ class OpenSSLEmbeddedProfileValidator:
         )
 
 
-def _digest(path: Path) -> str:
-    return file_sha256(path)
-
-
 def _diagnostic(
     plan: SigningPlan,
     bundle_id: str | None,
@@ -133,7 +129,7 @@ def verify_signed_profiles(
         )
 
         embedded = bundle / "embedded.mobileprovision"
-        actual_profile_sha256 = _digest(embedded) if embedded.is_file() else None
+        actual_profile_sha256 = file_sha256(embedded) if embedded.is_file() else None
         digest_passed = (
             node.profile_sha256 is not None and actual_profile_sha256 == node.profile_sha256
         )

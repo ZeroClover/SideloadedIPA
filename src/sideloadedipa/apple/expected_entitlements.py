@@ -23,6 +23,13 @@ from sideloadedipa.domain import (
     P12CertificateIdentity,
     Task,
 )
+from sideloadedipa.domain.entitlement_keys import (
+    APPLICATION_GROUPS,
+    APPLICATION_IDENTIFIER,
+    GET_TASK_ALLOW,
+    KEYCHAIN_ACCESS_GROUPS,
+    TEAM_IDENTIFIER,
+)
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.signing.certificate_identity import certificate_requirement
 
@@ -54,19 +61,19 @@ def _profile_mode_entitlements(
 ) -> dict[str, object]:
     application_identifier = f"{app_identifier_prefix}{intent.target_bundle_id}"
     values: dict[str, object] = {
-        "application-identifier": application_identifier,
-        "com.apple.developer.team-identifier": team_id,
-        "get-task-allow": True,
+        APPLICATION_IDENTIFIER: application_identifier,
+        TEAM_IDENTIFIER: team_id,
+        GET_TASK_ALLOW: True,
     }
     capabilities = set(intent.required_capabilities)
     if intent.app_groups:
-        values["com.apple.security.application-groups"] = list(intent.app_groups)
+        values[APPLICATION_GROUPS] = list(intent.app_groups)
     if "HEALTHKIT" in capabilities:
         values["com.apple.developer.healthkit"] = True
     if "INCREASED_MEMORY_LIMIT" in capabilities:
         values["com.apple.developer.kernel.increased-memory-limit"] = True
     if "KEYCHAIN_SHARING" in capabilities:
-        values["keychain-access-groups"] = [application_identifier]
+        values[KEYCHAIN_ACCESS_GROUPS] = [application_identifier]
     if "CLINICAL_HEALTH_RECORDS" in capabilities:
         values["com.apple.developer.healthkit.access"] = ["health-records"]
     if "HEALTHKIT_BACKGROUND_DELIVERY" in capabilities:

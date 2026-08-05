@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from sideloadedipa.domain.common import FrozenJsonObject, FrozenJsonValue
+from sideloadedipa.domain.common import (
+    FrozenJsonValue,
+    canonical_json_bytes,
+    freeze_json,
+    is_string_sequence,
+)
 from sideloadedipa.domain.config import EntitlementMode, EntitlementPolicy
+from sideloadedipa.domain.entitlement_keys import APPLICATION_GROUPS as _APP_GROUPS
+from sideloadedipa.domain.entitlement_keys import APPLICATION_IDENTIFIER as _APPLICATION_IDENTIFIER
+from sideloadedipa.domain.entitlement_keys import KEYCHAIN_ACCESS_GROUPS as _KEYCHAIN_GROUPS
+from sideloadedipa.domain.entitlement_keys import TEAM_IDENTIFIER as _TEAM_IDENTIFIER
 from sideloadedipa.errors import DomainError, ErrorCode
-
-_APPLICATION_IDENTIFIER = "application-identifier"
-_TEAM_IDENTIFIER = "com.apple.developer.team-identifier"
-_KEYCHAIN_GROUPS = "keychain-access-groups"
-_APP_GROUPS = "com.apple.security.application-groups"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,24 +70,18 @@ def _canonical_value(value: object, field: str) -> object:
 
 
 def _freeze(value: object, field: str) -> FrozenJsonValue:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        if any(not isinstance(key, str) for key in value):
-            raise _policy_error("entitlement dictionary keys must be strings", field)
-        pairs: list[tuple[str, FrozenJsonValue]] = []
-        for key in sorted(value):
-            pairs.append((key, _freeze(value[key], f"{field}.{key}")))
-        return FrozenJsonObject(tuple(pairs))
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(_freeze(child, field) for child in value)
-    raise _policy_error("entitlement value has an unsupported type", field)
+    # freeze_json coerces non-string mapping keys, so keep the policy-layer
+    # key check here before delegating to the shared freeze primitive.
+    if isinstance(value, Mapping) and any(not isinstance(key, str) for key in value):
+        raise _policy_error("entitlement dictionary keys must be strings", field)
+    try:
+        return freeze_json(value)
+    except TypeError as error:
+        raise _policy_error("entitlement value has an unsupported type", field) from error
 
 
 def _string_array(value: object, field: str) -> list[str]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        raise _policy_error(f"{field} must be an array of strings", field)
-    if any(not isinstance(item, str) for item in value):
+    if not is_string_sequence(value):
         raise _policy_error(f"{field} must be an array of strings", field)
     return list(value)
 
@@ -168,13 +165,7 @@ def normalize_entitlements(document: Mapping[str, object]) -> MaterializedEntitl
 
     canonical = cast(dict[str, object], _canonical_value(document, "entitlements"))
     try:
-        serialized = json.dumps(
-            canonical,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        ).encode("utf-8")
+        serialized = canonical_json_bytes(canonical)
     except ValueError as error:
         raise _policy_error(
             "entitlement values must use finite JSON numbers", "entitlements"

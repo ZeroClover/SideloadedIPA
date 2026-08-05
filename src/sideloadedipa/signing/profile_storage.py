@@ -12,7 +12,7 @@ from typing import cast
 
 from sideloadedipa.domain import ProfileManifestEntry, ProfileResourceManifest
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json
+from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, json_sha256
 
 
 def _component(value: str) -> str:
@@ -86,9 +86,7 @@ def build_profile_manifest(
                 bundle_id=entry.target_bundle_id,
                 remediation="derive the profile path with profile_relative_path",
             )
-    digest = hashlib.sha256(
-        canonical_json(_manifest_document(task_name, snapshot_sha256, ordered))
-    ).hexdigest()
+    digest = json_sha256(_manifest_document(task_name, snapshot_sha256, ordered))
     return ProfileResourceManifest(1, task_name, snapshot_sha256, ordered, digest)
 
 

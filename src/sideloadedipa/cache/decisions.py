@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from enum import StrEnum
 
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
-from sideloadedipa.util.atomics import canonical_json
+from sideloadedipa.util.atomics import canonical_json, json_sha256
 
 CACHE_INDEX_SCHEMA_VERSION = 2
 
@@ -77,13 +76,13 @@ def build_cache_index(records: tuple[TaskCacheRecord, ...]) -> CacheIndex:
     return CacheIndex(
         partial.schema_version,
         partial.records,
-        hashlib.sha256(canonical_json(_index_document(partial))).hexdigest(),
+        json_sha256(_index_document(partial)),
     )
 
 
 def canonical_cache_index_json(index: CacheIndex) -> bytes:
     document = _index_document(index)
-    if hashlib.sha256(canonical_json(document)).hexdigest() != index.index_sha256:
+    if json_sha256(document) != index.index_sha256:
         raise ValueError("cache index digest is inconsistent with its records")
     document["index_sha256"] = index.index_sha256
     return canonical_json(document)

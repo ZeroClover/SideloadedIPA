@@ -2,14 +2,15 @@
 
 import hashlib
 import plistlib
-import shutil
 import zipfile
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable, Generator
 
 import pytest
+
+from tests.fakes import FixtureCopyBackend, FixturePassingVerifier
 
 
 @pytest.fixture
@@ -160,59 +161,6 @@ def publication_candidate(artifact: Path):  # type: ignore[no-untyped-def]
         plan,
         verification,
     )
-
-
-@dataclass
-class FixtureCopyBackend:
-    called: bool = False
-
-    def sign(self, plan, source, output, certificate):  # type: ignore[no-untyped-def]
-        from sideloadedipa.domain import SigningNodeResult, SigningResult
-
-        del certificate
-        self.called = True
-        shutil.copy2(source, output)
-        output_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
-        return SigningResult(
-            plan.plan_sha256,
-            PurePosixPath(output.name),
-            output_sha256,
-            plan.backend,
-            tuple(
-                SigningNodeResult(
-                    node.source_path,
-                    output_sha256,
-                    node.profile_sha256,
-                    node.expected_entitlements_sha256,
-                    0.0,
-                )
-                for node in plan.nodes
-            ),
-            0.1,
-        )
-
-
-@dataclass
-class FixturePassingVerifier:
-    calls: int = 0
-
-    def verify(self, plan, signed_ipa):  # type: ignore[no-untyped-def]
-        self.calls += 1
-        from sideloadedipa.domain import VerificationFinding
-        from sideloadedipa.verification import (
-            build_verification_result,
-            required_verification_checks,
-        )
-
-        findings = tuple(
-            VerificationFinding(path, check.replace("*", "arm64"), True)
-            for path, check in required_verification_checks(plan)
-        )
-        return build_verification_result(
-            plan,
-            hashlib.sha256(signed_ipa.read_bytes()).hexdigest(),
-            findings,
-        )
 
 
 def package_request(task, tmp_path: Path):  # type: ignore[no-untyped-def]
@@ -423,5 +371,3 @@ def temp_work_dir(tmp_path: Path) -> Generator[Path, None, None]:
     cache_dir.mkdir(parents=True)
     cache_old_dir.mkdir(parents=True)
     yield tmp_path
-
-

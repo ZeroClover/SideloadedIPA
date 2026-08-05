@@ -17,7 +17,7 @@ from sideloadedipa.adapters.publication.r2_store import R2Store
 from sideloadedipa.domain import Task, TaskConfiguration
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.pipeline.inspection import InspectDependencies
-from sideloadedipa.pipeline.publication import VerifiedPublicationService
+from sideloadedipa.pipeline.publication_service import VerifiedPublicationService
 
 _DEFAULT_REVALIDATE_URL = "https://itms.zeroclover.io/api/revalidate"
 

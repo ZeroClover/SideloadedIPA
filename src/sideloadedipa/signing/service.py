@@ -22,7 +22,7 @@ from sideloadedipa.domain import (
     materialize_entitlements,
     normalize_entitlements,
     reconcile_bundle_rules,
-    thaw_json,
+    thaw_json_object,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.ports import SigningBackend, Verifier
@@ -107,8 +107,8 @@ def build_package_signing_request(
                 bundle_id=intent.target_bundle_id,
             )
         node = nodes_by_path[match.node_path]
-        source_document = {key: thaw_json(value) for key, value in node.entitlements}
-        profile_document = {key: thaw_json(value) for key, value in profile.entitlements}
+        source_document = thaw_json_object(node.entitlements)
+        profile_document = thaw_json_object(profile.entitlements)
         entitlement_policy = match.rule.entitlement_policy
         if entitlement_policy.mode is EntitlementMode.PROFILE:
             materialized = normalize_entitlements(profile_document)

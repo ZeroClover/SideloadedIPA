@@ -22,7 +22,7 @@ from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import CertificateIdentity, CertificateMaterial, ProfileType
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.pipeline.production import ProductionPipeline
-from sideloadedipa.pipeline.sign_stage import policy_sha256
+from sideloadedipa.pipeline.stages.signing_cache import policy_sha256
 from sideloadedipa.tools.exercise_zsign_backend import TARGETS, zsign_command
 from sideloadedipa.tools.qualify_backend import (
     DEFAULT_CONTRACT_PATH,

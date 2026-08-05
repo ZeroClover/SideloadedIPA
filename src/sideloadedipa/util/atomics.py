@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import tempfile
@@ -11,7 +10,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sideloadedipa.domain import Diagnostic, thaw_json
+from sideloadedipa.domain import Diagnostic, thaw_json_object
+from sideloadedipa.domain.common import canonical_json_bytes
 
 
 def utc_now() -> datetime:
@@ -23,12 +23,17 @@ def canonical_json(
     *,
     default: Callable[[object], object] | None = None,
 ) -> bytes:
-    return json.dumps(
-        document,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=default,
-    ).encode()
+    return canonical_json_bytes(document, default=default)
+
+
+def json_sha256(
+    document: object,
+    *,
+    default: Callable[[object], object] | None = None,
+) -> str:
+    """Digest one JSON document with the shared canonical serialization."""
+
+    return hashlib.sha256(canonical_json_bytes(document, default=default)).hexdigest()
 
 
 def file_sha256(path: Path) -> str:
@@ -120,5 +125,5 @@ def diagnostic_document(diagnostic: Diagnostic) -> dict[str, object]:
         "task_name": diagnostic.task_name,
         "bundle_id": diagnostic.bundle_id,
         "remediation": diagnostic.remediation,
-        "details": {key: thaw_json(value) for key, value in diagnostic.details},
+        "details": thaw_json_object(diagnostic.details),
     }

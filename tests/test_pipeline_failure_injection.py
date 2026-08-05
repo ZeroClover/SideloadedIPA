@@ -11,8 +11,8 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 import sideloadedipa.pipeline.production as production
-import sideloadedipa.pipeline.publish_stage as publish_stage
 import sideloadedipa.pipeline.stages.apple as production_apple_stage
+import sideloadedipa.pipeline.stages.publication as publish_stage
 import sideloadedipa.pipeline.stages.publication as production_publication_stage
 import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
 import sideloadedipa.pipeline.stages.verification as production_verification_stage
@@ -32,11 +32,11 @@ from sideloadedipa.pipeline.production import PreparedContext, ProductionPipelin
 from sideloadedipa.signing.preflight import PreflightResult
 from sideloadedipa.sources import DownloadedSource
 from sideloadedipa.util.atomics import canonical_json
-from tests.conftest import FixtureCopyBackend as CopyBackend
 from tests.conftest import package_request as request_for
 from tests.conftest import production_command as command
 from tests.conftest import production_dependencies as dependencies
 from tests.conftest import production_source_context as source_context
+from tests.fakes import FixtureCopyBackend as CopyBackend
 
 
 @pytest.mark.parametrize("failed_stage", tuple(PipelineStage))

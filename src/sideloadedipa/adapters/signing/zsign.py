@@ -15,7 +15,7 @@ from sideloadedipa.domain import (
     SigningPlan,
     SigningResult,
     normalize_entitlements,
-    thaw_json,
+    thaw_json_object,
 )
 from sideloadedipa.errors import AdapterError, ErrorCode
 from sideloadedipa.ipa import discover_bundle_graph, extract_ipa_safely
@@ -108,9 +108,7 @@ def collect_signed_node_evidence(
     evidence: list[SigningNodeResult] = []
     for planned in sorted(plan.nodes, key=lambda value: value.order):
         actual = actual_by_path[planned.source_path]
-        entitlements = normalize_entitlements(
-            {key: thaw_json(value) for key, value in actual.entitlements}
-        )
+        entitlements = normalize_entitlements(thaw_json_object(actual.entitlements))
         evidence.append(
             SigningNodeResult(
                 source_path=planned.source_path,
@@ -245,7 +243,7 @@ class ZsignBackend:
                         bundle_id=node.target_bundle_id,
                         safe_details=(("profile_resource_id", node.profile_resource_id),),
                     )
-                document = {key: thaw_json(value) for key, value in node.expected_entitlements}
+                document = thaw_json_object(node.expected_entitlements)
                 normalized = normalize_entitlements(document)
                 if normalized.sha256 != node.expected_entitlements_sha256:
                     raise AdapterError(

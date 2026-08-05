@@ -9,8 +9,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from sideloadedipa.domain import (
-    Diagnostic,
-    DiagnosticSeverity,
     PipelineStage,
     StageManifest,
     StageStatus,
@@ -21,7 +19,6 @@ from sideloadedipa.pipeline.stage_manifests import (
     STAGE_MANIFEST_SCHEMA_VERSION,
     canonical_stage_manifest_json,
     finish_stage,
-    skip_stage,
     stage_manifest_sha256,
     start_stage,
 )
@@ -135,53 +132,6 @@ def test_rejects_out_of_order_failed_or_tampered_predecessor() -> None:
         )
 
 
-def test_failed_stage_forces_ordered_skips() -> None:
-    source = _completed_source()
-    inventory = start_stage(
-        task_name="Example",
-        stage=PipelineStage.INVENTORY,
-        started_at=NOW,
-        input_sha256=source.result_sha256,
-        predecessor=source,
-    )
-    failure = Diagnostic(
-        "inventory.invalid",
-        DiagnosticSeverity.ERROR,
-        "inventory failed",
-        task_name="Example",
-    )
-    inventory = finish_stage(
-        inventory,
-        status=StageStatus.FAILED,
-        completed_at=NOW + timedelta(seconds=1),
-        diagnostics=(failure,),
-    )
-    policy = skip_stage(
-        task_name="Example",
-        stage=PipelineStage.POLICY,
-        skipped_at=NOW + timedelta(seconds=2),
-        predecessor=inventory,
-        diagnostics=(failure,),
-    )
-    resource_plan = skip_stage(
-        task_name="Example",
-        stage=PipelineStage.RESOURCE_PLAN,
-        skipped_at=NOW + timedelta(seconds=3),
-        predecessor=policy,
-        diagnostics=(failure,),
-    )
-
-    assert policy.status is StageStatus.SKIPPED
-    assert resource_plan.predecessor_sha256 == policy.manifest_sha256
-    with pytest.raises(DomainError, match="only after"):
-        skip_stage(
-            task_name="Example",
-            stage=PipelineStage.INVENTORY,
-            skipped_at=NOW,
-            predecessor=source,
-        )
-
-
 def test_stage_cannot_finish_twice_or_succeed_without_a_result() -> None:
     source = _completed_source()
 
@@ -198,34 +148,6 @@ def test_stage_cannot_finish_twice_or_succeed_without_a_result() -> None:
         finish_stage(running, status=StageStatus.SUCCEEDED, completed_at=NOW)
     with pytest.raises(DomainError, match="succeeded or failed"):
         finish_stage(running, status=StageStatus.SKIPPED, completed_at=NOW)
-
-
-def test_skip_rejects_out_of_order_and_tampered_predecessors() -> None:
-    failed = finish_stage(
-        start_stage(
-            task_name="Example",
-            stage=PipelineStage.SOURCE,
-            started_at=NOW,
-            input_sha256="a" * 64,
-        ),
-        status=StageStatus.FAILED,
-        completed_at=NOW,
-    )
-
-    with pytest.raises(DomainError, match="out of order"):
-        skip_stage(
-            task_name="Example",
-            stage=PipelineStage.POLICY,
-            skipped_at=NOW,
-            predecessor=failed,
-        )
-    with pytest.raises(DomainError, match="digest is invalid"):
-        skip_stage(
-            task_name="Example",
-            stage=PipelineStage.INVENTORY,
-            skipped_at=NOW,
-            predecessor=replace(failed, result_sha256="0" * 64),
-        )
 
 
 def test_canonical_serialization_rejects_content_tampering() -> None:

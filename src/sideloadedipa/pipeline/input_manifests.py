@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -27,9 +26,14 @@ from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.ipa.graph import canonical_graph_json
 from sideloadedipa.pipeline.inspection import ResolvedSource
 from sideloadedipa.pipeline.manifest_store import FileStageManifestStore
-from sideloadedipa.pipeline.sign_stage import json_digest
+from sideloadedipa.pipeline.stages.signing_cache import json_digest
 from sideloadedipa.sources import DownloadedSource
-from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, file_sha256
+from sideloadedipa.util.atomics import (
+    atomic_write_bytes,
+    canonical_json,
+    file_sha256,
+    json_sha256,
+)
 
 INPUT_MANIFEST_SCHEMA_VERSION = 1
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -271,7 +275,7 @@ def _graph_from_document(value: object) -> BundleGraph:
         raise _error("canonical input manifest graph is not canonical")
     digest_document = dict(canonical)
     digest_document.pop("graph_sha256")
-    if hashlib.sha256(canonical_json(digest_document)).hexdigest() != graph.graph_sha256:
+    if json_sha256(digest_document) != graph.graph_sha256:
         raise _error("canonical input manifest graph digest is invalid")
     return graph
 
@@ -308,7 +312,7 @@ def _inventory_manifest_document(manifest: InventoryInputManifest) -> dict[str, 
 
 
 def _with_digest(document: dict[str, object]) -> str:
-    return hashlib.sha256(canonical_json(document)).hexdigest()
+    return json_sha256(document)
 
 
 def _decode_document(payload: bytes, kind: str) -> dict[str, object]:

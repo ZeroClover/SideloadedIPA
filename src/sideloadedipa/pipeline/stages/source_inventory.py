@@ -14,7 +14,6 @@ from sideloadedipa.pipeline.environment import PipelineEnvironmentDependencies
 from sideloadedipa.pipeline.input_manifests import CanonicalInputManifestStore
 from sideloadedipa.pipeline.inspection import ResolvedSource, resolve_source
 from sideloadedipa.pipeline.package_runner import inspect_source_graph
-from sideloadedipa.pipeline.sign_stage import json_digest, policy_sha256
 from sideloadedipa.pipeline.source_state import (
     bind_download_evidence,
     read_source_selection,
@@ -24,6 +23,7 @@ from sideloadedipa.pipeline.source_state import (
 )
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import SourceContext
+from sideloadedipa.pipeline.stages.signing_cache import json_digest, policy_sha256
 from sideloadedipa.signing.preflight import validate_signing_preflight
 from sideloadedipa.sources.download import DownloadedSource
 from sideloadedipa.util.atomics import file_sha256

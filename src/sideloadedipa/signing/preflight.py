@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -122,18 +121,3 @@ def validate_signing_preflight(
             _add_error(diagnostics, error, task, rule.source_bundle_id)
 
     return PreflightResult(tuple(diagnostics))
-
-
-def execute_after_preflight(
-    result: PreflightResult,
-    *,
-    apply_apple_changes: Callable[[], None],
-    start_signing: Callable[[], None],
-) -> bool:
-    """Run mutation and signing only after every preflight diagnostic is clear."""
-
-    if not result.valid:
-        return False
-    apply_apple_changes()
-    start_signing()
-    return True

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import Counter
 from pathlib import PurePosixPath
@@ -19,7 +18,7 @@ from sideloadedipa.domain import (
     freeze_json,
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
-from sideloadedipa.util.atomics import canonical_json, diagnostic_document
+from sideloadedipa.util.atomics import canonical_json, diagnostic_document, json_sha256
 
 VERIFICATION_REPORT_SCHEMA_VERSION = 1
 
@@ -151,7 +150,7 @@ def _report_document(plan: SigningPlan, result: VerificationResult) -> dict[str,
 def verification_report_sha256(plan: SigningPlan, result: VerificationResult) -> str:
     """Digest a canonical redacted report without its self-referential digest."""
 
-    return hashlib.sha256(canonical_json(_report_document(plan, result))).hexdigest()
+    return json_sha256(_report_document(plan, result))
 
 
 def canonical_verification_report_json(

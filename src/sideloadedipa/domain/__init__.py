@@ -38,7 +38,9 @@ from sideloadedipa.domain.common import (
     FrozenJsonObject,
     FrozenJsonValue,
     freeze_json,
+    is_string_sequence,
     thaw_json,
+    thaw_json_object,
 )
 from sideloadedipa.domain.config import (
     BatchPublicationPolicy,
@@ -126,7 +128,9 @@ __all__ = [
     "FrozenJsonValue",
     "FrozenJsonObject",
     "freeze_json",
+    "is_string_sequence",
     "thaw_json",
+    "thaw_json_object",
     "MaterializedEntitlements",
     "OperationDisposition",
     "P12CertificateIdentity",

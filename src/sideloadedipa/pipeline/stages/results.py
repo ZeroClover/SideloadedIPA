@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from sideloadedipa.application import CommandResult
-from sideloadedipa.domain.common import FrozenJsonObject, freeze_json, thaw_json
+from sideloadedipa.domain.common import FrozenJsonObject, freeze_json, thaw_json_object
 from sideloadedipa.errors import DomainError, ErrorCode
 
 
 def payload_document(result: CommandResult) -> dict[str, object]:
-    return {key: thaw_json(value) for key, value in result.payload}
+    return thaw_json_object(result.payload)
 
 
 def command_result(

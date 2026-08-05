@@ -19,6 +19,26 @@ def test_canonical_json_and_file_digest_are_stable(tmp_path: Path) -> None:
     assert atomics.file_sha256(path) == hashlib.sha256(payload).hexdigest()
 
 
+def test_canonical_json_and_digest_reject_non_finite_numbers() -> None:
+    """Durable digest contracts must never serialize NaN or Infinity."""
+
+    with pytest.raises(ValueError):
+        atomics.canonical_json({"value": float("nan")})
+    with pytest.raises(ValueError):
+        atomics.canonical_json({"value": float("inf")})
+    with pytest.raises(ValueError):
+        atomics.json_sha256({"value": float("-inf")})
+
+
+def test_json_sha256_matches_the_shared_canonical_serialization() -> None:
+    document = {"z": 1, "a": [True, None]}
+
+    assert (
+        atomics.json_sha256(document)
+        == hashlib.sha256(atomics.canonical_json(document)).hexdigest()
+    )
+
+
 def test_atomic_write_and_copy_use_private_mode(tmp_path: Path) -> None:
     source = tmp_path / "source"
     destination = tmp_path / "nested" / "destination"

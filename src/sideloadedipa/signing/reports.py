@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-
 from sideloadedipa.domain import (
     SigningNodeResult,
     SigningPlan,
     SigningResult,
 )
 from sideloadedipa.errors import DomainError, ErrorCode
-from sideloadedipa.util.atomics import canonical_json, diagnostic_document
+from sideloadedipa.util.atomics import canonical_json, diagnostic_document, json_sha256
 
 _ARGV_OPTIONS = frozenset({"-c", "-e", "-f", "-k", "-m", "-o"})
 
@@ -53,7 +51,7 @@ def _result_document(result: SigningResult) -> dict[str, object]:
 def signing_result_sha256(result: SigningResult) -> str:
     """Digest the complete canonical result without serializing private argv values."""
 
-    return hashlib.sha256(canonical_json(_result_document(result))).hexdigest()
+    return json_sha256(_result_document(result))
 
 
 def _invalid_report(plan: SigningPlan, message: str) -> DomainError:

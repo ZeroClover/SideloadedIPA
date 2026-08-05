@@ -22,7 +22,7 @@ from sideloadedipa.domain import CertificateMaterial, SigningBackendIdentity, Ta
 from sideloadedipa.errors import ConfigurationError, ErrorCode, SideloadedIPAError
 from sideloadedipa.pipeline.environment import decode_p12
 from sideloadedipa.pipeline.production import ProductionPipeline
-from sideloadedipa.pipeline.sign_stage import policy_sha256
+from sideloadedipa.pipeline.stages.signing_cache import policy_sha256
 from sideloadedipa.signing.certificate_identity import load_p12_certificate_material
 from sideloadedipa.signing.profile_storage import load_profile_manifest
 from sideloadedipa.tools.build_backend_qualification_fixture import build_fixture
@@ -42,7 +42,12 @@ from sideloadedipa.tools.exercise_zsign_backend import (
     ZsignExerciseRequest,
 )
 from sideloadedipa.tools.exercise_zsign_backend import exercise as exercise_zsign
-from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, file_sha256
+from sideloadedipa.util.atomics import (
+    atomic_write_bytes,
+    canonical_json,
+    file_sha256,
+    json_sha256,
+)
 
 QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 1
 DEFAULT_CONTRACT_PATH = Path("patches/zsign/qualification-contract.json")
@@ -103,9 +108,7 @@ class QualificationDependencies:
 
 
 def _digest(value: object) -> str:
-    import hashlib
-
-    return hashlib.sha256(canonical_json(value, default=str)).hexdigest()
+    return json_sha256(value, default=str)
 
 
 def _object(value: object, field_name: str) -> JsonObject:

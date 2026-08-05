@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import plistlib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
@@ -17,15 +16,13 @@ from sideloadedipa.domain import (
     VerificationFinding,
 )
 from sideloadedipa.ipa.graph import MachOProbe, discover_bundle_structure
-from sideloadedipa.util.atomics import file_sha256
+from sideloadedipa.util.atomics import file_sha256, json_sha256
 
 _BUNDLE_KINDS = {BundleNodeKind.APP, BundleNodeKind.APP_EXTENSION, BundleNodeKind.FRAMEWORK}
 
 
 def _canonical_sha256(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return json_sha256(value)
 
 
 def _structure_document(nodes: tuple[BundleNode, ...]) -> list[dict[str, object]]:

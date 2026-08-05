@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,7 +18,12 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.pipeline.stage_manifests import canonical_stage_manifest_json
-from sideloadedipa.util.atomics import atomic_write_bytes, canonical_json, redact_value
+from sideloadedipa.util.atomics import (
+    atomic_write_bytes,
+    canonical_json,
+    json_sha256,
+    redact_value,
+)
 
 RUN_REPORT_SCHEMA_VERSION = 1
 
@@ -228,7 +232,7 @@ def canonical_run_report_json(
     redacted = redact_value(document, redactions)
     if not isinstance(redacted, dict):
         raise AssertionError("run report root must remain an object")
-    digest = hashlib.sha256(canonical_json(redacted)).hexdigest()
+    digest = json_sha256(redacted)
     redacted["report_sha256"] = digest
     return canonical_json(redacted)
 

@@ -21,8 +21,8 @@ from sideloadedipa.errors import ConfigurationError
 from sideloadedipa.pipeline.input_manifests import CanonicalInputManifestStore
 from sideloadedipa.pipeline.inspection import ResolvedSource
 from sideloadedipa.pipeline.manifest_store import FileStageManifestStore
-from sideloadedipa.pipeline.sign_stage import json_digest
 from sideloadedipa.pipeline.stage_manifests import finish_stage, start_stage
+from sideloadedipa.pipeline.stages.signing_cache import json_digest
 from sideloadedipa.sources import DownloadedSource
 from sideloadedipa.util import atomics
 from sideloadedipa.util.atomics import canonical_json

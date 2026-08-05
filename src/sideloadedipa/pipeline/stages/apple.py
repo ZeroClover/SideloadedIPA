@@ -12,10 +12,10 @@ from sideloadedipa.domain.config import TaskConfiguration
 from sideloadedipa.domain.pipeline import PipelineStage
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.pipeline.cancellation import SideEffectJournal
-from sideloadedipa.pipeline.sign_stage import json_digest
 from sideloadedipa.pipeline.stages.evidence import StageEvidence
 from sideloadedipa.pipeline.stages.models import SourceContext
 from sideloadedipa.pipeline.stages.results import payload_document
+from sideloadedipa.pipeline.stages.signing_cache import json_digest
 
 
 @dataclass(frozen=True, slots=True)

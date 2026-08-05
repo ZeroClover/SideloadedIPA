@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
+from sideloadedipa.domain.entitlement_keys import (
+    APPLICATION_GROUPS,
+    APPLICATION_IDENTIFIER,
+    KEYCHAIN_ACCESS_GROUPS,
+    TEAM_IDENTIFIER,
+)
+
 TARGETS = {
     "root": (
         "Payload/Qualification.app",
@@ -202,8 +209,8 @@ def materialize_entitlements(
     if role not in {"root", "process"}:
         return result
 
-    application_identifier = result.get("application-identifier")
-    allowed_groups = result.get("keychain-access-groups")
+    application_identifier = result.get(APPLICATION_IDENTIFIER)
+    allowed_groups = result.get(KEYCHAIN_ACCESS_GROUPS)
     if not isinstance(application_identifier, str):
         raise BackendExerciseError(f"{role} profile has no application identifier")
     if not isinstance(allowed_groups, list) or not all(
@@ -217,7 +224,7 @@ def materialize_entitlements(
         raise BackendExerciseError(
             f"{role} profile does not authorize {len(unauthorized)} expected keychain groups"
         )
-    result["keychain-access-groups"] = expected_groups
+    result[KEYCHAIN_ACCESS_GROUPS] = expected_groups
     return result
 
 
@@ -257,8 +264,8 @@ def configured_entitlements(
     if intent.entitlement_policy.mode is not EntitlementMode.TEMPLATE:
         raise BackendExerciseError(f"{role} canary policy must use profile or template mode")
     template_path = intent.entitlement_policy.template_path
-    application_identifier = profile_entitlements.get("application-identifier")
-    team_id = profile_entitlements.get("com.apple.developer.team-identifier")
+    application_identifier = profile_entitlements.get(APPLICATION_IDENTIFIER)
+    team_id = profile_entitlements.get(TEAM_IDENTIFIER)
     if not isinstance(application_identifier, str) or not application_identifier.endswith(
         target_bundle_id
     ):
@@ -333,7 +340,7 @@ def evaluate_contract(entitlements: Mapping[str, Mapping[str, Any]]) -> list[str
     app_groups_by_role: dict[str, set[str]] = {}
     for role, (_, _, bundle_identifier) in TARGETS.items():
         values = entitlements[role]
-        groups = values.get("com.apple.security.application-groups")
+        groups = values.get(APPLICATION_GROUPS)
         app_groups_by_role[role] = set(groups) if isinstance(groups, list) else set()
         if not app_groups_by_role[role]:
             violations.append(f"{role} has no App Group entitlement")
@@ -342,8 +349,8 @@ def evaluate_contract(entitlements: Mapping[str, Mapping[str, Any]]) -> list[str
             missing = sorted(ROOT_ONLY_KEYS - values.keys())
             if missing:
                 violations.append(f"{role} is missing root-only keys: {missing}")
-            application_identifier = values.get("application-identifier")
-            actual_keychain = values.get("keychain-access-groups")
+            application_identifier = values.get(APPLICATION_IDENTIFIER)
+            actual_keychain = values.get(KEYCHAIN_ACCESS_GROUPS)
             expected_keychain = (
                 set(keychain_groups(application_identifier, bundle_identifier))
                 if isinstance(application_identifier, str)
@@ -365,7 +372,7 @@ def evaluate_contract(entitlements: Mapping[str, Mapping[str, Any]]) -> list[str
 def entitlement_evidence(entitlements: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     return {
         role: {
-            "app_groups": values.get("com.apple.security.application-groups", []),
+            "app_groups": values.get(APPLICATION_GROUPS, []),
             "entitlement_keys": sorted(values),
             "healthkit_access": values.get("com.apple.developer.healthkit.access", []),
             "healthkit_background_delivery": values.get(
@@ -374,10 +381,10 @@ def entitlement_evidence(entitlements: Mapping[str, Mapping[str, Any]]) -> dict[
             "increased_memory_limit": values.get(
                 "com.apple.developer.kernel.increased-memory-limit", False
             ),
-            "keychain_group_count": len(values.get("keychain-access-groups", [])),
+            "keychain_group_count": len(values.get(KEYCHAIN_ACCESS_GROUPS, [])),
             "keychain_groups_sha256": sha256_bytes(
                 json.dumps(
-                    sorted(values.get("keychain-access-groups", [])), separators=(",", ":")
+                    sorted(values.get(KEYCHAIN_ACCESS_GROUPS, [])), separators=(",", ":")
                 ).encode()
             ),
         }

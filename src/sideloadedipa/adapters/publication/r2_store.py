@@ -282,18 +282,6 @@ class R2Store:
             print(f"[info] Deleted object: {key}")
 
 
-def referenced_keys_from_apps(store: R2Store, apps: list[dict[str, Any]]) -> set[str]:
-    """Collect the object keys referenced by apps.json entries (ipaUrl + iconUrl)."""
-    keys: set[str] = set()
-    for app in apps:
-        for field in ("ipaUrl", "iconUrl"):
-            url = app.get(field) or ""
-            key = store.key_from_url(url)
-            if key:
-                keys.add(key)
-    return keys
-
-
 def main() -> int:  # pragma: no cover - manual smoke helper
     store = R2Store.from_env()
     doc = store.download_json(store.apps_json_key)

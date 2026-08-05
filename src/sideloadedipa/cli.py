@@ -18,7 +18,7 @@ from sideloadedipa.application import (
     CommandResult,
     OutputFormat,
 )
-from sideloadedipa.domain import thaw_json
+from sideloadedipa.domain import thaw_json_object
 from sideloadedipa.errors import SideloadedIPAError
 from sideloadedipa.pipeline.production import (
     inspect_command,
@@ -82,7 +82,7 @@ def _write_result(result: CommandResult, output_format: OutputFormat, stdout: Te
     if output_format is OutputFormat.JSON:
         print(
             json.dumps(
-                {key: thaw_json(value) for key, value in result.payload},
+                thaw_json_object(result.payload),
                 sort_keys=True,
                 separators=(",", ":"),
             ),
