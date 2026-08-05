@@ -199,16 +199,15 @@ class SigningStage:
         except ValueError:
             cached = None
         with prepared_factory(request, contexts) as prepared:
-            decisions = list(
-                select_rebuilds(
-                    tuple(value.fingerprint for value in prepared),
-                    cached,
-                    force=request.force_rebuild,
-                )
+            selected_decisions = select_rebuilds(
+                tuple(value.fingerprint for value in prepared),
+                cached,
+                force=request.force_rebuild,
             )
+            decisions_by_task = {value.task_name: value for value in selected_decisions}
             cached_records = {value.task_name: value for value in cached.records} if cached else {}
             pending_records: list[TaskCacheRecord] = []
-            for index, value in enumerate(prepared):
+            for value in prepared:
                 task_name = value.source.task.task_name
                 resource_apply = self.evidence.require(
                     store,
@@ -225,7 +224,7 @@ class SigningStage:
                     resource_apply,
                     started_at=plan_started_at,
                 )
-                decision = decisions[index]
+                decision = decisions_by_task[task_name]
                 artifact_sha256: str
                 signing_report_sha256: str
                 sign_started_at = self.evidence.clock()
@@ -263,7 +262,7 @@ class SigningStage:
                             value.fingerprint.sha256,
                             record.artifact_sha256,
                         )
-                        decisions[index] = decision
+                        decisions_by_task[task_name] = decision
                         artifact_sha256, signing_report_sha256 = self._execute_and_cache(
                             request,
                             value,
@@ -293,7 +292,9 @@ class SigningStage:
                         signing_report_sha256,
                     )
                 )
-            decisions_tuple = tuple(decisions)
+            decisions_tuple = tuple(
+                decisions_by_task[value.task_name] for value in selected_decisions
+            )
             self.write_decisions(request, decisions_tuple)
             existing = (
                 {record.task_name: record for record in cached.records}

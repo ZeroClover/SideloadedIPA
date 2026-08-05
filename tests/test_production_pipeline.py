@@ -646,6 +646,96 @@ def test_unchanged_direct_source_cache_hit_reopens_artifact_without_resigning(
     assert backend.called is True
 
 
+def test_cache_rejection_keeps_decisions_bound_to_non_alphabetical_tasks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks = load_configuration(Path("configs/tasks.toml")).tasks[:2]
+    assert tuple(task.task_name for task in tasks) != tuple(
+        sorted(task.task_name for task in tasks)
+    )
+    signing_requests = tuple(request_for(task, tmp_path) for task in tasks)
+    contexts = tuple(
+        SourceContext(
+            task,
+            ResolvedSource("https://example.invalid/source.ipa", None, {}, None),
+            DownloadedSource(
+                signing_request.source_ipa,
+                signing_request.source_ipa.stat().st_size,
+                signing_request.graph.source_sha256,
+            ),
+            SourceAsset(
+                task.task_name,
+                signing_request.source_ipa.name,
+                "https://example.invalid/source.ipa",
+                "v1",
+                NOW,
+                PurePosixPath(signing_request.source_ipa.name),
+                signing_request.graph.source_sha256,
+            ),
+            signing_request.graph,
+        )
+        for task, signing_request in zip(tasks, signing_requests)
+    )
+    prepared = tuple(
+        PreparedContext(
+            context,
+            signing_request,
+            SigningCacheFingerprint(
+                1,
+                context.task.task_name,
+                (("task", context.task.task_name),),
+                hashlib.sha256(context.task.task_name.encode()).hexdigest(),
+            ),
+        )
+        for context, signing_request in zip(contexts, signing_requests)
+    )
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    monkeypatch.setattr(production, "load_configuration", lambda path: TaskConfiguration(tasks))
+    monkeypatch.setattr(
+        pipeline,
+        "_load_contexts",
+        lambda request, configuration=None: contexts,
+    )
+
+    @contextmanager
+    def prepared_contexts(request, loaded_contexts):  # type: ignore[no-untyped-def]
+        assert loaded_contexts == contexts
+        yield prepared
+
+    monkeypatch.setattr(pipeline, "_prepared", prepared_contexts)
+    first = command(
+        tmp_path,
+        CommandName.SIGN,
+        *(task.task_name for task in tasks),
+        run_id="first-multi-task",
+    )
+    for context in contexts:
+        _prime_apply_stages(pipeline, first, context)
+    pipeline.sign(first)
+    pipeline.verify(replace(first, command=CommandName.VERIFY))
+
+    rejected_task = tasks[0]
+    rejected_fingerprint = prepared[0].fingerprint
+    cached_report = pipeline._cache().signing_report_path(
+        rejected_task.task_name,
+        rejected_fingerprint.sha256,
+    )
+    cached_report.chmod(0o644)
+    cached_report.write_bytes(b"tampered report")
+
+    second = replace(first, run_id="second-multi-task")
+    for context in contexts:
+        _prime_apply_stages(pipeline, second, context)
+    pipeline.sign(second)
+    pipeline.verify(replace(second, command=CommandName.VERIFY))
+
+    decisions = {value.task_name: value for value in pipeline._read_decisions(second)}
+    assert set(decisions) == {task.task_name for task in tasks}
+    assert decisions[rejected_task.task_name].reason is RebuildReason.CACHE_REJECTED
+    assert decisions[tasks[1].task_name].reason is RebuildReason.CACHE_HIT
+
+
 def test_default_stage_wrapper_records_created_resources_on_cancellation(
     tmp_path: Path,
     monkeypatch,
