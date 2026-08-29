@@ -1,66 +1,54 @@
-# Signing pipeline troubleshooting
+# Troubleshooting Guide
 
-## Release asset selection
+This guide helps you identify and resolve common issues encountered while running the SideloadedIPA pipeline.
 
-`source.asset-match-count` with zero or multiple candidates means the configured
-`release_glob` is not exact for that release. Inspect the reported asset names and
-commit a reviewed selector that matches exactly one IPA. LiveContainer standard
-uses `LiveContainer.ipa`; do not broaden it to `*.ipa`, because the same release
-also contains `LiveContainer+SideStore.ipa`.
+---
 
-## New or missing bundle rules
+## 1. Source & Asset Selection Issues
 
-An upstream extension added, removed, or renamed in inventory must stop signing.
-Compare the reported profile-bearing graph with `tasks.signing.bundles`. Add an
-exact source Bundle ID rule, target mapping, capability policy, entitlement mode,
-App ID, and profile; then repeat automated and device acceptance. Never let an
-unknown extension inherit the root profile.
+### `source.asset-match-count` Error (0 or >1 Assets Found)
+- **Cause**: The `release_glob` in `tasks.toml` did not match exactly one IPA file in the GitHub release.
+- **Fix**: Inspect the release assets on GitHub and make `release_glob` more specific (e.g., use `LiveContainer.ipa` instead of `*.ipa` if multiple variant IPAs exist).
 
-## App Groups and capabilities
+### Source SHA-256 Checksum Mismatch
+- **Cause**: The downloaded file from `ipa_url` does not match the configured `ipa_sha256`.
+- **Fix**: Recalculate the checksum with `shasum -a 256 <file>.ipa` and update `ipa_sha256` in `tasks.toml`.
 
-An App Group `manual-required` finding is expected when the public API cannot
-inspect the container relationship. An Account Holder/Admin must register the
-group and associate it with every listed App ID, then record the non-secret
-evidence. Do not create one App Group for each Keychain Group: LiveContainer uses
-one App Group and 128 local `keychain-access-groups` strings.
+---
 
-For an unsupported or managed capability, follow the exact planner remediation.
-Do not substitute a similarly named Portal switch or call an undocumented API.
-Clinical Health Records and HealthKit background delivery are local HealthKit
-template values here; Keychain Sharing is also local. Profiles must still
-authorize every final value.
+## 2. Bundle & Extension Errors
 
-## Profile authorization mismatch
+### Unknown Profile-Bearing Bundle Found
+- **Cause**: An upstream update added a new app extension (`.appex`) or helper binary that is not defined in `configs/tasks.toml`.
+- **Fix**: Add a new `[[tasks.signing.bundles]]` entry in `tasks.toml` mapping the new `source_bundle_id`, desired `target_bundle_id`, and required capabilities.
 
-`apple.profile-entitlement-unauthorized` identifies the first key/value outside
-the mapped profile. Confirm the target App ID, capability state, App Group
-association, certificate, enabled devices, and profile type. Generate an additive
-replacement after any capability change; keep the invalid historical profile.
-Do not delete entitlements merely to make signing pass unless a reviewed policy
-declares the drop and its rationale.
+---
 
-## 128 Keychain Groups
+## 3. Apple Developer & Provisioning Issues
 
-The profile may authorize Keychain access with a wildcard, but the signed root and
-LiveProcess executables must each contain exactly the 128 target-team values from
-`com.kdt.livecontainer.shared` through `.127`. A count of 1 or 2 indicates
-profile-only signing; a count of 0 indicates lost entitlement material. Confirm
-the per-profile entitlement backend, production template, target-team prefix, and
-profile authorization. Launch and Share should retain their profile defaults,
-not the 128 root/process list.
+### App Group Association Required (`manual-required`)
+- **Cause**: Apple's public API cannot automatically associate an App Group with an App ID without Admin intervention in certain configurations.
+- **Fix**: Open the Apple Developer Portal web interface, assign the App Group to the specified App ID, and add the alias to `manual_app_group_associations = ["<alias>"]` under `[tasks.signing]`.
 
-## XML/DER disagreement
+### `apple.profile-entitlement-unauthorized`
+- **Cause**: An entitlement requested in `tasks.toml` (or custom template) is not authorized by the current provisioning profile.
+- **Fix**:
+  1. Check that the required capability is enabled for that App ID in the Developer Portal.
+  2. Run `sideloadedipa sync --apply` to generate an updated provisioning profile.
 
-If XML and DER entitlement evidence differ, stop before publication. Record the
-architecture, executable path, both evidence hashes, tool versions, and source
-SHA. Reproduce with the pinned Linux inspector and independent macOS `codesign`
-oracle. Do not choose one representation as authoritative or suppress the check.
+---
 
-## Nested signature failure
+## 4. Signing & Verification Failures
 
-Use the verification report's deepest failing path. Confirm the plan includes
-every framework, dylib, extension, and nested app, that signing order is deepest
-first and root last, and that each profile-bearing bundle embeds its own mapped
-profile. Re-inventory the output for graph parity. A stale, ad-hoc, wrong-team, or
-unplanned nested signature blocks promotion while the prior published object and
-registry entry remain active.
+### 128 Keychain Groups Missing (LiveContainer)
+- **Cause**: LiveContainer requires 128 sequential keychain access groups (`.shared` through `.127`). If fewer groups are present, signing fell back to profile defaults.
+- **Fix**: Ensure `entitlement_mode = "template"` is set for both the root and `LiveProcess` bundles, pointing to `configs/signing/livecontainer/root-process.plist`.
+
+### XML and DER Entitlement Disagreement
+- **Cause**: The Mach-O code signature contains inconsistent XML and DER entitlement blocks.
+- **Fix**: Stop publication and re-run backend qualification (`sideloadedipa-qualify-backend`) to check `zsign` behavior against the macOS codesign oracle.
+
+### Nested Signature Verification Failure
+- **Cause**: An embedded framework or extension was signed with the wrong certificate, invalid profile, or out of order.
+- **Fix**: Check the deepest failing path in the verification report. Ensure the signing order signs all child frameworks and extensions before the main root executable.
+

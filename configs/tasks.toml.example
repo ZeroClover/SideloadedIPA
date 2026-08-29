@@ -1,62 +1,41 @@
-# Signing tasks configuration (TOML)
-# Define one or more signing tasks using the [[tasks]] array.
+# ==============================================================================
+# SideloadedIPA Task Configuration Reference
+# ==============================================================================
+# Define one or more signing tasks in the [[tasks]] array.
 
-# ========================================
-# Publishing model (serverless)
-# ========================================
-# After each resign the pipeline:
-#   1. reads the signed IPA's ACTUAL bundle id + version,
-#   2. uploads the IPA to Cloudflare R2 under a versioned key:
-#        apps/<slug>/<version>/<App>.ipa   (immutable cache headers)
-#   3. merges the result into the site/apps.json registry on R2 — the single
-#      data source the Vercel-hosted download page and itms.plist route read,
-#   4. triggers Vercel on-demand revalidation and deletes stale versioned keys.
-#
-# Bucket, account id and public base URL come from environment variables
-# (R2_* secrets/vars), never from this file. The optional [r2] table only
-# tweaks the object layout; defaults are shown below.
+# Optional: Cloudflare R2 storage layout defaults
 # [r2]
-# key_prefix = "apps"              # object key prefix for IPAs and icons
-# apps_json_key = "site/apps.json" # registry key consumed by the Vercel front-end
+# key_prefix = "apps"              # Object key prefix for IPAs and icons
+# apps_json_key = "site/apps.json" # Registry path read by the Next.js web front-end
 
-# ========================================
-# Option 1: Immutable direct IPA URL
-# ========================================
-# Direct tasks require the reviewed SHA-256 of the exact IPA bytes. The URL and
-# digest form a cacheable identity; changing either invalidates the cache.
-
+# ------------------------------------------------------------------------------
+# Example 1: Direct HTTPS Download (with pinned SHA-256)
+# ------------------------------------------------------------------------------
 [[tasks]]
-# Identifier used to look up the provisioning profile and output files
+# Unique identifier used for CLI commands and provisioning profile naming
 task_name = "MyApp"
 
-# Human-friendly app name; used for profile naming (e.g., "MyApp Dev")
+# Display name of the application
 app_name = "MyApp"
 
-# Bundle identifier of the app (required for provisioning profile creation)
-# This must match an existing Bundle ID in your Apple Developer account
+# Target root bundle ID (must match an App ID in Apple Developer account)
 bundle_id = "com.example.myapp"
 
-# Direct download URL of the original IPA to sign
+# Direct HTTPS download URL of the unsigned IPA
 ipa_url = "https://example.com/path/to/MyApp.ipa"
 
-# Required for ipa_url. Calculate this from the reviewed IPA with
-# `shasum -a 256 MyApp.ipa`; replace this illustrative digest.
+# Required SHA-256 checksum of the original IPA (shasum -a 256 MyApp.ipa)
 ipa_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-# Optional: stable key for R2 object paths and the apps.json registry /
-# download-page URLs. Defaults to a slugified app_name ("MyApp" here).
+# Optional: URL slug for R2 storage and web portal (defaults to sanitized app_name)
 # slug = "myapp"
 
-# Optional: card icon source. An ipa_url task has no repository to read from,
-# so it needs either an absolute URL or "ipa:" (pull it out of the signed IPA).
+# Optional: Icon source ("ipa:", an HTTPS URL, or a repository path)
 # icon_path = "ipa:"
 
-# ========================================
-# Option 2: GitHub Release Tracking
-# ========================================
-# Tasks with repo_url will track GitHub releases and only rebuild
-# when the release version or timestamp changes.
-
+# ------------------------------------------------------------------------------
+# Example 2: Tracking GitHub Releases (Standard Release)
+# ------------------------------------------------------------------------------
 [[tasks]]
 task_name = "AnotherApp"
 app_name = "Another App"
@@ -65,53 +44,32 @@ bundle_id = "com.example.anotherapp"
 # GitHub repository URL (mutually exclusive with ipa_url)
 repo_url = "https://github.com/owner/repo"
 
-# Glob pattern to match release assets (optional, default: "*.ipa")
-# Uses Python fnmatch syntax
+# Filename pattern to match release assets (fnmatch glob syntax)
 release_glob = "*.ipa"
 
-# Whether to use prerelease versions (optional, default: false)
-# If true: fetches latest prerelease, falls back to stable if none exist
-# If false: fetches only latest stable release
+# Set true to track pre-releases / betas, or false for stable releases only
 use_prerelease = false
 
-# Explicit slug needed when the slugified app name ("Another_App") is not the
-# desired public key.
 slug = "anotherapp"
 
-# Optional: card icon source — a path inside repo_url (fetched at the release
-# tag), an absolute URL, or "ipa:". Nothing is inferred: Flutter projects keep
-# the master under ios/Runner/Assets.xcassets/, native projects use their own
-# names and directories. Any raster format is accepted (detected by magic bytes,
-# not extension) and normalised to a square PNG of at most 512x512. Use a
-# SQUARE, full-bleed master — the page rounds corners in CSS, so a pre-rounded
-# source double-rounds. Omit to leave the existing icon untouched.
+# App icon path within the repository (fetched at the matching release tag)
 icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
 
-# ========================================
-# Example: Tracking a Specific Asset Pattern
-# ========================================
+# ------------------------------------------------------------------------------
+# Example 3: Tracking GitHub Releases with Specific Asset Glob & Pre-releases
+# ------------------------------------------------------------------------------
 [[tasks]]
 task_name = "SpecialApp"
 app_name = "Special App"
 bundle_id = "com.example.specialapp"
 repo_url = "https://github.com/specialorg/specialapp"
-
-# Match only assets with "universal" in the filename
 release_glob = "*universal*.ipa"
-
-# Use prerelease versions for beta testing
 use_prerelease = true
-
 slug = "specialapp"
 
-# ========================================
-# Multi-bundle signing (standard LiveContainer example)
-# ========================================
-# A release with more than one IPA asset needs an exact selector. The standard
-# build has four profile-bearing bundles. The SideStore build is intentionally
-# a separate policy: it adds LiveWidget and therefore needs a fifth App ID,
-# profile, entitlement rule, and device acceptance record.
-
+# ------------------------------------------------------------------------------
+# Example 4: Multi-Bundle Signing (LiveContainer with Extensions & App Groups)
+# ------------------------------------------------------------------------------
 [[tasks]]
 task_name = "LiveContainer"
 app_name = "LiveContainer"
@@ -122,14 +80,10 @@ slug = "LiveContainer"
 icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
 publication_enabled = false
 
-[tasks.signing]
-# After an Account Holder/Admin registers and assigns the group to every relevant
-# App ID, record the reviewed alias here. Profile validation remains mandatory.
-# manual_app_group_associations = ["shared"]
-
 [tasks.signing.app_groups]
 shared = "group.io.example.livecontainer"
 
+# Main root application
 [[tasks.signing.bundles]]
 source_bundle_id = "com.kdt.livecontainer"
 target_bundle_id = "io.example.livecontainer"
@@ -138,26 +92,26 @@ required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "K
 entitlement_mode = "template"
 entitlements_file = "configs/signing/livecontainer/root-process.plist"
 
+# Helper process (LiveProcess)
 [[tasks.signing.bundles]]
 source_bundle_id = "com.kdt.livecontainer.LiveProcess"
 required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
 entitlement_mode = "template"
 entitlements_file = "configs/signing/livecontainer/root-process.plist"
 
+# Launch extension
 [[tasks.signing.bundles]]
 source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
 required_capabilities = ["APP_GROUPS"]
 entitlement_mode = "profile"
 
+# Share extension
 [[tasks.signing.bundles]]
 source_bundle_id = "com.kdt.livecontainer.ShareExtension"
 required_capabilities = ["APP_GROUPS"]
 entitlement_mode = "profile"
 
-# entitlement_mode values:
-# - "profile": use the mapped profile's entitlement document.
-# - "preserve-source": rewrite reviewed team/identifier/App Group values while
-#   retaining the remaining source values; any drop must be declared.
-# - "template": load a plist below configs/signing using only typed
-#   ${TEAM_ID}, ${APP_IDENTIFIER_PREFIX}, ${TARGET_BUNDLE_ID}, and
-#   ${APP_GROUP:<alias>} placeholders.
+# Entitlement mode reference:
+# - "profile": Uses entitlements granted directly by the provisioning profile.
+# - "template": Renders a plist template under configs/signing/ with variable substitution.
+# - "preserve-source": Preserves original source entitlements with updated Team & Group IDs.

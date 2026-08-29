@@ -1,11 +1,11 @@
 name: Build patched zsign
-description: Build and cache the checksum-pinned per-profile-entitlements zsign
+description: Build and cache patched zsign with multi-bundle entitlement support
 inputs:
   source-commit:
-    description: Reviewed upstream source commit
+    description: Upstream zsign commit hash
     required: true
   source-sha256:
-    description: SHA-256 of the GitHub source archive
+    description: SHA-256 of the upstream source tarball
     required: true
   version:
     description: Expected patched executable version
@@ -13,22 +13,22 @@ inputs:
     default: 1.1.1+sideloadedipa.3
 outputs:
   executable:
-    description: Absolute path to patched zsign
+    description: Absolute path to the built zsign binary
     value: ${{ steps.result.outputs.executable }}
   sha256:
-    description: Patched executable SHA-256
+    description: SHA-256 checksum of the built zsign binary
     value: ${{ steps.result.outputs.sha256 }}
 runs:
   using: composite
   steps:
-    - name: Restore patched zsign cache
+    - name: Restore zsign build cache
       id: cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/sideloadedipa-zsign/bin
         key: patched-zsign-${{ runner.os }}-${{ runner.arch }}-${{ inputs.source-commit }}-${{ hashFiles('patches/zsign/**') }}
 
-    - name: Build checksum-pinned patched zsign
+    - name: Compile patched zsign
       if: ${{ steps.cache.outputs.cache-hit != 'true' }}
       shell: bash
       env:
@@ -64,7 +64,7 @@ runs:
         make -C "$source_dir/$build_dir" VERSION="$ZSIGN_EXPECTED_VERSION" -j"$(getconf _NPROCESSORS_ONLN || sysctl -n hw.ncpu)"
         install -m 0755 "$source_dir/bin/zsign" "$RUNNER_TEMP/sideloadedipa-zsign/bin/zsign"
 
-    - name: Verify patched zsign
+    - name: Verify built zsign binary
       id: result
       shell: bash
       env:

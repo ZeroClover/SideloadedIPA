@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       debug:
-        description: Keep the validation runner available over SSH
+        description: Enable SSH debugging
         required: false
         default: false
         type: boolean
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   validation:
-    name: Validate repository
+    name: Run PR Validation
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -31,12 +31,12 @@ jobs:
       ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Python with uv
+      - name: Set up Python & uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version-file: "pyproject.toml"
@@ -44,47 +44,47 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install and verify locked Python toolchain
+      - name: Install Python dependencies
         run: |
           set -euo pipefail
           uv sync --frozen
           test "$(uv --version | awk '{print $2}')" = "0.11.31"
           test "$(uv run --frozen python -c 'import platform; print(platform.python_version())')" = "$(tr -d '\n' < .python-version)"
 
-      - name: Audit frozen Python dependency graph
+      - name: Audit Python dependencies
         run: uv audit --frozen
 
-      - name: Install checksum-verified App Store Connect CLI
+      - name: Install App Store Connect CLI
         uses: ./.github/actions/install-asc
         with:
           version: ${{ env.ASC_VERSION }}
           asset: asc_${{ env.ASC_VERSION }}_linux_amd64
           sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
 
-      - name: Build cached patched zsign
+      - name: Build patched zsign
         id: patched-zsign
         uses: ./.github/actions/build-patched-zsign
         with:
           source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
           source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
 
-      - name: Run pytest with package coverage gate
+      - name: Run tests & coverage
         env:
           ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
           ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
         run: uv run pytest
 
-      - name: Check Python formatting and import order
+      - name: Check code formatting (Black & isort)
         run: |
           uv run black --check scripts/ src/sideloadedipa/
           uv run isort --check-only scripts/ src/sideloadedipa/
 
-      - name: Run strict Python type checks
+      - name: Type check (mypy)
         run: |
           uv run mypy src/sideloadedipa
           uv run mypy scripts/
 
-      - name: Install checksum-verified actionlint
+      - name: Install actionlint
         run: |
           set -euo pipefail
           asset="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -95,10 +95,10 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -version
 
-      - name: Validate workflow syntax, expressions, and shell
+      - name: Lint workflows (actionlint)
         run: '"$RUNNER_TEMP/actionlint" -no-color .github/workflows/*.yml'
 
-      - name: Audit workflows and composite actions
+      - name: Audit workflow security (zizmor)
         run: uv run zizmor --strict-collection --min-severity high .
 
       - name: Set up Node.js
@@ -108,21 +108,21 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Install locked web dependencies
+      - name: Install web dependencies
         working-directory: web
         run: |
           set -euo pipefail
           test "$(node --version)" = "v$(tr -d '\n' < .node-version)"
           npm ci
 
-      - name: Audit locked web dependency graph
+      - name: Audit web dependencies
         run: uv run --frozen python scripts/check_dependency_audits.py
 
-      - name: Check plist golden files
+      - name: Run web tests
         working-directory: web
         run: npm run test
 
-      - name: Build web application
+      - name: Build web app
         working-directory: web
         env:
           APPS_DATA_MODE: fixture

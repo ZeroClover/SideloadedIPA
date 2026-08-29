@@ -1,85 +1,43 @@
-# Signing pipeline security
+# Security Model
 
-## Archive and workspace isolation
+This document outlines the security architecture and protections built into the SideloadedIPA pipeline.
 
-Every IPA is treated as untrusted input. Preflight rejects absolute, traversal,
-NUL, duplicate-normalized, link, and special-file entries and enforces entry,
-expanded-size, and compression-ratio limits before extraction. Each task uses an
-isolated workspace; signing mutates a copy and promotes output atomically only
-after independent verification. Temporary source, profile, certificate, key, and
-extracted files are never artifact paths.
+---
 
-Subprocesses use argv arrays, `shell=False`, bounded output, explicit timeouts,
-and allowlisted environments. Python's current security guidance confirms that
-without an explicitly selected shell, shell metacharacters are passed as ordinary
-characters: [Python subprocess security considerations](https://docs.python.org/3/library/subprocess.html#security-considerations).
+## 1. Archive & Workspace Isolation
 
-## Credentials and logs
+- **Sanitized Extraction**: All IPAs are treated as untrusted archives. The preflight extractor strictly rejects absolute paths, directory traversal sequences (`../`), NUL bytes, symlinks, and excessive compression ratios (zip bombs).
+- **Isolated Workspaces**: Each task executes in an isolated temporary directory. Files are cleaned up automatically after run completion or cancellation.
+- **Safe Subprocesses**: Subprocess commands are executed directly via argument arrays (`shell=False`) with strict timeouts and allowlisted environment variables, preventing shell injection vulnerabilities.
 
-- Store the P12, P12 password, App Store Connect key, R2 credentials, revalidation
-  secret, and optional debug public key only as GitHub Actions secrets.
-- Inject signing, Apple, and publication credentials only into the production
-  steps that consume them; setup, reporting, cache, notification, and debug do
-  not receive them at job scope.
-- Never print secret values, private paths, raw profile payloads, P12 bytes, or
-  private keys. Structured reports contain stable resource IDs and hashes only.
-- Backend-qualification evidence is canonical and digest-bound but retains no
-  IPA, profile, private key, certificate password, private path, or raw command
-  output. A missing macOS oracle is an explicit non-passing manual gate.
-- GitHub warns that automatic masking is not guaranteed for transformed values,
-  so application-level redaction remains mandatory:
-  [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use).
-- SSH debug is manual-dispatch only, public-key only, time-bounded by the job,
-  and must be cancelled immediately after diagnosis. Every checkout disables
-  persisted Git credentials so a debug shell cannot recover the repository token
-  from local Git configuration.
+---
 
-## CI artifacts and caches
+## 2. Credential Management & Log Redaction
 
-Retain production run reports for 7 days. These artifacts exclude IPAs and
-private material. GitHub
-supports per-artifact retention and deletes artifacts with their workflow run:
-[workflow artifact retention](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/remove-workflow-artifacts#setting-the-retention-period-for-an-artifact).
+- **Scoped Secrets**: Sensitive secrets (Apple Developer certificates, App Store Connect keys, Cloudflare R2 tokens, and Vercel revalidation secrets) are stored exclusively in GitHub Actions Secrets and injected only into the specific steps that require them.
+- **Automatic Log Redaction**: The pipeline redacts private keys, certificate passwords, and raw profile payloads from terminal logs, stage manifests, and run reports.
+- **Minimal Report Footprint**: Uploaded run reports contain only non-sensitive metadata: execution timings, commit hashes, stable resource IDs, and SHA-256 digests.
 
-Caches contain only reproducible non-secret state and use a versioned fingerprint.
-Restored cache data is untrusted and cannot bypass profile freshness or output
-verification. Save occurs only after successful signing/verification. GitHub
-explicitly says caches must not contain credentials and may be readable from pull
-request contexts:
-[dependency cache security](https://docs.github.com/en/actions/concepts/workflows-and-actions/dependency-caching#cache-security).
+---
 
-## Apple mutation boundary
+## 3. Apple Developer Operations
 
-Apple operations use the documented App Store Connect API through the pinned CLI.
-CI may perform exact lookup and additive, idempotent creation or capability
-enablement only. Portal-only, approval-gated, ambiguous, destructive, or
-undocumented operations are manual. There is no browser automation or private API
-fallback. Apple documents capability setup and profile regeneration requirements
-in its [capabilities overview](https://developer.apple.com/help/account/capabilities/capabilities-overview)
-and [profile guidance](https://developer.apple.com/help/account/provisioning-profiles/edit-download-or-delete-profiles).
+- **Additive-Only Mutations**: The automated sync stage creates missing App IDs and provisioning profiles, but **never deletes** existing developer resources or revokes certificates.
+- **Official API Usage**: Interacts with Apple Developer services exclusively through the official App Store Connect API via the checksum-verified `asc` CLI. No undocumented endpoints or browser automation are used.
 
-## Dependency and tool integrity
+---
 
-- Python dependencies come from committed `uv.lock`; CI uses `uv sync --frozen`.
-  uv documents that frozen sync treats the lockfile as the source of truth:
-  [locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/).
-- zsign, its reviewed extension source, App Store Connect CLI, actionlint, and
-  cloudflared are version-pinned and checksum-verified before use. Zizmor is
-  version-pinned through `uv.lock`.
-- GitHub Actions are pinned to immutable commit digests with readable release
-  comments. PR CI uses actionlint for Workflow semantics and zizmor for Workflow,
-  composite-action, and security analysis. Review release notes and digests before
-  every update.
+## 4. Supply Chain & Toolchain Integrity
 
-## Rotation
+- **Locked Python Dependencies**: Python packages are strictly locked via `uv.lock` and installed with `uv sync --frozen`.
+- **Checksum Verification**: External binaries (`zsign`, `asc`, `cloudflared`, and `actionlint`) are downloaded and verified against exact SHA-256 digests before execution.
+- **Pinned Actions**: GitHub Actions workflows reference immutable commit SHAs with automated security audits via `zizmor` and `actionlint`.
 
-Rotate an exposed or departing-operator App Store Connect key, R2 token,
-revalidation secret, debug key, or P12 immediately. For planned rotation:
+---
 
-1. Add the replacement with least privilege and leave the current credential
-   active.
-2. Run credential verification and read-only planning.
-3. Replace the GitHub secret and run the verified production workflow, confirming
-   it uses the expected public certificate/resource fingerprint.
-4. Revoke the old credential only after the new path passes. A certificate change
-   requires replacement profiles and invalidates related signing caches.
+## 5. SSH Debugging Protections
+
+- **Manual Trigger Only**: The SSH debug helper can only be invoked via `workflow_dispatch` with an explicit `debug: true` flag.
+- **Public-Key Authentication**: Only the public key specified in `DEBUG_SSH_PUBLIC_KEY` is authorized; password authentication is disabled.
+- **Ephemeral Session**: The connection is routed through an ephemeral Cloudflare Tunnel and terminates automatically when the CI job timeout expires.
+

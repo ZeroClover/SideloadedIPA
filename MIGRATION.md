@@ -1,50 +1,48 @@
-# Current migration guide
+# Migration Guide
 
-This file covers only migrations that a currently supported configuration,
-automation caller, or operator command may still require. Completed project plans
-and retired infrastructure history remain available in Git history.
+This guide describes configuration and command changes required when upgrading existing SideloadedIPA setups.
 
-## Pin direct IPA sources
+---
 
-Every task using `ipa_url` must use HTTPS and declare the canonical SHA-256 of the
-reviewed IPA bytes:
+## 1. Pinned SHA-256 for Direct IPA Sources
+
+All tasks using `ipa_url` must specify the expected `ipa_sha256`:
 
 ```toml
 [[tasks]]
 task_name = "MyApp"
 app_name = "My App"
 bundle_id = "com.example.myapp"
-ipa_url = "https://downloads.example/MyApp.ipa"
+ipa_url = "https://example.com/MyApp.ipa"
 ipa_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
-Calculate the value from the exact reviewed file:
+Calculate the digest using:
 
 ```bash
 shasum -a 256 MyApp.ipa
 ```
 
-Do not add `ipa_sha256` to a `repo_url` task. GitHub release tasks use the selected
-release asset's advertised identity and the digest measured during download.
+*(Note: Do not add `ipa_sha256` to tasks using `repo_url`; GitHub releases are validated automatically during download).*
 
-## Remove redundant signing keys
+---
 
-Delete these keys from every `[tasks.signing]` table:
+## 2. Removed Obsolete Signing Options
+
+The following keys in `[tasks.signing]` have been removed because their behaviors are now built-in standards:
 
 ```toml
+# Remove these obsolete lines:
 id_strategy = "preserve-source-suffix"
 unknown_profile_bundles = "reject"
 profile_type = "IOS_APP_DEVELOPMENT"
 ```
 
-Their former values are now fixed package invariants: target identifiers preserve
-the source suffix, uncovered profile-bearing bundles fail closed, and provisioning
-uses iOS development profiles. The parser rejects each obsolete key with a
-field-specific removal message; there is no replacement value to choose.
+---
 
-## Use the package CLI
+## 3. Standardized Package CLI
 
-Replace retired script entry points with the installed package command:
+Replace legacy standalone scripts with the unified `sideloadedipa` CLI:
 
 ```bash
 uv run sideloadedipa inspect --run-id <run-id> --task <task>
@@ -55,28 +53,22 @@ uv run sideloadedipa verify --run-id <run-id> --task <task>
 uv run sideloadedipa publish --run-id <run-id> --task <task>
 ```
 
-Reuse the same unique `--run-id` for all stages of one attempt. Do not copy stage
-files between run IDs; downstream commands validate the predecessor chain.
+---
 
-## Use header-authenticated web revalidation
+## 4. Header-Based Web Revalidation
 
-Query-string secrets are unsupported. Send the shared secret only in the
-`X-Revalidate-Secret` request header:
+Web cache revalidation now requires passing the secret via the `X-Revalidate-Secret` HTTP header rather than query parameters:
 
 ```bash
-curl --fail --silent --show-error \
-  --header "X-Revalidate-Secret: $VERCEL_REVALIDATE_SECRET" \
-  "https://itms.example/api/revalidate"
+curl -f -s -H "X-Revalidate-Secret: $VERCEL_REVALIDATE_SECRET" \
+  "https://itms.example.com/api/revalidate"
 ```
 
-Set the same value as `REVALIDATE_SECRET` in the web deployment. Rotate any secret
-that was previously placed in a URL because URLs can be retained by logs, browser
-history, and intermediaries.
+---
 
-## Use the consolidated backend qualification command
+## 5. Backend Qualification Tool
 
-Replace qualification wrappers, prerequisite/reset commands, and direct fixture
-drivers with:
+Use the consolidated tool to qualify `zsign` and verify signing output:
 
 ```bash
 uv run sideloadedipa-qualify-backend \
@@ -84,6 +76,3 @@ uv run sideloadedipa-qualify-backend \
   --evidence work/qualification/backend-qualification.json
 ```
 
-The command uses production inspect/plan/sync behavior and has no destructive
-reset mode. See the [operator runbook](docs/operator-runbook.md#backend-requalification)
-for required zsign, Apple, and macOS oracle inputs.

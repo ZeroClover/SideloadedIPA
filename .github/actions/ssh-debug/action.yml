@@ -1,23 +1,23 @@
 name: Start SSH debug session
-description: Start a public-key-only SSH server with the caller environment behind a temporary Cloudflare Tunnel
+description: Start an SSH server exposed through a temporary Cloudflare Tunnel for debugging
 
 inputs:
   public-key:
     description: SSH public key authorized to access the runner
     required: true
   cloudflared-version:
-    description: Pinned cloudflared release
+    description: cloudflared release version
     required: false
     default: "2026.7.2"
   cloudflared-sha256:
-    description: SHA-256 digest for the pinned Linux amd64 binary
+    description: Expected SHA-256 checksum for the cloudflared binary
     required: false
     default: ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd
 
 runs:
   using: composite
   steps:
-    - name: Configure authorized key
+    - name: Configure authorized SSH key
       shell: bash
       env:
         PUBKEY: ${{ inputs.public-key }}
@@ -43,7 +43,7 @@ runs:
           -s -g -e -E -P "$RUNNER_TEMP/dropbear/dropbear.pid"
         echo "SSH server is listening on 127.0.0.1:2222 (login user: $(whoami))"
 
-    - name: Install checksum-verified cloudflared
+    - name: Install cloudflared
       shell: bash
       env:
         CLOUDFLARED_VERSION: ${{ inputs.cloudflared-version }}
@@ -97,7 +97,7 @@ runs:
         command=ssh -o ProxyCommand='cloudflared access ssh --hostname %h' $(whoami)@$hostname
         EOF
 
-    - name: Publish SSH connection information
+    - name: Save connection details
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ssh-debug-connection
@@ -105,7 +105,7 @@ runs:
         if-no-files-found: error
         retention-days: 1
 
-    - name: Hold runner open
+    - name: Wait for debug session to end
       shell: bash
       run: |
         set -euo pipefail

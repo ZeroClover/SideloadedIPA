@@ -1,5 +1,5 @@
-name: Install checksum-verified App Store Connect CLI
-description: Download, verify, and install a pinned asc executable
+name: Install App Store Connect CLI
+description: Download, verify, and install a pinned App Store Connect CLI (asc) executable
 inputs:
   version:
     description: asc release version
@@ -8,12 +8,12 @@ inputs:
     description: Release asset filename
     required: true
   sha256:
-    description: Reviewed asset SHA-256
+    description: Expected SHA-256 checksum
     required: true
 runs:
   using: composite
   steps:
-    - name: Download and install asc
+    - name: Download and install asc binary
       shell: bash
       env:
         ASC_VERSION: ${{ inputs.version }}

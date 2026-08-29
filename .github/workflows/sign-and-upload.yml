@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       debug:
-        description: Enable SSH Debug
+        description: Enable SSH debugging
         required: false
         default: false
         type: boolean
       force_rebuild:
-        description: Force full rebuild (ignore cache)
+        description: Force full rebuild (bypass cache)
         required: false
         default: false
         type: boolean
@@ -19,7 +19,7 @@ on:
     types: [sign_ipas]
 
 permissions:
-  # read-only: the pipeline no longer commits anything back (apps.json lives on R2)
+  # Read-only: pipeline outputs are published directly to Cloudflare R2
   contents: read
 
 concurrency:
@@ -41,12 +41,12 @@ jobs:
       VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}
       FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Python with uv
+      - name: Set up Python & uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version-file: "pyproject.toml"
@@ -54,14 +54,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install and verify locked Python toolchain
+      - name: Install Python dependencies
         run: |
           set -euo pipefail
           uv sync --frozen
           test "$(uv --version | awk '{print $2}')" = "0.11.31"
           test "$(uv run --frozen python -c 'import platform; print(platform.python_version())')" = "$(tr -d '\n' < .python-version)"
 
-      - name: Restore cache
+      - name: Restore signing cache
         id: cache-restore
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -71,7 +71,7 @@ jobs:
             pipeline-cache-v2-${{ runner.os }}-${{ hashFiles('uv.lock', 'configs/tasks.toml', 'src/sideloadedipa/**', 'patches/zsign/**') }}-
             pipeline-cache-v2-${{ runner.os }}-
 
-      - name: Preflight - install checksum-verified App Store Connect CLI
+      - name: Install App Store Connect CLI
         uses: ./.github/actions/install-asc
         with:
           version: ${{ env.ASC_VERSION }}
@@ -109,7 +109,7 @@ jobs:
           source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
           source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
 
-      - name: Inventory and aggregate policy preflight
+      - name: Inspect source IPAs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -196,7 +196,7 @@ jobs:
           uv run sideloadedipa publish --run-id "$GITHUB_RUN_ID" --json \
             > "$RUNNER_TEMP/sideloadedipa-reports/06-publish.json"
 
-      - name: Upload redacted run report
+      - name: Upload pipeline run reports
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

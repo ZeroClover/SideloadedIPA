@@ -1,155 +1,159 @@
-# Configuration reference
+# Configuration Guide
 
-The package reads `configs/tasks.toml` by default. Pass `--config <path>` to use a
-different file. `configs/tasks.toml.example` is the maintained example and is safe
-to copy for local editing.
+SideloadedIPA reads its task definitions from `configs/tasks.toml` by default (or from `--config <path>`). You can copy `configs/tasks.toml.example` to `configs/tasks.local.toml` as a starting template.
 
-## Task fields
+---
 
-Each `[[tasks]]` entry has these common fields:
+## Basic Task Configuration
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `task_name` | yes | Stable operator and profile lookup name. |
-| `app_name` | yes | Human-readable name and default profile-name stem. |
-| `bundle_id` | yes | Target root bundle identifier. |
-| `ipa_url` or `repo_url` | yes | Exactly one source form. |
-| `slug` | no | Stable R2/registry key; defaults to a sanitized `app_name`. |
-| `icon_path` | no | Repository-relative asset, HTTPS URL, or `ipa:`. |
-| `publication_enabled` | no | Explicit publication gate; defaults to `false`. |
-
-A repository-relative `icon_path` is valid only for a GitHub source. An HTTPS icon
-URL works with either source form. `ipa:` extracts the icon from the signed IPA.
-
-## Source identity
-
-An immutable direct source requires both fields:
+Define tasks using the `[[tasks]]` array:
 
 ```toml
-ipa_url = "https://downloads.example/MyApp.ipa"
+[[tasks]]
+task_name = "MyApp"
+app_name = "My Application"
+bundle_id = "com.example.myapp"
+publication_enabled = true
+```
+
+### Core Task Fields
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `task_name` | Yes | Unique identifier used for CLI commands and profile naming. |
+| `app_name` | Yes | Human-readable app name displayed on the web portal. |
+| `bundle_id` | Yes | Target bundle identifier for the main application. |
+| `ipa_url` or `repo_url` | Yes | Source of the IPA (choose direct URL or GitHub repository). |
+| `slug` | No | URL slug for R2 storage and web routing (defaults to sanitized `app_name`). |
+| `icon_path` | No | App icon source: `"ipa:"` (extracts from IPA), relative repo path, or HTTPS URL. |
+| `publication_enabled` | No | Set `true` to allow uploading and publishing to R2 (default: `false`). |
+
+---
+
+## Source Definitions
+
+### Option 1: Direct HTTPS Download
+
+Direct URLs require pinning the expected SHA-256 checksum:
+
+```toml
+[[tasks]]
+task_name = "MyApp"
+app_name = "My App"
+bundle_id = "com.example.myapp"
+ipa_url = "https://example.com/downloads/MyApp.ipa"
 ipa_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
-The URL must be HTTPS and contain no embedded credentials. The digest must be 64
-hexadecimal characters and match the exact reviewed bytes. Compute it with
-`shasum -a 256 MyApp.ipa`. Changing the URL or digest changes the source and cache
-fingerprints.
+> Compute the hash locally with `shasum -a 256 MyApp.ipa`.
 
-A GitHub release source uses:
+### Option 2: GitHub Release Tracking
+
+Automatically tracks releases from a GitHub repository:
 
 ```toml
-repo_url = "https://github.com/owner/repository"
-release_glob = "MyApp.ipa"
-use_prerelease = false
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.example.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"  # Pattern matching the target asset (default: "*.ipa")
+use_prerelease = false             # Set true to track beta / pre-releases
 ```
 
-`release_glob` defaults to `*.ipa`, but a release containing multiple IPA assets
-should use an exact selector. Zero or multiple matches fail closed. Do not set
-`ipa_sha256` with `repo_url`; the pipeline binds the selected GitHub asset identity,
-advertised size/digest when available, and measured digest.
+---
 
-All production downloads use the package-owned byte, timeout, chunk, redirect,
-and retry policy. Those safety limits are not per-task options.
+## Multi-Bundle Signing & App Extensions
 
-## Multi-bundle signing
-
-Add `[tasks.signing]` when the IPA contains profile-bearing nested bundles or needs
-an explicit entitlement policy. Every discovered profile-bearing bundle must have
-exactly one `[[tasks.signing.bundles]]` rule.
+If an IPA includes app extensions (`.appex`) or embedded helper binaries, configure `[tasks.signing]` with explicit bundle rules:
 
 ```toml
-[tasks.signing]
-manual_app_group_associations = ["shared"]
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.example.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
 
 [tasks.signing.app_groups]
-shared = "group.com.example.myapp"
+shared = "group.io.example.livecontainer"
 
+# Main App
 [[tasks.signing.bundles]]
-source_bundle_id = "com.upstream.MyApp"
-target_bundle_id = "com.example.myapp"
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.example.livecontainer"
 role = "root"
-required_capabilities = ["APP_GROUPS"]
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
 entitlement_mode = "template"
-entitlements_file = "configs/signing/myapp/root.plist"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+# Helper Process
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+# App Extension
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
 ```
 
-Bundle-rule fields are:
+### Bundle Fields
 
-| Field | Required | Meaning |
+| Field | Required | Description |
 | --- | --- | --- |
-| `source_bundle_id` | yes | Exact identifier found in the unsigned graph. |
-| `target_bundle_id` | no | Explicit target; otherwise the source suffix is preserved under the target root. |
-| `role` | no | Reviewed semantic label such as `root`. |
-| `required_capabilities` | no | Allowlisted Apple capabilities required by this bundle. |
-| `entitlement_mode` | no | `profile` (default), `preserve-source`, or `template`. |
-| `entitlements_file` | for `template` | Repository-controlled plist below `configs/signing`. |
-| `allowed_entitlement_drops` | no | Explicit keys that may be removed. |
-| `drop_rationale` | with drops | Required human rationale for every declared drop set. |
+| `source_bundle_id` | Yes | Original Bundle ID found in the unsigned IPA. |
+| `target_bundle_id` | No | Explicit target Bundle ID. If omitted, preserves the suffix under the root bundle ID. |
+| `role` | No | Semantic role (e.g. `root`, `extension`). |
+| `required_capabilities` | No | Apple capabilities required by this bundle (e.g., `APP_GROUPS`, `HEALTHKIT`). |
+| `entitlement_mode` | No | `profile` (default), `template`, or `preserve-source`. |
+| `entitlements_file` | With `template` | Path to the plist template file under `configs/signing/`. |
+| `allowed_entitlement_drops` | No | Specific entitlement keys that may be dropped if unsupported. |
+| `drop_rationale` | With drops | Explanation for why entitlements were dropped. |
 
-Entitlement modes behave as follows:
+### Entitlement Modes
 
-- `profile` uses the mapped provisioning profile entitlement document.
-- `preserve-source` rewrites reviewed team, identifier, and App Group values while
-  preserving remaining source values.
-- `template` loads a plist below `configs/signing` and permits only
-  `${TEAM_ID}`, `${APP_IDENTIFIER_PREFIX}`, `${TARGET_BUNDLE_ID}`, and
-  `${APP_GROUP:<alias>}` placeholders.
+- **`profile`**: Uses the entitlements authorized directly by the generated provisioning profile.
+- **`template`**: Injects a custom plist template with variables (`${TEAM_ID}`, `${APP_IDENTIFIER_PREFIX}`, `${TARGET_BUNDLE_ID}`, `${APP_GROUP:<alias>}`).
+- **`preserve-source`**: Preserves original entitlements from the unsigned binary while updating team and app group IDs.
 
-`manual_app_group_associations` lists aliases whose Portal relationship has been
-reviewed manually because the public API cannot inspect it. It does not bypass
-profile authorization checks.
+---
 
-Do not configure `id_strategy`, `unknown_profile_bundles`, or `profile_type`.
-Preserve-source-suffix mapping, rejection of uncovered profile-bearing bundles,
-and iOS development profiles are fixed safety invariants.
+## Global Storage & Publishing Settings
 
-## Publication layout
-
-Publication is disabled per task unless `publication_enabled = true`. Optional
-root tables control only stable layout/policy choices:
+Optionally customize Cloudflare R2 object keys and publication behavior:
 
 ```toml
 [r2]
-key_prefix = "apps"
-apps_json_key = "site/apps.json"
+key_prefix = "apps"              # Prefix for uploaded IPAs and icons
+apps_json_key = "site/apps.json" # Central registry file read by the web front-end
 
 [publication]
-batch_policy = "atomic"
+batch_policy = "atomic"          # "atomic" (all or nothing) or "independent"
 ```
 
-`batch_policy` accepts `atomic` or `independent`; production configuration should
-use the reviewed policy for the deployment. Credentials, bucket identity, and
-public origins never belong in this TOML file.
+---
 
-## Pipeline environment
+## Environment Variables
 
-Export only the categories required by the stage being run. `.env.example` shows
-the current variable names and encoding formats.
+Configure these in `.env` (for local runs) or GitHub Actions Secrets (for CI):
 
-- Apple planning/synchronization: `ASC_KEY_ID`, `ASC_ISSUER_ID`, and one supported
-  private-key input, with `ASC_BYPASS_KEYCHAIN=1` for headless operation.
-- Certificate/signing: `APPLE_DEV_CERT_P12_ENCODED`,
-  `APPLE_DEV_CERT_PASSWORD`, `ZSIGN_BIN`, and the exact `ZSIGN_SHA256`.
-- R2 publication: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-  `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`, and optional
-  `R2_REGION`.
-- Revalidation: `VERCEL_REVALIDATE_SECRET` and optional
-  `VERCEL_REVALIDATE_URL` in the pipeline.
-- CLI behavior: `GITHUB_RUN_ID` is the default run ID. Use the explicit
-  `--config` option for a non-default task file.
+| Variable | Required For | Description |
+| --- | --- | --- |
+| `ASC_KEY_ID` | Apple sync | App Store Connect API Key ID |
+| `ASC_ISSUER_ID` | Apple sync | App Store Connect Issuer ID |
+| `ASC_PRIVATE_KEY` / `ASC_PRIVATE_KEY_B64` | Apple sync | App Store Connect API Private Key (`.p8` content or base64) |
+| `ASC_BYPASS_KEYCHAIN` | Apple sync | Set `1` for headless CI environments |
+| `APPLE_DEV_CERT_P12_ENCODED` | Signing | Base64-encoded Apple Development Certificate (`.p12`) |
+| `APPLE_DEV_CERT_PASSWORD` | Signing | Password for the `.p12` file |
+| `R2_ACCOUNT_ID` | Publication | Cloudflare Account ID |
+| `R2_ACCESS_KEY_ID` | Publication | Cloudflare R2 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | Publication | Cloudflare R2 Secret Access Key |
+| `R2_BUCKET` | Publication | Cloudflare R2 Bucket Name |
+| `R2_PUBLIC_BASE_URL` | Publication | Public CDN base URL for R2 bucket |
+| `VERCEL_REVALIDATE_SECRET` | Publication | Shared secret for on-demand Next.js ISR revalidation |
+| `GITHUB_TOKEN` | GitHub sources | GitHub API token to avoid rate limits |
 
-Keep all credential values in the CI secret store. The operator runbook explains
-which stage receives each category and how to rotate it.
-
-## Web deployment environment
-
-The Next.js application has two explicit registry modes:
-
-- Validation/local build: `APPS_DATA_MODE=fixture`.
-- Production: `APPS_DATA_MODE=origin`, HTTPS `R2_APPS_JSON_URL`,
-  `REVALIDATE_SECRET`, and `SITE_PUBLIC_BASE_URL`.
-
-`VERCEL_ENV=production` rejects fixture mode. The revalidation endpoint accepts
-the shared secret only through `X-Revalidate-Secret`; query-string credentials are
-not supported. The registry decoder rejects malformed entries, duplicate slugs,
-and non-HTTPS IPA/icon URLs before rendering a page or plist.

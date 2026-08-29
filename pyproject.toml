@@ -1,7 +1,7 @@
 [project]
 name = "sideloadedipa"
 version = "1.0.0"
-description = "Automated IPA signing and distribution workflow using GitHub Actions"
+description = "Automated iOS IPA signing and OTA distribution pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.43.51",

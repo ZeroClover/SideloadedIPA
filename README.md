@@ -1,73 +1,67 @@
 # SideloadedIPA
 
-SideloadedIPA is a fail-closed pipeline for selecting, inspecting, provisioning,
-signing, verifying, and publishing iOS IPA releases. It handles nested apps and
-extensions as one bundle graph, assigns a distinct profile and entitlement policy
-to every profile-bearing bundle, and publishes only independently verified output.
+SideloadedIPA is an automated pipeline that downloads, signs, verifies, and distributes iOS IPAs. It handles complex apps with nested app extensions and frameworks, automatically synchronizes provisioning profiles via the App Store Connect API, and publishes verified builds to Cloudflare R2 with an Over-The-Air (OTA) web install portal.
 
-The repository also contains the Next.js download application in `web/`. The
-application reads one validated `apps.json` registry from Cloudflare R2 and serves
-the corresponding OTA installation manifests.
+## Features
 
-## Safety properties
+- **Multi-bundle Signing**: Signs main apps and nested extensions (e.g., LiveContainer, LiveProcess, Share/Widget extensions) with dedicated provisioning profiles and entitlement policies.
+- **Source Tracking**: Supports direct HTTPS downloads with SHA-256 pinning as well as automatic tracking of GitHub releases.
+- **Apple Developer Integration**: Automatically creates App IDs, enables required capabilities, and generates/refreshes iOS development profiles.
+- **Independent Verification**: Reopens and inspects signed IPAs to verify Mach-O signatures, embedded profiles, and XML/DER entitlement consistency before publishing.
+- **OTA Distribution**: Uploads signed IPAs and extracted icons to Cloudflare R2, updates `apps.json`, and serves an on-demand Next.js install page (`web/`).
+- **Smart Caching**: Uses content-addressed fingerprints to skip re-signing when sources, profiles, and policies are unchanged.
 
-- GitHub release selection must resolve to exactly one asset. Direct IPA URLs must
-  be HTTPS and pinned to a reviewed SHA-256 digest.
-- Downloads are bounded, streamed, digest checked, and rejected before inventory
-  or side effects when their identity changes.
-- Every stage consumes a canonical predecessor manifest bound to the run, task,
-  source, graph, and file digest. Signed output is still reopened and inspected
-  independently.
-- Unknown profile-bearing bundles, missing bundle rules, entitlement/profile
-  mismatches, invalid signatures, and tampered cache entries stop publication.
-- Apple changes are additive and explicitly gated. Publication is ordered as
-  verified output, immutable upload, atomic registry update, revalidation, then
-  stale-object cleanup.
+## Quick Start
 
-## Quick start
+### 1. Prerequisites
 
-Use the repository-pinned Python version and the exact uv version required by
-`pyproject.toml`:
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Node.js 20+ (for the web app in `web/`)
+
+### 2. Setup
 
 ```bash
 uv sync --frozen
 cp configs/tasks.toml.example configs/tasks.local.toml
 ```
 
-Edit the local task file using [the configuration reference](docs/configuration.md).
-Export credentials only for stages that require them; `.env.example` lists the
-supported names. Never commit credential values.
+Configure your apps in `configs/tasks.local.toml` (see the [Configuration Guide](docs/configuration.md)). Copy `.env.example` to `.env` if you need local environment credentials.
 
-Run a task through the visible production stages with one unique run ID:
+### 3. Running the Pipeline
+
+You can run each stage individually:
 
 ```bash
 run_id="local-$(date +%Y%m%d%H%M%S)"
 
-uv run sideloadedipa inspect --config configs/tasks.local.toml \
-  --run-id "$run_id" --task MyApp
-uv run sideloadedipa plan --config configs/tasks.local.toml \
-  --run-id "$run_id" --task MyApp
-uv run sideloadedipa sync --config configs/tasks.local.toml \
-  --run-id "$run_id" --task MyApp --apply
-uv run sideloadedipa sign --config configs/tasks.local.toml \
-  --run-id "$run_id" --task MyApp
-uv run sideloadedipa verify --config configs/tasks.local.toml \
-  --run-id "$run_id" --task MyApp
+# 1. Inspect source IPA and bundle hierarchy (read-only)
+uv run sideloadedipa inspect --config configs/tasks.local.toml --run-id "$run_id" --task MyApp
+
+# 2. Plan required Apple Developer resources (read-only)
+uv run sideloadedipa plan --config configs/tasks.local.toml --run-id "$run_id" --task MyApp
+
+# 3. Sync App IDs, capabilities, and provisioning profiles
+uv run sideloadedipa sync --config configs/tasks.local.toml --run-id "$run_id" --task MyApp --apply
+
+# 4. Sign all bundles in the IPA
+uv run sideloadedipa sign --config configs/tasks.local.toml --run-id "$run_id" --task MyApp
+
+# 5. Verify the signed IPA
+uv run sideloadedipa verify --config configs/tasks.local.toml --run-id "$run_id" --task MyApp
 ```
 
-`inspect` is read-only. Review `plan` before adding `--apply` to `sync`.
-Publication additionally requires `publication_enabled = true`, a verification
-run with `--publish`, and the R2/revalidation environment described in the
-[operator runbook](docs/operator-runbook.md). `sideloadedipa run --apply` is the
-non-publishing convenience composition; add `--publish` only for an intentional
-production publication.
+Or run all local stages in one step:
 
-Use `--json` for canonical machine-readable output and `--help` on the root or any
-subcommand for the supported CLI contract.
+```bash
+uv run sideloadedipa run --config configs/tasks.local.toml --run-id "$run_id" --task MyApp --apply
+```
 
-## Validation
+> To publish to Cloudflare R2, add `--publish` to `verify` / `publish` and ensure R2 and Vercel credentials are configured (see the [Operator Runbook](docs/operator-runbook.md)).
 
-Run the locked Python checks from the repository root:
+## Validation & Testing
+
+Run Python tests, linting, and type checking:
 
 ```bash
 uv run --frozen pytest
@@ -76,13 +70,7 @@ uv run --frozen isort --check-only src tests scripts
 uv run --frozen mypy src/sideloadedipa scripts
 ```
 
-HTML coverage is an opt-in diagnostic:
-
-```bash
-uv run --frozen pytest --cov-report=term-missing --cov-report=html
-```
-
-Validate the download application using its explicit fixture mode:
+Test and build the Next.js web application:
 
 ```bash
 cd web
@@ -91,25 +79,12 @@ npm test
 APPS_DATA_MODE=fixture npm run build
 ```
 
-Production web deployments use `APPS_DATA_MODE=origin`, an HTTPS
-`R2_APPS_JSON_URL`, `REVALIDATE_SECRET`, and `SITE_PUBLIC_BASE_URL`. Fixture mode
-is rejected when `VERCEL_ENV=production`.
-
 ## Documentation
 
-- [Configuration](docs/configuration.md) — task, source, signing, publication,
-  environment, and web settings.
-- [Architecture](docs/architecture.md) — stage ownership, evidence chain, trust
-  boundaries, cache, publication, and registry behavior.
-- [Operator runbook](docs/operator-runbook.md) — planning, applying, publishing,
-  backend qualification, retry, rollback, and device acceptance.
-- [Security](docs/security.md) — archive, credential, CI, dependency, and Apple
-  mutation controls.
-- [Troubleshooting](docs/troubleshooting.md) — typed failure diagnosis for bundle,
-  entitlement, profile, and signature problems.
-- [Migration](MIGRATION.md) — only the currently supported configuration and CLI
-  migrations.
+- [Configuration Guide](docs/configuration.md) — Task definition, source options, multi-bundle signing, and environment variables.
+- [Architecture Overview](docs/architecture.md) — Pipeline stages, evidence chain, caching model, and web distribution.
+- [Operator Runbook](docs/operator-runbook.md) — Step-by-step instructions for running, debugging, qualifying backends, and handling rollbacks.
+- [Security Model](docs/security.md) — Credential scoping, sandbox boundaries, and dependency integrity.
+- [Troubleshooting](docs/troubleshooting.md) — Solutions for common bundle, profile, entitlement, and signing errors.
+- [Migration Guide](MIGRATION.md) — Instructions for upgrading configs and command invocations.
 
-The supported repository-local OpenSpec instructions live only in `.codex/skills`.
-Historical implementation plans belong in Git history and archived OpenSpec
-changes, not in the operational documentation set.
