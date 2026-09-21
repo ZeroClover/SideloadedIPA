@@ -156,3 +156,13 @@ slug = "StikDebug"
 # icon out of the signed IPA instead.
 icon_path = "ipa:"
 publication_enabled = true
+
+[[tasks]]
+task_name = "AirCard-iOS"
+app_name = "AirCard-iOS"
+bundle_id = "io.zeroclover.app.aircard"
+repo_url = "https://github.com/Mak5er/AirCard-iOS"
+release_glob = "AirCard-iOS.ipa"
+slug = "AirCard-iOS"
+icon_path = "ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+publication_enabled = true

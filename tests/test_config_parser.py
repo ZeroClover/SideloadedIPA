@@ -43,11 +43,15 @@ def test_loads_current_production_configuration() -> None:
         "LiveContainer",
         "Reynard",
         "StikDebug",
+        "AirCard-iOS",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
     assert configuration.tasks[0].source.release_glob == "*.ipa"
-    assert configuration.tasks[-1].icon_path == "ipa:"
+    assert (
+        next(task for task in configuration.tasks if task.task_name == "StikDebug").icon_path
+        == "ipa:"
+    )
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
     assert all(task.publication_enabled for task in configuration.tasks)
@@ -131,6 +135,20 @@ def test_production_reynard_is_exactly_scoped_and_publishing() -> None:
         "com.minh-ton.Reynard.OpenIn": "io.zeroclover.app.reynard.OpenIn",
     }
     assert intents["com.minh-ton.Reynard"].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
+
+
+def test_production_aircard_tracks_unsigned_root_only_release() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "AirCard-iOS")
+
+    assert task.bundle_id == "io.zeroclover.app.aircard"
+    assert task.source.kind is SourceKind.GITHUB_RELEASE
+    assert task.source.location == "https://github.com/Mak5er/AirCard-iOS"
+    assert task.source.release_glob == "AirCard-iOS.ipa"
+    assert task.slug == "AirCard-iOS"
+    assert task.icon_path == "ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+    assert task.publication_enabled is True
+    assert task.signing is None
 
 
 def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:
