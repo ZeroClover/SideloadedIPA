@@ -103,6 +103,7 @@ def dependencies(tmp_path: Path) -> ProductionPipelineDependencies:
         ),
         manifest_root=tmp_path / "pipeline",
         report_root=tmp_path / "reports",
+        clock=lambda: NOW,
     )
 
 

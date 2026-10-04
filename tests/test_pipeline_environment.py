@@ -29,6 +29,7 @@ def test_revalidation_sends_secret_in_header_and_preserves_endpoint(
         seen["url"] = request.full_url
         seen["secret"] = request.get_header("X-revalidate-secret")
         seen["timeout"] = timeout
+        seen["method"] = request.get_method()
         return Response()
 
     monkeypatch.setattr(commands.urllib.request, "urlopen", open_url)
@@ -43,6 +44,7 @@ def test_revalidation_sends_secret_in_header_and_preserves_endpoint(
         "url": "https://example.test/revalidate?scope=apps",
         "secret": "a secret&value",
         "timeout": 30,
+        "method": "POST",
     }
 
 

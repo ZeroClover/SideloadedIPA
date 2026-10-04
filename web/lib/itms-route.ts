@@ -8,7 +8,16 @@ export async function handleItmsRequest(
   slug: string,
   loadApps: LoadApps = getApps,
 ): Promise<Response> {
-  const app = (await loadApps()).find((entry) => entry.slug === slug);
+  let apps: AppEntry[];
+  try {
+    apps = await loadApps();
+  } catch {
+    return new Response("application registry unavailable", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "60" },
+    });
+  }
+  const app = apps.find((entry) => entry.slug === slug);
   if (!app) {
     return new Response("not found", { status: 404 });
   }

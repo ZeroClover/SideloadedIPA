@@ -271,7 +271,7 @@ def test_independent_policy_allows_verified_candidates_after_other_failure(
 
 
 @pytest.mark.parametrize("failure", ["upload", "registry", "revalidate"])
-def test_failure_preserves_previous_registry_and_discards_new_uploads(
+def test_failure_preserves_previous_registry_and_cleans_only_unadvertised_uploads(
     tmp_path: Path, failure: str
 ) -> None:
     artifact = tmp_path / "Example.ipa"
@@ -287,25 +287,21 @@ def test_failure_preserves_previous_registry_and_discards_new_uploads(
         assert gateway.restored is None
         assert gateway.deleted_uploaded == ("apps/example/icon.png",)
     else:
-        assert gateway.calls[-2:] == ["restore", "delete-uploaded"]
+        assert gateway.calls[-2:] == ["restore", "revalidate"]
         assert gateway.restored == gateway.read_registry()
-        assert gateway.deleted_uploaded == (
-            "apps/example/1.2.3/Example.ipa",
-            "apps/example/icon.png",
-        )
+        assert gateway.deleted_uploaded == ()
 
 
 def test_cleanup_failure_reports_every_ipa_and_icon_key(tmp_path: Path) -> None:
     artifact = tmp_path / "Example.ipa"
     artifact.write_bytes(b"verified")
     gateway = RecordingGateway(fail_at="delete-uploaded")
-    original_publish = gateway.publish_registry
+    original_upload = gateway.upload_artifact
 
-    def fail_registry(document: object) -> tuple[str, str]:
-        original_publish(document)
-        raise OSError("injected registry failure")
+    def mismatched(value: PublicationCandidate) -> StoredArtifact:
+        return replace(original_upload(value), sha256="0" * 64)
 
-    gateway.publish_registry = fail_registry  # type: ignore[method-assign]
+    gateway.upload_artifact = mismatched  # type: ignore[method-assign]
 
     with pytest.raises(DomainError, match="cleanup was incomplete") as caught:
         VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)

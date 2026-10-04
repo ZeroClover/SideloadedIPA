@@ -88,6 +88,7 @@ def trigger_revalidation(environment: Mapping[str, str]) -> bool:
     request = urllib.request.Request(
         endpoint,
         headers={"X-Revalidate-Secret": secret},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:

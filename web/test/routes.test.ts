@@ -16,16 +16,17 @@ const app: AppEntry = {
 
 describe("registry revalidation request", () => {
   it("rejects a query-string or incorrect secret without changing cache state", async () => {
-    const calls: Array<[string, string]> = [];
-    const revalidate = (tag: string, profile: string) => calls.push([tag, profile]);
+    const calls: Array<[string, { expire: 0 }]> = [];
+    const revalidate = (tag: string, profile: { expire: 0 }) => calls.push([tag, profile]);
 
     const queryOnly = await handleRevalidation(
-      new Request("https://site.example/api/revalidate?secret=reviewed-secret"),
+      new Request("https://site.example/api/revalidate?secret=reviewed-secret", { method: "POST" }),
       "reviewed-secret",
       revalidate,
     );
     const incorrect = await handleRevalidation(
       new Request("https://site.example/api/revalidate", {
+        method: "POST",
         headers: { "x-revalidate-secret": "wrong" },
       }),
       "reviewed-secret",
@@ -37,10 +38,11 @@ describe("registry revalidation request", () => {
     assert.deepEqual(calls, []);
   });
 
-  it("marks only the apps tag stale with the max profile", async () => {
-    const calls: Array<[string, string]> = [];
+  it("expires only the apps tag immediately", async () => {
+    const calls: Array<[string, { expire: 0 }]> = [];
     const response = await handleRevalidation(
       new Request("https://site.example/api/revalidate", {
+        method: "POST",
         headers: { "x-revalidate-secret": "reviewed-secret" },
       }),
       "reviewed-secret",
@@ -48,7 +50,8 @@ describe("registry revalidation request", () => {
     );
 
     assert.equal(response.status, 200);
-    assert.deepEqual(calls, [["apps", "max"]]);
+    assert.deepEqual(calls, [["apps", { expire: 0 }]]);
+    assert.equal(response.headers.get("cache-control"), "no-store");
     assert.doesNotMatch(await response.text(), /reviewed-secret/);
   });
 });
@@ -77,11 +80,13 @@ describe("ITMS request", () => {
     assert.equal(await response.text(), "not found");
   });
 
-  it("propagates registry failures instead of synthesizing an empty catalog", async () => {
-    await assert.rejects(() =>
-      handleItmsRequest("special", async () => {
-        throw new Error("registry unavailable");
-      }),
-    );
+  it("returns a redacted noncacheable 503 for dependency failures", async () => {
+    const response = await handleItmsRequest("special", async () => {
+      throw new Error("private origin detail");
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("retry-after"), "60");
+    assert.doesNotMatch(await response.text(), /private/);
   });
 });

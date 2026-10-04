@@ -24,6 +24,7 @@ class FakeR2Store:
     failures_remaining: int = 0
     registry_failures_remaining: int = 0
     upload_attempts: int = 0
+    protected_keys: set[str] = field(default_factory=set)
     registry_attempts: list[dict[str, object]] = field(default_factory=list)
 
     def download_json(self, key: str) -> dict[str, object] | None:
@@ -41,8 +42,8 @@ class FakeR2Store:
         self.objects[key] = path.read_bytes()
         return f"{self.public_base_url}/{key}"
 
-    def download_bytes(self, key: str) -> bytes:
-        return self.objects[key]
+    def object_sha256(self, key: str) -> str:
+        return hashlib.sha256(self.objects[key]).hexdigest()
 
     def upload_json(self, key: str, payload: dict[str, object]) -> str:
         assert key == self.apps_json_key
@@ -52,6 +53,9 @@ class FakeR2Store:
             raise OSError("transient registry write")
         self.registry = payload
         return f"{self.public_base_url}/{key}"
+
+    def protect_keys(self, keys: set[str]) -> None:
+        self.protected_keys.update(keys)
 
     def delete_keys(self, keys: list[str]) -> None:
         for key in keys:
@@ -83,9 +87,23 @@ def test_adapter_uploads_and_confirms_artifact_through_r2_api(tmp_path: Path) ->
 
     stored = gateway(FakeR2Store()).upload_artifact(value)
 
-    assert stored.key == f"apps/example/1.2.3/{value.artifact_sha256[:12]}-Example.ipa"
+    assert stored.key == f"apps/example/1.2.3/{value.artifact_sha256}-Example.ipa"
     assert stored.sha256 == hashlib.sha256(b"verified").hexdigest()
     assert stored.size == len(b"verified")
+
+
+def test_same_version_resigning_preserves_both_content_identities(tmp_path: Path) -> None:
+    path = tmp_path / "Example.ipa"
+    store = FakeR2Store()
+    adapter = gateway(store)
+    path.write_bytes(b"first signature")
+    first = adapter.upload_artifact(candidate(path))
+    path.write_bytes(b"replacement signature")
+    second = adapter.upload_artifact(candidate(path))
+    assert first.key != second.key
+    assert first.sha256 in first.key and second.sha256 in second.key
+    assert store.objects[first.key] == b"first signature"
+    assert store.objects[second.key] == b"replacement signature"
 
 
 def test_content_addressed_upload_retries_with_same_key(tmp_path: Path) -> None:
@@ -120,6 +138,7 @@ def test_adapter_delegates_registry_revalidation_and_cleanup() -> None:
     assert key == "site/apps.json"
     assert len(digest) == 64
     assert store.registry == document
+    assert store.protected_keys == {"apps/example/1.2.3/Example.ipa"}
     assert adapter.object_key_from_url(ipa_url) == "apps/example/1.2.3/Example.ipa"
     assert removed == ("apps/example/1.0/Example.ipa",)
 

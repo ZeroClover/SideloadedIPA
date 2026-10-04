@@ -123,10 +123,12 @@ describe("apps registry data mode and cache contract", () => {
     });
 
     assert.deepEqual(apps, validRegistry.apps);
+    assert.ok(calls[0].init.signal instanceof AbortSignal);
+    assert.equal(calls[0].init.signal.aborted, false);
     assert.deepEqual(calls, [
       {
         url: "https://downloads.example/site/apps.json",
-        init: { cache: "force-cache", next: { tags: ["apps"] } },
+        init: { cache: "force-cache", next: { tags: ["apps"], revalidate: 60 }, signal: calls[0].init.signal },
       },
     ]);
   });

@@ -6,6 +6,6 @@ import { handleRevalidation } from "@/lib/revalidation";
  * this endpoint with the shared secret to invalidate the 'apps' cache tag.
  * The next page / plist request then re-reads apps.json — no redeploy needed.
  */
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   return handleRevalidation(request, process.env.REVALIDATE_SECRET, revalidateTag);
 }

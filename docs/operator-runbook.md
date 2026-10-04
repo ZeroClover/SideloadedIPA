@@ -139,6 +139,23 @@ On macOS with an active Apple Development certificate in Keychain, pass `--codes
 
 ## 5. Rollback & Failure Recovery
 
+### Immutable builds and retirement
+
+- IPA filenames include the full signed-content SHA-256. A same-version re-sign gets a different URL; retries and unchanged verified cache hits keep the same URL.
+- A successful publication preserves both current and immediately preceding registry references. Later runs mark unreferenced managed IPAs/icons in `<registry-key>.gc.json`; deletion starts only after **48 hours from that first observation**, never from upload age.
+- Scheduled publication still runs for verified cache hits, refreshing the web cache and progressing retirement without requiring a new upstream release. Cleanup is scoped to selected task slugs and previously recorded retirements; unrelated objects/manual namespaces are not swept.
+- Do not delete or edit retirement state during normal operations. A missing sidecar conservatively restarts grace; corrupt or inaccessible state stops cleanup. Partial deletion failures remain retryable.
+- Only one publisher may run at a time. Keep Actions concurrency enabled and do not publish locally while Actions or another local publisher is running.
+- Once a registry write was attempted, rollback retains potentially advertised uploads for retirement rather than deleting links that clients may already hold. If rollback cache expiry fails, retry publication; do not manually delete those artifacts.
+
+### Coordinated web deployment
+
+Deploy the web route and publisher together: `/api/revalidate` now accepts **POST only**, with the existing `X-Revalidate-Secret` header. Authenticated POST immediately expires the `apps` tag; GET returns 405. The secret must match the web deployment's `REVALIDATE_SECRET`.
+
+Registry and GC JSON use `Cache-Control: no-store` at R2. Exempt these paths from Cloudflare cache overrides and purge any old cached registry once during rollout. Next owns the tagged registry cache (60-second refresh interval, 10-second origin timeout). Initial manifest dependency failures return non-cacheable 503 rather than an empty catalog or 404. Artifact/image immutable caching is unchanged.
+
+Do not roll back to the immediate-deletion implementation while retained client manifests can still be in use.
+
 - **Atomic Publishing**: If signing, verification, or R2 uploads fail, the existing `site/apps.json` registry is left untouched. Users will continue seeing the previous stable version.
 - **Rollback Procedure**: To roll back a published app:
   1. Revert the task configuration in `configs/tasks.toml`.

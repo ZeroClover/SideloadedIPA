@@ -76,5 +76,5 @@ The repository includes a Next.js front-end in `web/` that provides an Over-The-
 
 - **Data Source**: Reads the validated `site/apps.json` registry from Cloudflare R2.
 - **OTA Manifests**: Serves dynamic `/apps/[slug]/itms.plist` endpoints formatted for iOS Safari's `itms-services://` protocol.
-- **Cache & Revalidation**: Uses Next.js data cache tagged with `apps`. When the pipeline publishes new builds, it calls `/api/revalidate` with `X-Revalidate-Secret` to refresh the catalog immediately without full site redeploys.
+- **Cache & Revalidation**: Uses Next.js data cache tagged with `apps`. When the pipeline publishes new builds, it sends POST `/api/revalidate` with `X-Revalidate-Secret` to expire the catalog cache immediately without full site redeploys.
 

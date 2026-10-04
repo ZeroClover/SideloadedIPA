@@ -3,6 +3,7 @@
 import fixtureRegistry from "@/fixtures/apps.json";
 
 const SLUG_PATTERN = /^[A-Za-z0-9._-]+$/;
+const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/u;
 
 export interface AppEntry {
   slug: string;
@@ -26,7 +27,7 @@ export class AppsRegistryError extends Error {
 
 export interface RegistryRequestInit extends RequestInit {
   cache: "force-cache";
-  next: { tags: ["apps"] };
+  next: { tags: ["apps"]; revalidate: 60 };
 }
 
 export type RegistryFetch = (url: string, init: RegistryRequestInit) => Promise<Response>;
@@ -49,7 +50,7 @@ function objectValue(value: unknown, field: string): Record<string, unknown> {
 }
 
 function stringValue(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim() === "") {
+  if (typeof value !== "string" || value.trim() === "" || INVALID_XML.test(value)) {
     fail(field, "application registry field must be a non-empty string");
   }
   return value.trim();
@@ -70,7 +71,9 @@ function httpsUrl(value: unknown, field: string, allowEmpty = false): string {
     parsed.protocol !== "https:" ||
     parsed.hostname === "" ||
     parsed.username !== "" ||
-    parsed.password !== ""
+    parsed.password !== "" ||
+    parsed.hash !== "" ||
+    /\s/.test(text)
   ) {
     fail(field, "application registry URL must be valid HTTPS");
   }
@@ -81,7 +84,7 @@ function decodeEntry(value: unknown, index: number, slugs: Set<string>): AppEntr
   const field = `apps[${index}]`;
   const entry = objectValue(value, field);
   const slug = stringValue(entry.slug, `${field}.slug`);
-  if (!SLUG_PATTERN.test(slug) || slugs.has(slug)) {
+  if (!SLUG_PATTERN.test(slug) || slug === "." || slug === ".." || slugs.has(slug)) {
     fail(`${field}.slug`, "application slug is invalid or duplicated");
   }
   slugs.add(slug);
@@ -120,7 +123,8 @@ async function readOrigin(url: string, fetcher: RegistryFetch): Promise<AppEntry
   try {
     response = await fetcher(url, {
       cache: "force-cache",
-      next: { tags: ["apps"] },
+      next: { tags: ["apps"], revalidate: 60 },
+      signal: AbortSignal.timeout(10_000),
     });
   } catch {
     fail("origin", "application registry origin request failed");

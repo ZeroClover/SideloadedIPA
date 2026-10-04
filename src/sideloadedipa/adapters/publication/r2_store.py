@@ -3,7 +3,7 @@
 
 The bucket holds every publishable artifact of the signing pipeline:
 
-    apps/<slug>/<version>/<App>.ipa   # versioned IPA (immutable, one per release)
+    apps/<slug>/<version>/<sha256>-<App>.ipa  # immutable signed build
     apps/<slug>/icon-<sha12>.png      # card icon (immutable, keyed by content)
                                       # (see ICON_CACHE_CONTROL: also no-transform)
     site/apps.json                    # the single data source for page + plist
@@ -32,15 +32,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import Mapping
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote, unquote, urlsplit
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from sideloadedipa.errors import ConfigurationError, ErrorCode
+from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 
 # Headers for versioned IPA objects: keys are never reused across releases, so
 # they can be cached forever. Content-Type follows Apple's OTA deployment guide.
@@ -48,9 +52,10 @@ IPA_CONTENT_TYPE = "application/octet-stream"
 IPA_CONTENT_DISPOSITION = "attachment"
 IPA_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
-# apps.json is the page/plist data source; keep it short-cached at the edge.
+# Next owns the registry cache; R2/CDN must not serve a stale promotion.
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
-JSON_CACHE_CONTROL = "public, max-age=60"
+JSON_CACHE_CONTROL = "no-store"
+RETIREMENT_GRACE = timedelta(hours=48)
 
 # Icons are content-addressed (apps/<slug>/icon-<sha12>.png), so a refreshed
 # icon lands on a NEW key and is visible immediately — no purge needed, which
@@ -109,6 +114,11 @@ class R2Store:
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
             region_name=region,
+            config=Config(
+                connect_timeout=10,
+                read_timeout=60,
+                retries={"mode": "standard", "total_max_attempts": 3},
+            ),
         )
 
     @classmethod
@@ -143,6 +153,15 @@ class R2Store:
 
     def ipa_key(self, slug: str, version: str, filename: str) -> str:
         """Versioned object key for a signed IPA: ``apps/<slug>/<version>/<file>``."""
+        for part in (slug, version, filename):
+            if (
+                not part
+                or part in {".", ".."}
+                or "/" in part
+                or "\\" in part
+                or any(ord(char) < 32 for char in part)
+            ):
+                raise DomainError(ErrorCode.PUBLICATION_FAILED, "invalid IPA object key component")
         return f"{self.key_prefix}/{slug}/{version}/{filename}"
 
     def icon_key(self, slug: str, png_bytes: bytes) -> str:
@@ -155,13 +174,17 @@ class R2Store:
         return f"{self.key_prefix}/{slug}/icon-{digest}.png"
 
     def public_url(self, key: str) -> str:
-        return f"{self.public_base_url}/{key}"
+        return f"{self.public_base_url}/{quote(key, safe='/')}"
 
     def key_from_url(self, url: str) -> Optional[str]:
         """Map a public URL back to its object key; ``None`` if not on this bucket."""
-        prefix = f"{self.public_base_url}/"
-        if url.startswith(prefix):
-            return url[len(prefix) :]
+        parsed = urlsplit(url)
+        base = urlsplit(self.public_base_url)
+        prefix = f"{base.path}/"
+        if (parsed.scheme, parsed.netloc) == (base.scheme, base.netloc) and parsed.path.startswith(
+            prefix
+        ):
+            return unquote(parsed.path[len(prefix) :])
         return None
 
     # ── uploads ──────────────────────────────────────────────────────────
@@ -223,63 +246,151 @@ class R2Store:
 
     # ── downloads ────────────────────────────────────────────────────────
 
-    def download_bytes(self, key: str) -> bytes:
-        """Fetch an object's raw bytes; raises ``ClientError`` when it is missing."""
-        response = self._client.get_object(Bucket=self.bucket, Key=key)
-        body: bytes = response["Body"].read()
-        return body
+    def object_sha256(self, key: str) -> str:
+        """Confirm remote bytes without loading an entire IPA into memory."""
+        body = self._client.get_object(Bucket=self.bucket, Key=key)["Body"]
+        digest = hashlib.sha256()
+        try:
+            while chunk := body.read(1024 * 1024):
+                digest.update(chunk)
+        finally:
+            body.close()
+        return digest.hexdigest()
 
     def download_json(self, key: str) -> Optional[dict[str, Any]]:
         """Fetch and parse a JSON object; ``None`` when the key does not exist."""
         try:
             response = self._client.get_object(Bucket=self.bucket, Key=key)
         except ClientError as e:
-            if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "NoSuchBucket", "404"):
+            if e.response.get("Error", {}).get("Code") == "NoSuchKey":
                 return None
             raise
-        data: dict[str, Any] = json.loads(response["Body"].read().decode("utf-8"))
+        body = response["Body"]
+        try:
+            data = json.loads(body.read().decode("utf-8"))
+        finally:
+            body.close()
+        if not isinstance(data, dict):
+            raise DomainError(ErrorCode.PUBLICATION_FAILED, "stored JSON must be an object")
         return data
 
-    # ── stale-version cleanup (D7) ───────────────────────────────────────
+    # ── durable retired-object cleanup ──────────────────────────────────
 
-    def cleanup_stale(self, slugs: list[str], referenced_keys: set[str]) -> list[str]:
-        """Delete objects under ``apps/<slug>/`` that apps.json no longer references.
+    def _managed_key(self, key: str) -> bool:
+        prefix = f"{self.key_prefix}/"
+        if not key.startswith(prefix):
+            return False
+        parts = key[len(prefix) :].split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            return False
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", parts[0]):
+            return False
+        return (len(parts) == 3 and parts[-1].endswith(".ipa")) or (
+            len(parts) == 2 and re.fullmatch(r"icon(?:-[a-f0-9]{12})?\.png", parts[-1]) is not None
+        )
 
-        Covers superseded IPA versions and superseded content-addressed icons
-        alike. The whitelist is derived from the *current* apps.json reference
-        set (not from time), so a key is only ever deleted once nothing points
-        at it — an app whose icon refresh was skipped keeps the icon its entry
-        still names.
-        Only the given slugs (the ones this run rebuilt) are inspected — manual
-        app entries are never touched. Returns the list of deleted keys.
+    def _retired_keys(self) -> dict[str, datetime]:
+        document = self.download_json(f"{self.apps_json_key}.gc.json")
+        if document is None:
+            return {}
+        raw = document.get("retired")
+        if document.get("version") != 1 or not isinstance(raw, dict):
+            raise DomainError(ErrorCode.PUBLICATION_FAILED, "invalid artifact retirement state")
+        retired: dict[str, datetime] = {}
+        for key, value in raw.items():
+            if not self._managed_key(key) or not isinstance(value, str):
+                raise DomainError(ErrorCode.PUBLICATION_FAILED, "invalid artifact retirement entry")
+            try:
+                timestamp = datetime.fromisoformat(value)
+            except ValueError as error:
+                raise DomainError(
+                    ErrorCode.PUBLICATION_FAILED, "invalid retirement timestamp"
+                ) from error
+            if timestamp.tzinfo is None:
+                raise DomainError(
+                    ErrorCode.PUBLICATION_FAILED, "retirement timestamp lacks timezone"
+                )
+            retired[key] = timestamp
+        return retired
+
+    def _save_retired(self, retired: dict[str, datetime]) -> None:
+        self.upload_json(
+            f"{self.apps_json_key}.gc.json",
+            {
+                "version": 1,
+                "retired": {key: value.isoformat() for key, value in sorted(retired.items())},
+            },
+        )
+
+    def protect_keys(self, keys: set[str]) -> None:
+        """Reset retirement before advertising a previously retired artifact again."""
+        retired = self._retired_keys()
+        pending = {key: since for key, since in retired.items() if key not in keys}
+        if pending != retired:
+            self._save_retired(pending)
+
+    def cleanup_stale(
+        self,
+        slugs: list[str],
+        referenced_keys: set[str],
+        *,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """Retire managed objects; delete only after 48 hours of non-reference.
+
+        A single publisher is required. Persist marks before deletion so a
+        partial failure can safely resume. Pending slugs remain in scope even
+        when a later run selects different tasks. Never use object upload age.
         """
-        deleted: list[str] = []
-        for slug in slugs:
-            prefix = f"{self.key_prefix}/{slug}/"
-            keys: list[str] = []
-            paginator = self._client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+        observed_at = now or datetime.now(timezone.utc)
+        if observed_at.tzinfo is None:
+            raise ValueError("retirement observation requires an aware timestamp")
+        retired = self._retired_keys()
+        prefix = f"{self.key_prefix}/"
+        scopes = set(slugs) | {key[len(prefix) :].split("/", 1)[0] for key in retired}
+        if any(
+            not re.fullmatch(r"[A-Za-z0-9._-]+", slug) or slug in {".", ".."} for slug in scopes
+        ):
+            raise ValueError("invalid artifact cleanup slug")
+        present: set[str] = set()
+        paginator = self._client.get_paginator("list_objects_v2")
+        for slug in sorted(scopes):
+            scope = f"{prefix}{slug}/"
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=scope):
                 for obj in page.get("Contents", []):
-                    keys.append(obj["Key"])
-
-            stale = [key for key in keys if key not in referenced_keys]
-            if not stale:
-                continue
-            self.delete_keys(stale)
-            deleted.extend(stale)
-        return deleted
+                    key = obj["Key"]
+                    if key.startswith(scope) and self._managed_key(key):
+                        present.add(key)
+        pending = {key: retired.get(key, observed_at) for key in present - referenced_keys}
+        # Do not drop a new timestamp merely because a later deletion fails.
+        if pending != retired:
+            self._save_retired(pending)
+        expired = sorted(
+            key for key, since in pending.items() if observed_at - since >= RETIREMENT_GRACE
+        )
+        self.delete_keys(expired)
+        if expired:
+            removed = set(expired)
+            self._save_retired({key: since for key, since in pending.items() if key not in removed})
+        return expired
 
     def delete_keys(self, keys: list[str]) -> None:
-        """Delete the given object keys in one batch."""
-        if not keys:
-            return
-        # S3 delete_objects accepts up to 1000 keys per call; our volumes are tiny.
-        self._client.delete_objects(
-            Bucket=self.bucket,
-            Delete={"Objects": [{"Key": key} for key in keys]},
-        )
-        for key in keys:
-            print(f"[info] Deleted object: {key}")
+        """Delete in S3-sized batches and reject per-object failures."""
+        for offset in range(0, len(keys), 1000):
+            batch = keys[offset : offset + 1000]
+            response = self._client.delete_objects(
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": key} for key in batch]},
+            )
+            if response.get("Errors"):
+                raise DomainError(
+                    ErrorCode.PUBLICATION_FAILED,
+                    "R2 object deletion was incomplete",
+                    remediation="retain retirement state and retry cleanup on the next successful run",
+                    safe_details=(("attempted_keys", tuple(batch)),),
+                )
+            for key in batch:
+                print(f"[info] Deleted object: {key}")
 
 
 def main() -> int:  # pragma: no cover - manual smoke helper

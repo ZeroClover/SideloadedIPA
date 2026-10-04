@@ -216,18 +216,16 @@ class VerifiedPublicationService:
                     "registry publication and rollback both failed",
                     remediation="restore the previous registry snapshot before another publication",
                 ) from rollback_error
-            unreferenced_keys = _unreferenced_upload_keys(
-                self.gateway, current, artifacts, new_icon_keys
-            )
+            # A failed write can still have reached R2, and clients may already
+            # hold the temporary registry. Keep uploads for the retirement sweep.
             try:
-                self.gateway.delete_uploaded(unreferenced_keys)
-            except Exception as cleanup_error:
+                self.gateway.revalidate()
+            except Exception as refresh_error:
                 raise DomainError(
                     ErrorCode.PUBLICATION_FAILED,
-                    "registry publication failed and compensating upload cleanup was incomplete",
-                    remediation="delete the reported unreferenced upload keys before retrying",
-                    safe_details=(("unreferenced_keys", unreferenced_keys),),
-                ) from cleanup_error
+                    "previous registry restored but cache expiry failed; uploads retained",
+                    remediation="retry publication; do not delete potentially advertised artifacts",
+                ) from refresh_error
             if isinstance(error, DomainError):
                 raise
             raise DomainError(
@@ -237,7 +235,7 @@ class VerifiedPublicationService:
             ) from error
         stale = self.gateway.cleanup_stale(
             [candidate.slug for candidate in candidates],
-            _referenced_keys(self.gateway, document),
+            _referenced_keys(self.gateway, document) | previous_keys,
         )
         return tuple(
             PublicationResult(

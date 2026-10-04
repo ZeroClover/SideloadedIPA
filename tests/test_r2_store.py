@@ -1,8 +1,9 @@
-"""Tests for scripts/r2_store.py - Cloudflare R2 (S3-compatible) storage wrapper."""
+"""Tests for the Cloudflare R2 storage adapter and S3 request contracts."""
 
 import hashlib
 import io
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -86,7 +87,11 @@ class TestFromEnv:
             # region is always explicit: ambient AWS config (e.g. ap-northeast-1)
             # is rejected by R2 with InvalidRegionName
             region_name="auto",
+            config=ANY,
         )
+        config = mock_client.call_args.kwargs["config"]
+        assert (config.connect_timeout, config.read_timeout) == (10, 60)
+        assert config.retries["total_max_attempts"] == 3
 
     def test_region_pinned_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """R2_REGION pins the signing region to the bucket's location hint."""
@@ -212,6 +217,15 @@ class TestCleanupStale:
         paginator = MagicMock()
         paginator.paginate.return_value = pages
         client.get_paginator.return_value = paginator
+        retired = {
+            obj["Key"]: (datetime.now(timezone.utc) - timedelta(hours=49)).isoformat()
+            for page in pages
+            for obj in page.get("Contents", [])
+        }
+        client.get_object.return_value = {
+            "Body": io.BytesIO(json.dumps({"version": 1, "retired": retired}).encode())
+        }
+        client.delete_objects.return_value = {}
 
     def test_deletes_only_unreferenced_keys(self) -> None:
         client = MagicMock()
@@ -361,7 +375,7 @@ class TestStubbedR2Contracts:
 
         with stubber:
             assert store.upload_ipa(artifact, key) == f"{BASE_URL}/{key}"
-            assert store.download_bytes(key) == b"verified"
+            assert store.object_sha256(key) == hashlib.sha256(b"verified").hexdigest()
         stubber.assert_no_pending_responses()
 
     def test_registry_round_trip_uses_exact_document(self) -> None:
@@ -394,6 +408,12 @@ class TestStubbedR2Contracts:
         store, stubber = _stubbed_store()
         current = "apps/example/1.0/Example.ipa"
         stale = "apps/example/0.9/Example.ipa"
+        state = {"version": 1, "retired": {stale: "2020-01-01T00:00:00+00:00"}}
+        stubber.add_response(
+            "get_object",
+            {"Body": io.BytesIO(json.dumps(state).encode())},
+            {"Bucket": "zeroclover-ipa", "Key": "site/apps.json.gc.json"},
+        )
         stubber.add_response(
             "list_objects_v2",
             {"IsTruncated": False, "Contents": [{"Key": current}, {"Key": stale}]},
@@ -408,6 +428,17 @@ class TestStubbedR2Contracts:
             },
         )
 
+        stubber.add_response(
+            "put_object",
+            {},
+            {
+                "Bucket": "zeroclover-ipa",
+                "Key": "site/apps.json.gc.json",
+                "Body": ANY,
+                "ContentType": JSON_CONTENT_TYPE,
+                "CacheControl": "no-store",
+            },
+        )
         with stubber:
             assert store.cleanup_stale(["example"], {current}) == [stale]
         stubber.assert_no_pending_responses()

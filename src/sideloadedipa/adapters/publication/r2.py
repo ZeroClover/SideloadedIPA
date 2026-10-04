@@ -71,12 +71,12 @@ class R2PublicationGateway:
 
     def upload_artifact(self, candidate: PublicationCandidate) -> StoredArtifact:
         path = Path(candidate.artifact_path)
-        immutable_filename = f"{candidate.artifact_sha256[:12]}-{candidate.filename}"
+        immutable_filename = f"{candidate.artifact_sha256}-{candidate.filename}"
         key = self._store.ipa_key(candidate.slug, candidate.version, immutable_filename)
 
         def upload_and_confirm() -> tuple[str, str]:
             url = self._store.upload_ipa(path, key)
-            stored_sha256 = hashlib.sha256(self._store.download_bytes(key)).hexdigest()
+            stored_sha256 = self._store.object_sha256(key)
             return url, stored_sha256
 
         url, stored_sha256 = cast(
@@ -91,6 +91,20 @@ class R2PublicationGateway:
 
     def publish_registry(self, document: Mapping[str, object]) -> tuple[str, str]:
         payload = dict(document)
+        apps = payload.get("apps", [])
+        if not isinstance(apps, list):
+            raise DomainError(ErrorCode.PUBLICATION_FAILED, "registry apps must be a list")
+        keys = {
+            key
+            for app in apps
+            if isinstance(app, dict)
+            for field in ("ipaUrl", "iconUrl")
+            if isinstance(url := app.get(field), str)
+            if (key := self._store.key_from_url(url)) is not None
+        }
+        # A failed promotion may still be observed publicly. Reset old GC marks
+        # before its write, not only after successful revalidation.
+        self._store.protect_keys(keys)
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
         digest = hashlib.sha256(body).hexdigest()
         self._retry(
