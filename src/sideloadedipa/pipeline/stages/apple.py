@@ -69,6 +69,8 @@ class AppleStage:
         configuration: TaskConfiguration,
         journal: SideEffectJournal | None,
     ) -> CommandResult:
+        if not request.apply:
+            return self.plan(request, contexts, configuration)
         store = self.evidence.store(request.run_id)
         apple_request = replace(
             request,

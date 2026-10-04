@@ -1,91 +1,91 @@
 # workflow-optimization Specification
 
 ## Purpose
-TBD - created by archiving change add-ci-caching-optimization. Update Purpose after archive.
+Define rebuild and cache decisions without losing signing-input freshness or publication correctness.
+
 ## Requirements
+
 ### Requirement: Change Detection Logic
-The system SHALL determine rebuild work from complete source identity and cache evidence rather than source kind alone.
+The system SHALL determine signing rebuild work per selected task from its complete signing fingerprint, cache schema, verification evidence and force policy rather than source kind or release version alone.
 
-#### Scenario: Determine rebuild list
-- **WHEN** the workflow starts after cache restoration
-- **THEN** the system SHALL create a rebuild list of tasks requiring execution
-- **AND** the list SHALL include tasks with release identity changes, direct URL or digest changes, new tasks, invalid cache evidence, or forced rebuild policy
+#### Scenario: Determine signing decisions
+- **WHEN** current fingerprints are compared with restored cache records
+- **THEN** each selected task SHALL receive a rebuild decision and reason
+- **AND** missing records, incompatible schema, changed fingerprint, unverified records or force policy SHALL prevent unchanged reuse
 
-#### Scenario: Skip unchanged GitHub release tasks
-- **WHEN** a task uses GitHub release tracking
-- **AND** the resolved release and asset identity match the complete cached fingerprint
-- **AND** `rebuild_all` is false
-- **THEN** the task SHALL be eligible for cache reuse through current prerequisite and full-artifact verification
-- **AND** the system SHALL report that the source identity is unchanged
+#### Scenario: Reuse unchanged GitHub or direct sources
+- **WHEN** a task's complete fingerprint matches its verified record and no force request applies
+- **THEN** it MAY reuse the artifact only after current-prerequisite, artifact-identity and retained signing-report checks
+- **AND** it SHALL still pass independent verification before publication
+- **AND** direct URL source kind alone SHALL NOT force a rebuild
 
-#### Scenario: Reuse an unchanged direct URL task
-- **WHEN** a direct task's configured URL and `ipa_sha256` match the complete cached fingerprint
-- **AND** `rebuild_all` is false
-- **THEN** the task SHALL be eligible for the same guarded cache-reuse path as an unchanged GitHub source
-- **AND** source kind alone SHALL NOT force a rebuild
+#### Scenario: Source or other signing input changes
+- **WHEN** selected source identity/bytes, direct URL/digest, profile/device evidence, policy or tool identity changes the complete fingerprint
+- **THEN** the affected selected task SHALL rebuild
+- **AND** diagnostics SHALL report changed-input work without exposing secrets
 
-#### Scenario: Direct URL identity changes
-- **WHEN** either the configured direct URL or `ipa_sha256` differs from cached evidence
-- **THEN** the system SHALL rebuild the task
-- **AND** the rebuild reason SHALL identify source identity change without exposing credentials
+#### Scenario: Operator forces rebuild
+- **WHEN** force_rebuild is enabled in the workflow or --force-rebuild is passed to signing
+- **THEN** every selected task SHALL rebuild regardless of otherwise reusable cache identity
+- **AND** current profile and certificate validation SHALL remain required
 
-#### Scenario: Always rebuild new tasks
-- **WHEN** a task exists in `tasks.toml` but has no complete cache record
-- **THEN** the system SHALL include the task in the rebuild list
-- **AND** the system SHALL report that initial processing is required
-
-#### Scenario: Operator forces a rebuild
-- **WHEN** `rebuild_all` is true
-- **THEN** every selected task SHALL rebuild regardless of otherwise reusable source or cache identity
+#### Scenario: Apparent hit fails reuse checks
+- **WHEN** artifact, prerequisite, profile freshness or retained signing-report evidence fails validation
+- **THEN** that cache hit SHALL be rejected and the task rebuilt from current validated inputs
+- **AND** failed independent output verification SHALL block publication
 
 ### Requirement: Conditional Execution
+The system SHALL skip signing-backend execution only for validated cache hits, while retaining verification and authorized publication for all selected tasks.
 
-The system SHALL execute signing and upload steps only for tasks in the rebuild list.
+#### Scenario: Restore without re-signing
+- **WHEN** a selected task passes signing-cache reuse checks
+- **THEN** its content-bound artifact SHALL be restored without signing-backend execution
+- **AND** the workflow SHALL continue through independent verification
 
-#### Scenario: Process only tasks in rebuild list
+#### Scenario: Publish verified cache hits
+- **WHEN** publication is authorized and a selected task reused its signed artifact
+- **THEN** it SHALL still enter the publication transaction
+- **AND** unchanged bytes SHALL retain their immutable URL
+- **AND** successful revalidation SHALL allow durable retirement cleanup to progress
 
-- **WHEN** executing the signing workflow
-- **THEN** the system SHALL iterate only over tasks in the rebuild list
-- **AND** the system SHALL skip tasks not in the rebuild list
-- **AND** the system SHALL log the count of processed vs skipped tasks
-
-#### Scenario: Log execution summary
-
-- **WHEN** the workflow completes
-- **THEN** the system SHALL log the total number of tasks
-- **AND** the system SHALL log the number of tasks rebuilt
-- **AND** the system SHALL log the number of tasks skipped
-- **AND** the system SHALL log the reason for rebuild (device change, version change, new task, etc.)
+#### Scenario: Report decisions
+- **WHEN** signing finishes for selected tasks
+- **THEN** structured decision evidence SHALL identify each task, its rebuild/reuse decision and reason
+- **AND** a cache hit SHALL NOT mean its correctness or publication stages were omitted
 
 ### Requirement: Cache State Management
+The system SHALL maintain a digest-verified signing index and content-bound artifact/report evidence in the package-owned cache and promote only independently verified records.
 
-The system SHALL maintain and update cache state files throughout the workflow.
+#### Scenario: Restore durable cache
+- **WHEN** the workflow restores signing state
+- **THEN** it SHALL restore work/cache through the pinned cache action
+- **AND** package code SHALL consume signing-index.json and referenced artifact/report evidence
+- **AND** separate release-version and device-list files SHALL NOT be parallel decision authorities
 
-#### Scenario: Restore cache at workflow start
+#### Scenario: Missing or malformed index
+- **WHEN** no durable signing index exists
+- **THEN** selected tasks SHALL require first-run signing
+- **WHEN** an existing index has invalid structure or a mismatched digest
+- **THEN** its records SHALL be rejected without using them as successful evidence
 
-- **WHEN** the workflow starts
-- **THEN** the system SHALL restore both `release-versions.json` and `device-list.json` from cache
-- **AND** the system SHALL use GitHub Actions cache restore action
-- **AND** the system SHALL handle cache miss gracefully
+#### Scenario: Pending signing state
+- **WHEN** signing finishes before independent verification
+- **THEN** pending records SHALL remain separate from the durable signing index
+- **AND** unverified records SHALL NOT qualify as reusable success
+- **AND** unrelated verified task records SHALL be preserved
 
-#### Scenario: Update release version cache
+#### Scenario: Promote a verified non-publishing run
+- **WHEN** independent verification succeeds and publication is not requested
+- **THEN** the package SHALL promote the verified pending index
+- **AND** recorded artifact identity SHALL agree with independently verified bytes
 
-- **WHEN** a task with GitHub release tracking is successfully processed
-- **THEN** the system SHALL update `release-versions.json` with the new version, timestamp, and download URL
-- **AND** the system SHALL preserve entries for other tasks
-- **AND** the system SHALL update the `last_updated` timestamp
+#### Scenario: Promote a publishing run
+- **WHEN** publication is requested
+- **THEN** promotion SHALL be deferred until the publication transaction succeeds
+- **AND** verification or publication failure SHALL NOT promote pending records as durable success
 
-#### Scenario: Save cache at workflow end
-
-- **WHEN** the workflow reaches its cache-finalization step, whether earlier task processing succeeded or failed
-- **THEN** the system SHALL save both `release-versions.json` and `device-list.json` to cache
-- **AND** the system SHALL use GitHub Actions cache save action
-- **AND** release-version entries SHALL only reflect tasks that completed signing and upload successfully
-- **AND** the cache SHALL be available for subsequent workflow runs
-
-#### Scenario: Handle cache save failure
-
-- **WHEN** cache save fails
-- **THEN** the system SHALL log a warning
-- **AND** the system SHALL not fail the workflow
-- **AND** the next run SHALL perform a full rebuild due to cache miss
+#### Scenario: Save cache in CI
+- **WHEN** the production job succeeds and reaches cache persistence
+- **THEN** it SHALL save work/cache for subsequent runs
+- **AND** failed jobs SHALL NOT execute the success-only cache-save step
+- **AND** cache persistence failure SHALL NOT justify bypassing verification or promoting incomplete records

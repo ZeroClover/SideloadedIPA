@@ -1,19 +1,19 @@
 # signing-task-configuration Specification
 
 ## Purpose
-Define compatible task configuration for bundle mappings, entitlement policies, capability handling, manual Apple relationships, and publication gates.
+Define task configuration for bundle mappings, entitlement policies, capability handling, manual Apple relationships, and publication gates.
 ## Requirements
-### Requirement: Backwards-compatible single-bundle tasks
+### Requirement: Root-only task defaults
 
-The system SHALL continue to accept existing task entries that define a root `bundle_id` and no multi-bundle signing table when the IPA contains only one profile-bearing application bundle.
+The system SHALL support tasks defining a root `bundle_id` without a multi-bundle signing table when the IPA contains only one profile-bearing application bundle, using the same signing engine as explicit multi-bundle policy.
 
-#### Scenario: Load an existing single-bundle task
+#### Scenario: Load a root-only task
 
-- **WHEN** a valid existing task has no `tasks.signing` table and its inventory has only the root profile-bearing bundle
-- **THEN** configuration SHALL produce a root-only signing policy using the existing `bundle_id`
-- **AND** existing source, slug, icon, cache, and publication behavior SHALL remain compatible
+- **WHEN** a valid task has no `tasks.signing` table and its inventory has only the root profile-bearing bundle
+- **THEN** configuration SHALL produce a root-only signing policy using its `bundle_id`
+- **AND** normal source, slug, icon, cache, verification and publication gates SHALL apply
 
-#### Scenario: Legacy task contains unconfigured extensions
+#### Scenario: Root-only task contains unconfigured extensions
 
 - **WHEN** a task without multi-bundle policy inventories one or more nested profile-bearing bundles
 - **THEN** validation SHALL fail with the discovered source identifiers

@@ -1,176 +1,101 @@
-# Operator Runbook
+# Pipeline operations
 
-This guide covers common operational tasks for running, verifying, debugging, and maintaining the SideloadedIPA pipeline.
+Read when running stages, diagnosing CI, or qualifying the backend. For local tests
+use [Development](development.md). Load [Environment](environment.md) when supplying
+credentials and [Publication](publication.md) before any publishing/recovery work.
+Commands below are reference procedures, not standing execution authorization.
 
----
+## Stage contract
 
-## 1. Local Environment Setup
+Source: src/sideloadedipa/cli.py and pipeline/production.py. All commands accept
+--config, repeatable --task, --run-id, and --json. Omitting --task can select multiple
+tasks; explicitly select the intended task for local work. Use a unique run ID and
+the same config/task/run ID across stages; retain manifests in work/pipeline/<run-id>/.
 
-Install project dependencies using the pinned uv lockfile:
+| Command | Effect / additional flags |
+| --- | --- |
+| inspect | Download and inventory; local writes, no Apple mutation |
+| plan | Read Apple state and certificate identity, emit resource plan |
+| sync | Plan unless --apply authorizes additive resource changes |
+| sign | Sign or reuse cache; --force-rebuild bypasses signing reuse |
+| verify | Independent verification; --publish defers cache promotion to publication, does not itself upload |
+| publish | Publish from valid evidence; no --publish flag exists on this command |
+| run | Inspect and plan by default; --apply adds sync/sign/verify, --publish adds publication, --force-rebuild skips signing reuse |
 
-```bash
-uv sync --frozen
-```
-
-Run test suites and linters:
-
-```bash
-# Run pytest with 95% coverage threshold
-uv run pytest
-
-# Generate HTML coverage report (optional)
-uv run pytest --cov-report=term-missing --cov-report=html
-
-# Check formatting and typing
-uv run black --check scripts/ src/sideloadedipa/
-uv run isort --check-only scripts/ src/sideloadedipa/
-uv run mypy src/sideloadedipa scripts/
-```
-
-Test the web frontend locally:
-
-```bash
-cd web
-npm ci
-npm test
-APPS_DATA_MODE=fixture npm run build
-```
-
----
-
-## 2. Running Pipeline Stages Locally
-
-Each run uses a unique `--run-id` to track stage manifests under `work/pipeline/<run-id>/`.
+### Inspection and plan
 
 ```bash
 run_id="local-$(date +%Y%m%d%H%M%S)"
 task="LiveContainer"
 config="configs/tasks.local.toml"
+uv run --frozen sideloadedipa inspect --config "$config" --run-id "$run_id" --task "$task" --json
+uv run --frozen sideloadedipa plan --config "$config" --run-id "$run_id" --task "$task" --json
 ```
 
-### Stage 1: Inspect Source IPA (Read-Only)
-Downloads the IPA, verifies archive integrity, and maps the bundle structure:
+plan and sync without --apply are non-mutating but may need Apple/P12 credentials.
+A dry sync records resource-plan evidence only, not resource-apply success. Check
+resource intents; resolve manual-required or blocked prerequisites before applying.
+
+### Authorized non-publishing signing
 
 ```bash
-uv run sideloadedipa inspect --config "$config" --run-id "$run_id" --task "$task" --json
+uv run --frozen sideloadedipa sync --config "$config" --run-id "$run_id" --task "$task" --apply --json
+uv run --frozen sideloadedipa sign --config "$config" --run-id "$run_id" --task "$task" --json
+uv run --frozen sideloadedipa verify --config "$config" --run-id "$run_id" --task "$task" --json
 ```
 
-### Stage 2: Plan Apple Resources (Read-Only)
-Calculates required App IDs, capabilities, App Groups, and provisioning profiles without making any changes in Apple Developer Portal:
+For one process, use run with --apply instead of the three separate commands;
+prepared inputs are reused within that transaction. Adding --publish is a distinct
+publication action, not part of routine verification.
+
+### Authorized publication
+
+After device acceptance and publication_enabled=true, verify before publishing.
+For a split-stage transaction, --publish defers cache promotion until publication:
 
 ```bash
-uv run sideloadedipa plan --config "$config" --run-id "$run_id" --task "$task" --json
+uv run --frozen sideloadedipa verify --config "$config" --run-id "$run_id" --task "$task" --publish --json
+uv run --frozen sideloadedipa publish --config "$config" --run-id "$run_id" --task "$task" --json
 ```
 
-### Stage 3: Sync Apple Resources (Apply)
-Creates missing App IDs, enables capabilities, and downloads provisioning profiles:
+Alternatively run --apply --publish performs the full transaction. Keep only one
+publisher active. Read [Publication](publication.md) for recovery and retention.
+
+## GitHub Actions
+
+.github/workflows/sign-and-upload.yml runs daily at 02:00 UTC and supports manual
+workflow_dispatch. Inspect its current inputs and publication gates before dispatch:
 
 ```bash
-uv run sideloadedipa sync --config "$config" --run-id "$run_id" --task "$task" --apply --json
-```
-
-### Stage 4: Sign IPAs
-Generates custom entitlements and signs all nested bundles and binaries:
-
-```bash
-uv run sideloadedipa sign --config "$config" --run-id "$run_id" --task "$task" --json
-```
-
-### Stage 5: Verify Signatures
-Reopens the signed IPA independently to check code signatures, entitlements, and profiles:
-
-```bash
-uv run sideloadedipa verify --config "$config" --run-id "$run_id" --task "$task" --json
-```
-
-### Stage 6: Publish to Cloudflare R2
-Uploads IPAs and icons to R2, updates `apps.json`, and triggers web cache revalidation:
-
-```bash
-uv run sideloadedipa publish --config "$config" --run-id "$run_id" --task "$task" --json
-```
-
----
-
-## 3. GitHub Actions Execution
-
-The main pipeline workflow is defined in `.github/workflows/sign-and-upload.yml`.
-
-### Automated Schedule
-- Runs daily at 02:00 UTC.
-- Automatically checks for new GitHub releases or changed sources and rebuilds affected tasks.
-
-### Manual Dispatch
-Trigger a manual run using the GitHub CLI:
-
-```bash
-# Normal run (uses signing cache)
 gh workflow run sign-and-upload.yml
-
-# Force full rebuild of all tasks
 gh workflow run sign-and-upload.yml -f force_rebuild=true
-
-# Enable SSH debugging on failure
 gh workflow run sign-and-upload.yml -f debug=true
 ```
 
-### SSH Debugging
-When `debug=true` is enabled:
-1. The runner launches a Dropbear SSH server on localhost.
-2. A temporary Cloudflare Tunnel is established.
-3. The workflow logs display connection instructions (e.g. `ssh -o ProxyCommand='cloudflared access ssh --hostname %h' ...`).
-4. To finish the debug session and allow cleanup, stop cloudflared from the SSH session.
+These commands invoke production operations. debug=true starts the single SSH
+helper after the pipeline steps, including on failure. Follow actual runner output
+for connection details; stop the tunnel to release the session. Do not infer that
+force_rebuild selects an older release or repairs invalid configuration.
 
----
+## Backend qualification
 
-## 4. Backend Requalification
-
-Whenever `zsign` source, patches, compiler toolchains, or bundle entitlement logic are modified, requalify the signing backend:
+Trigger: changing zsign source/patch, compiler identity, profile pairing, or bundle
+entitlement logic. Source: src/sideloadedipa/tools/qualify_backend.py and
+patches/zsign/qualification-contract.json. This tool can access real Apple state
+and signing material; it is not an ordinary unit test.
 
 ```bash
-uv run sideloadedipa-qualify-backend \
-  --run-id "backend-$(date +%Y%m%d%H%M%S)" \
-  --evidence work/qualification/backend-qualification.json
+uv run --frozen sideloadedipa-qualify-backend   --config "$config" --task "$task" --run-id "backend-$(date +%Y%m%d%H%M%S)"   --evidence work/qualification/backend-qualification.json
 ```
 
-On macOS with an active Apple Development certificate in Keychain, pass `--codesign-identity` and `--codesign-keychain` to compare output against Apple's native `codesign` tool.
+Provide --zsign/--zsign-sha256 or ZSIGN_BIN/ZSIGN_SHA256. --apply permits Apple
+synchronization and requires separate authorization. On macOS, --codesign-identity
+and --codesign-keychain select the oracle; --oracle-summary supplies existing oracle
+evidence. Match contract identity and inputs rather than trusting an old passing JSON.
 
----
+## Device acceptance
 
-## 5. Rollback & Failure Recovery
-
-### Immutable builds and retirement
-
-- IPA filenames include the full signed-content SHA-256. A same-version re-sign gets a different URL; retries and unchanged verified cache hits keep the same URL.
-- A successful publication preserves both current and immediately preceding registry references. Later runs mark unreferenced managed IPAs/icons in `<registry-key>.gc.json`; deletion starts only after **48 hours from that first observation**, never from upload age.
-- Scheduled publication still runs for verified cache hits, refreshing the web cache and progressing retirement without requiring a new upstream release. Cleanup is scoped to selected task slugs and previously recorded retirements; unrelated objects/manual namespaces are not swept.
-- Do not delete or edit retirement state during normal operations. A missing sidecar conservatively restarts grace; corrupt or inaccessible state stops cleanup. Partial deletion failures remain retryable.
-- Only one publisher may run at a time. Keep Actions concurrency enabled and do not publish locally while Actions or another local publisher is running.
-- Once a registry write was attempted, rollback retains potentially advertised uploads for retirement rather than deleting links that clients may already hold. If rollback cache expiry fails, retry publication; do not manually delete those artifacts.
-
-### Coordinated web deployment
-
-Deploy the web route and publisher together: `/api/revalidate` now accepts **POST only**, with the existing `X-Revalidate-Secret` header. Authenticated POST immediately expires the `apps` tag; GET returns 405. The secret must match the web deployment's `REVALIDATE_SECRET`.
-
-Registry and GC JSON use `Cache-Control: no-store` at R2. Exempt these paths from Cloudflare cache overrides and purge any old cached registry once during rollout. Next owns the tagged registry cache (60-second refresh interval, 10-second origin timeout). Initial manifest dependency failures return non-cacheable 503 rather than an empty catalog or 404. Artifact/image immutable caching is unchanged.
-
-Do not roll back to the immediate-deletion implementation while retained client manifests can still be in use.
-
-- **Atomic Publishing**: If signing, verification, or R2 uploads fail, the existing `site/apps.json` registry is left untouched. Users will continue seeing the previous stable version.
-- **Rollback Procedure**: To roll back a published app:
-  1. Revert the task configuration in `configs/tasks.toml`.
-  2. Run the workflow with `force_rebuild=true` to rebuild and re-publish the previous version.
-- **Apple Developer Resources**: `sync --apply` is additive only. It never deletes App IDs or revokes certificates. If an App ID was created with wrong capabilities, update its configuration in `tasks.toml` and re-run `sync --apply`.
-
----
-
-## 6. Device Acceptance Checklist
-
-After publishing a new build of complex apps like LiveContainer, verify the following on a physical iOS device:
-
-1. **Installation**: Download and install via the OTA web portal.
-2. **Launch & Extensions**: Verify that the main app, Launch extension, and Share extension open without crashes.
-3. **App Groups**: Verify shared storage between the main app and extensions.
-4. **Keychain Access**: Confirm keychain sharing works across all configured groups.
-5. **Special Capabilities**: Confirm HealthKit or Increased Memory Limit work as expected if enabled.
-
+Real-device acceptance checks installation, root app launch, required extensions,
+shared App Group storage, configured keychain groups, and special capabilities such
+as HealthKit/Increased Memory Limit. Record the source/build identity and actual
+results before enabling publication. Offline fixture passes do not satisfy this gate.

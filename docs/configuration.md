@@ -1,4 +1,9 @@
-# Configuration Guide
+# Task and signing configuration
+
+Read when editing task TOML or entitlement templates. Schema authority is
+`src/sideloadedipa/config/parser.py` and `src/sideloadedipa/domain/config.py`; schema examples are
+`configs/tasks.toml.example` and `tests/fixtures/configuration/signing-cases.toml`.
+Credentials are documented separately in [Environment](environment.md).
 
 SideloadedIPA reads its task definitions from `configs/tasks.toml` by default (or from `--config <path>`). You can copy `configs/tasks.toml.example` to `configs/tasks.local.toml` as a starting template.
 
@@ -13,7 +18,9 @@ Define tasks using the `[[tasks]]` array:
 task_name = "MyApp"
 app_name = "My Application"
 bundle_id = "com.example.myapp"
-publication_enabled = true
+repo_url = "https://github.com/example/MyApp"
+release_glob = "MyApp.ipa"
+publication_enabled = false  # Enable only after real-device acceptance
 ```
 
 ### Core Task Fields
@@ -25,7 +32,7 @@ publication_enabled = true
 | `bundle_id` | Yes | Target bundle identifier for the main application. |
 | `ipa_url` or `repo_url` | Yes | Source of the IPA (choose direct URL or GitHub repository). |
 | `slug` | No | URL slug for R2 storage and web routing (defaults to sanitized `app_name`). |
-| `icon_path` | No | App icon source: `"ipa:"` (extracts from IPA), relative repo path, or HTTPS URL. |
+| `icon_path` | No | App icon source: `"ipa:"` (extracts from IPA), relative repo path (GitHub sources only), or HTTP/HTTPS URL. Prefer HTTPS. |
 | `publication_enabled` | No | Set `true` to allow uploading and publishing to R2 (default: `false`). |
 
 ---
@@ -111,14 +118,23 @@ entitlement_mode = "profile"
 | `required_capabilities` | No | Apple capabilities required by this bundle (e.g., `APP_GROUPS`, `HEALTHKIT`). |
 | `entitlement_mode` | No | `profile` (default), `template`, or `preserve-source`. |
 | `entitlements_file` | With `template` | Path to the plist template file under `configs/signing/`. |
-| `allowed_entitlement_drops` | No | Specific entitlement keys that may be dropped if unsupported. |
+| `allowed_entitlement_drops` | No | Reviewed entitlement keys permitted to be dropped; not a verification bypass. |
 | `drop_rationale` | With drops | Explanation for why entitlements were dropped. |
 
 ### Entitlement Modes
 
 - **`profile`**: Uses the entitlements authorized directly by the generated provisioning profile.
 - **`template`**: Injects a custom plist template with variables (`${TEAM_ID}`, `${APP_IDENTIFIER_PREFIX}`, `${TARGET_BUNDLE_ID}`, `${APP_GROUP:<alias>}`).
-- **`preserve-source`**: Preserves original entitlements from the unsigned binary while updating team and app group IDs.
+- **`preserve-source`**: Preserves original entitlements while remapping identity-dependent values. The profile must still authorize the result.
+
+Treat loss of functional entitlements as a failure unless the exact drop is reviewed
+and has `drop_rationale`. `manual_app_group_associations = ["shared"]` under
+`[tasks.signing]` records reviewed manual confirmation for a configured alias; it
+does not bypass exact App Group authorization in the profile.
+
+The obsolete `[tasks.signing]` keys `id_strategy`, `unknown_profile_bundles`, and
+`profile_type` are rejected: suffix mapping, unknown-bundle rejection, and
+`IOS_APP_DEVELOPMENT` profiles are fixed invariants. Do not add compatibility parsing.
 
 ---
 
@@ -137,23 +153,15 @@ batch_policy = "atomic"          # "atomic" (all or nothing) or "independent"
 
 ---
 
-## Environment Variables
+## Validate without external effects
 
-Configure these in `.env` (for local runs) or GitHub Actions Secrets (for CI):
+Use `load_configuration(Path(...))` from `sideloadedipa.config.parser` or the
+configuration tests; `inspect` also downloads sources and is not a parsing-only
+command. Examples use illustrative upstream URLs and hashes, not trusted artifacts.
 
-| Variable | Required For | Description |
-| --- | --- | --- |
-| `ASC_KEY_ID` | Apple sync | App Store Connect API Key ID |
-| `ASC_ISSUER_ID` | Apple sync | App Store Connect Issuer ID |
-| `ASC_PRIVATE_KEY` / `ASC_PRIVATE_KEY_B64` | Apple sync | App Store Connect API Private Key (`.p8` content or base64) |
-| `ASC_BYPASS_KEYCHAIN` | Apple sync | Set `1` for headless CI environments |
-| `APPLE_DEV_CERT_P12_ENCODED` | Signing | Base64-encoded Apple Development Certificate (`.p12`) |
-| `APPLE_DEV_CERT_PASSWORD` | Signing | Password for the `.p12` file |
-| `R2_ACCOUNT_ID` | Publication | Cloudflare Account ID |
-| `R2_ACCESS_KEY_ID` | Publication | Cloudflare R2 Access Key ID |
-| `R2_SECRET_ACCESS_KEY` | Publication | Cloudflare R2 Secret Access Key |
-| `R2_BUCKET` | Publication | Cloudflare R2 Bucket Name |
-| `R2_PUBLIC_BASE_URL` | Publication | Public CDN base URL for R2 bucket |
-| `VERCEL_REVALIDATE_SECRET` | Publication | Shared secret for on-demand Next.js ISR revalidation |
-| `GITHUB_TOKEN` | GitHub sources | GitHub API token to avoid rate limits |
+```bash
+uv run --frozen pytest --no-cov tests/test_config_parser.py tests/test_signing_config_fixtures.py tests/test_entitlement_templates.py
+```
 
+Use [Operations](operator-runbook.md) for stage commands and
+[Publication](publication.md) before enabling publication or changing storage keys.

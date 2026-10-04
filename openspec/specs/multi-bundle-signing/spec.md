@@ -157,11 +157,11 @@ The system SHALL record backend name, version, executable checksum, argv shape w
 
 ### Requirement: Unified engine for single- and multi-bundle tasks
 
-The final migrated system SHALL execute legacy single-bundle and configured multi-bundle tasks through the same plan, backend, and verification interfaces.
+The system SHALL execute root-only and configured multi-bundle tasks through the same plan, backend, and verification interfaces.
 
-#### Scenario: Sign a legacy root-only task after migration
+#### Scenario: Sign a root-only task
 
-- **WHEN** a compatible single-bundle task is run through the new engine
+- **WHEN** a configured single-bundle task is run through the signing engine
 - **THEN** it SHALL create a one-node profile plan plus its nested profile-free code
 - **AND** SHALL preserve existing output naming and publication identity
 

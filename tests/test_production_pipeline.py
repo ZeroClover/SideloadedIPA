@@ -377,6 +377,50 @@ def test_source_intake_errors_stop_inventory_and_later_side_effects(
     assert pipeline._store(request).load(task.task_name, PipelineStage.INVENTORY) is None
 
 
+@pytest.mark.parametrize("blocked", [False, True])
+def test_sync_without_apply_only_records_read_only_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocked: bool
+) -> None:
+    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    pipeline = ProductionPipeline(dependencies(tmp_path))
+    context = source_context(tmp_path, task)
+    request = replace(command(tmp_path, CommandName.SYNC, task.task_name), apply=False)
+    monkeypatch.setattr(production, "load_configuration", lambda path: TaskConfiguration((task,)))
+    monkeypatch.setattr(pipeline, "_load_contexts", lambda request, configuration: (context,))
+    store = pipeline._store(request)
+    predecessor = None
+    for stage in list(PipelineStage)[:3]:
+        predecessor = pipeline._record_success(store, task.task_name, stage, "a" * 64, predecessor)
+    calls: list[CommandRequest] = []
+
+    def plan(current: CommandRequest, deps: object) -> CommandResult:
+        calls.append(current)
+        assert current.command is CommandName.PLAN
+        assert not current.apply and not current.publish
+        return CommandResult(
+            exit_code=int(blocked), payload=(("status", "blocked" if blocked else "ready"),)
+        )
+
+    monkeypatch.setattr(production_apple_stage, "apple_plan_command", plan)
+    monkeypatch.setattr(
+        production_apple_stage,
+        "apple_sync_command",
+        lambda *args, **kwargs: pytest.fail("dry sync invoked the apply transaction"),
+    )
+    if blocked:
+        with pytest.raises(DomainError):
+            pipeline.sync(request)
+    else:
+        result = pipeline.sync(request)
+        assert result.exit_code == 0
+    assert len(calls) == 1
+    assert (store.load(task.task_name, PipelineStage.RESOURCE_PLAN) is not None) is not blocked
+    assert store.load(task.task_name, PipelineStage.RESOURCE_APPLY) is None
+    assert store.load(task.task_name, PipelineStage.SIGN) is None
+    assert store.load(task.task_name, PipelineStage.PUBLISH) is None
+    assert not pipeline._cache().index_path.exists()
+
+
 def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkeypatch) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     pipeline = ProductionPipeline(replace(dependencies(tmp_path), clock=IncrementingClock()))

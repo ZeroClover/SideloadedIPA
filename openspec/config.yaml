@@ -1,20 +1,24 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  SideloadedIPA uses a typed Python package for source intake, Apple resource
+  reconciliation, nested signing, independent verification, caching and R2 publication;
+  Next.js provides the OTA catalog and manifests. Production signing runs on Linux
+  with a qualified patched zsign and verified ASC CLI. Apple mutations are additive;
+  sources, profiles, signatures and publication evidence fail closed when invalid.
+  Secrets and raw private signing material are excluded from logs and artifacts.
+  Task policy is TOML; durable evidence is digest-bound JSON. Local fixture checks
+  need no production access; offline validation is not device or deployment acceptance.
+  AGENTS.md defines behavior and authorization. docs/specifications.md routes relevant
+  capabilities; docs/openspec.md defines lifecycle mechanics. Baselines are normative,
+  selected deltas express intended updates, and archives are historical evidence.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - State scope, non-goals and affected existing capabilities.
+  specs:
+    - Modify existing requirements in their owning capability; avoid conflicting duplicates.
+  design:
+    - Identify trust/side-effect boundaries, decisions, risks and acceptance evidence.
+  tasks:
+    - Define observable acceptance; separate offline checks from live prerequisites.

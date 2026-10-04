@@ -1,73 +1,47 @@
 # scheduled-execution Specification
 
 ## Purpose
-TBD - created by archiving change add-ci-caching-optimization. Update Purpose after archive.
+Define scheduled and manual pipeline execution and its operational trigger contract.
+
 ## Requirements
+
 ### Requirement: Daily Scheduled Workflow
+The signing workflow SHALL run daily at 02:00 UTC and process publication-enabled tasks through the current resource, fingerprint, verification and publication gates.
 
-The system SHALL execute the signing workflow on a daily schedule to ensure cache freshness and automatic release processing.
-
-#### Scenario: Configure daily cron schedule
-
+#### Scenario: Configure daily schedule
 - **WHEN** the workflow is configured
-- **THEN** the workflow SHALL include a `schedule` trigger with cron expression `0 2 * * *`
-- **AND** the schedule SHALL run daily at 02:00 UTC
-- **AND** the schedule SHALL run independently of manual or webhook triggers
+- **THEN** it SHALL use schedule cron 0 2 * * * independently of manual or webhook triggers
 
-#### Scenario: Execute scheduled run with cache
-
+#### Scenario: Scheduled run with cache
 - **WHEN** the scheduled workflow runs
-- **THEN** the system SHALL restore cache from previous runs
-- **AND** the system SHALL perform change detection as normal
-- **AND** the system SHALL only rebuild tasks with detected changes
+- **THEN** it SHALL restore available signing cache and validate current prerequisites
+- **AND** only tasks requiring signing work SHALL invoke the signing backend
+- **AND** verified cache-hit tasks SHALL still publish, revalidate and progress eligible retirement
 
-#### Scenario: Prevent cache expiration
-
-- **WHEN** the scheduled workflow runs successfully
-- **THEN** the system SHALL update the cache with current state
-- **AND** the updated cache SHALL reset the 7-day expiration timer
-- **AND** the cache SHALL remain available for future runs
+#### Scenario: Persist a successful run
+- **WHEN** the job succeeds
+- **THEN** its reviewed durable cache SHALL be saved for future runs
+- **AND** external cache retention/eviction SHALL NOT be treated as a correctness guarantee
 
 ### Requirement: Manual Force Rebuild
+The workflow SHALL support force_rebuild as an optional boolean workflow_dispatch input defaulting to false, which bypasses signing reuse without bypassing current prerequisite or verification gates.
 
-The system SHALL support forcing a full rebuild via manual workflow dispatch, ignoring cached state.
+#### Scenario: Force rebuild requested
+- **WHEN** the manual input is true
+- **THEN** the signing command SHALL receive --force-rebuild and rebuild selected production tasks
+- **AND** valid existing profiles MAY still be reused after normal reconciliation
+- **AND** forcing signing SHALL NOT itself require recreating every profile or selecting an older source release
 
-#### Scenario: Add force rebuild input parameter
+#### Scenario: Normal manual run
+- **WHEN** force_rebuild is false or absent
+- **THEN** complete current signing inputs SHALL determine reuse versus rebuild
+- **AND** independent verification and authorized publication SHALL run for selected tasks
 
-- **WHEN** the workflow is manually triggered via `workflow_dispatch`
-- **THEN** the workflow SHALL accept a `force_rebuild` boolean input parameter
-- **AND** the parameter SHALL default to `false`
-- **AND** the parameter description SHALL clearly indicate it ignores cache
+### Requirement: Repository dispatch execution
+The workflow SHALL support repository_dispatch type sign_ipas through the same current production gates as a normal non-forced manual run.
 
-#### Scenario: Execute force rebuild
-
-- **WHEN** `force_rebuild` input is `true`
-- **THEN** the system SHALL ignore all cached state (version cache and device cache)
-- **AND** the system SHALL set `rebuild_all` to `true`
-- **AND** the system SHALL regenerate all profiles and rebuild all IPAs
-- **AND** the system SHALL update cache with fresh state after completion
-
-#### Scenario: Normal manual run respects cache
-
-- **WHEN** `force_rebuild` input is `false` or omitted
-- **THEN** the workflow SHALL use cached state as normal
-- **AND** the workflow SHALL perform change detection
-- **AND** the workflow SHALL only rebuild changed tasks
-
-### Requirement: Webhook Trigger Compatibility
-
-The system SHALL maintain compatibility with existing `repository_dispatch` webhook triggers.
-
-#### Scenario: Webhook trigger uses cache
-
-- **WHEN** the workflow is triggered via `repository_dispatch` with type `sign_ipas`
-- **THEN** the workflow SHALL restore cache and perform change detection
-- **AND** the workflow SHALL only rebuild changed tasks
-- **AND** the workflow SHALL not support force rebuild parameter (no inputs in repository_dispatch)
-
-#### Scenario: Webhook trigger behavior unchanged
-
-- **WHEN** external systems trigger the workflow via webhook
-- **THEN** the behavior SHALL be identical to manual runs without force_rebuild
-- **AND** existing webhook integrations SHALL require no changes
-- **AND** the workflow SHALL remain backwards compatible
+#### Scenario: Receive supported dispatch
+- **WHEN** a sign_ipas repository dispatch triggers execution
+- **THEN** the workflow SHALL restore available signing cache and evaluate complete current fingerprints
+- **AND** it SHALL independently verify and publish selected tasks, including valid cache hits
+- **AND** it SHALL NOT infer a force-rebuild request from a manual input absent from this event

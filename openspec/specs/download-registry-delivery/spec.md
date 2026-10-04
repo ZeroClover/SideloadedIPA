@@ -1,7 +1,7 @@
 # download-registry-delivery Specification
 
 ## Purpose
-TBD - created by archiving change harden-and-streamline-project-foundation. Update Purpose after archive.
+Define validated registry consumption, explicit cache behavior and safe OTA manifest delivery.
 ## Requirements
 ### Requirement: Validated download registry source
 The web application MUST decode the R2 `apps.json` document into a validated registry before any entry is rendered or used to generate an ITMS manifest.
@@ -32,11 +32,12 @@ The web application SHALL opt the R2 registry read into the framework's persiste
 #### Scenario: Read registry during normal service
 - **WHEN** a page or ITMS request needs application data
 - **THEN** the server fetch SHALL explicitly use persistent cache semantics
-- **AND** the cached entry SHALL carry the `apps` tag
+- **AND** the cached entry SHALL carry the `apps` tag with a 60-second refresh interval
+- **AND** origin requests SHALL have a 10-second timeout
 
 #### Scenario: Pipeline requests registry revalidation
-- **WHEN** the authenticated revalidation endpoint receives the reviewed secret in its request header after an atomic registry update
-- **THEN** it SHALL mark the `apps` tag stale using the `max` stale-while-revalidate profile
+- **WHEN** the authenticated POST-only revalidation endpoint receives the reviewed secret in its request header after an atomic registry update
+- **THEN** it SHALL expire the `apps` tag immediately
 - **AND** the secret SHALL NOT appear in the URL, response, or retained logs
 
 #### Scenario: Revalidation authentication fails
@@ -45,8 +46,8 @@ The web application SHALL opt the R2 registry read into the framework's persiste
 
 #### Scenario: R2 refresh fails with a prior valid cache entry
 - **WHEN** a tagged registry refresh encounters a transport, HTTP, JSON, or schema failure after a valid registry was cached
-- **THEN** the previous valid cached registry SHALL remain eligible to serve
-- **AND** the failure SHALL NOT replace it with an empty synthesized registry
+- **THEN** the failure SHALL NOT replace the catalog with an empty synthesized registry
+- **AND** requests unable to obtain validated data after immediate expiry SHALL fail explicitly rather than advertise unchecked or fabricated entries
 
 #### Scenario: Initial registry load fails
 - **WHEN** no valid cached registry exists and the configured production origin cannot return a valid document
@@ -69,3 +70,8 @@ The ITMS route MUST generate installation manifests only from one validated regi
 #### Scenario: Serve a generated manifest
 - **WHEN** the route returns a valid ITMS plist
 - **THEN** it SHALL use the XML content type and require revalidation rather than advertising an immutable manifest
+
+#### Scenario: Manifest dependency is unavailable
+- **WHEN** registry loading fails rather than returning a validated catalog
+- **THEN** the manifest SHALL return a redacted HTTP 503 with no-store caching
+- **AND** it SHALL NOT report an unknown application or expose origin details

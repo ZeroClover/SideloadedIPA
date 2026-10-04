@@ -1,5 +1,9 @@
 # 重构计划：消除重复代码 & 修复"仅测试使用"的生产代码
 
+> 历史快照（供 Agent 按需追溯）：下文路径、版本、命令、待办和测试结果仅代表记录时状态，
+> 不构成当前行为指令或生产验收。当前开发检查见 [development.md](development.md)，
+> 当前规范与未归档变更见 [openspec.md](openspec.md)。
+
 > **执行状态（2026-07-23）**：本文由 OpenSpec 变更 `consolidate-shared-primitives-and-test-fidelity` 全部落地，各问题与变更任务节的对应关系标注于下方标题。验收证据：全部 golden-value 摘要测试字节级不变、`uv run pytest`（含 95% 覆盖率门）通过、Black/isort/strict mypy 通过、架构守卫 `tests/test_production_stage_architecture.py` 通过、CLI `--help` 输出与基线逐字节一致。
 
 > 本文档是对 `src/sideloadedipa` 全量代码结构分析的结论，用于指导 Agent 分阶段执行优化。

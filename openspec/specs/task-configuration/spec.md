@@ -1,7 +1,7 @@
 # task-configuration Specification
 
 ## Purpose
-TBD - created by archiving change add-ci-caching-optimization. Update Purpose after archive.
+Define task sources, immutable direct-download evidence and configuration validation.
 ## Requirements
 ### Requirement: GitHub Release Source Configuration
 

@@ -1,54 +1,29 @@
-# Troubleshooting Guide
+# Failure diagnosis
 
-This guide helps you identify and resolve common issues encountered while running the SideloadedIPA pipeline.
+Read when an observed diagnostic matches a case below. Use error codes and redacted
+reports, not raw credentials/profiles. Sources: src/sideloadedipa/errors.py and the
+responsible module named in each case. Operations requiring live effects remain
+subject to [AGENTS.md](../AGENTS.md).
 
----
+| Symptom | Inspect | Safe next action |
+| --- | --- | --- |
+| source.asset-match-count (zero/multiple matches) | sources/github.py; release asset names and release_glob | Choose exactly one intended variant; do not select the first match |
+| Direct SHA-256 mismatch | sources/download.py; configured digest, trusted upstream evidence, partial transfer | Stop intake; independently establish provenance before accepting new bytes/digest |
+| Unknown profile-bearing bundle | ipa/graph.py, signing/planner.py; new source inventory | Review the added app/extension and explicit bundle policy; do not suppress discovery |
+| manual-required App Group association | apple/planning.py, configs/tasks.toml | Account Holder/Admin completes portal action; record reviewed alias in manual_app_group_associations; profile must still authorize exact group |
+| apple.profile-entitlement-unauthorized | signing/profile_validation.py; intended capability and profile evidence | Verify capability/manual prerequisites; authorized sync --apply can obtain a valid replacement |
+| LiveContainer keychain groups lost | configs/signing/livecontainer/root-process.plist; root/LiveProcess policy | Confirm template mode and all required groups; avoid fallback to profile defaults |
+| XML/DER entitlement disagreement | verification/entitlements.py, three_way.py | Block publication; qualify changed backend against macOS oracle |
+| Nested signature failure | verification report's deepest failing path; signing/order.py | Check child-before-parent order, certificate/profile pairing and transformed graph |
+| Catalog/plist returns 503 | web/lib/apps.ts; APPS_DATA_MODE, R2_APPS_JSON_URL, origin response | Repair dependency/configuration; do not synthesize an empty successful catalog |
+| Revalidation 405 / 401 | web/lib/revalidation.ts; method and secret names | Use POST; compare configured secret presence securely, never print values |
+| Retirement state error | adapters/publication/r2_store.py; redacted GC diagnostic | Stop cleanup and recover reviewed state; do not delete sidecar to force collection |
 
-## 1. Source & Asset Selection Issues
+For source mismatch, preserve expected/actual hashes and lengths as evidence; a new
+local hash is not proof the replacement is trusted. For functional entitlement loss,
+allowed_entitlement_drops is a reviewed policy decision with rationale, not a way to
+silence verification. Do not retry apply/publish blindly after ambiguous side effects.
 
-### `source.asset-match-count` Error (0 or >1 Assets Found)
-- **Cause**: The `release_glob` in `tasks.toml` did not match exactly one IPA file in the GitHub release.
-- **Fix**: Inspect the release assets on GitHub and make `release_glob` more specific (e.g., use `LiveContainer.ipa` instead of `*.ipa` if multiple variant IPAs exist).
-
-### Source SHA-256 Checksum Mismatch
-- **Cause**: The downloaded file from `ipa_url` does not match the configured `ipa_sha256`.
-- **Fix**: Recalculate the checksum with `shasum -a 256 <file>.ipa` and update `ipa_sha256` in `tasks.toml`.
-
----
-
-## 2. Bundle & Extension Errors
-
-### Unknown Profile-Bearing Bundle Found
-- **Cause**: An upstream update added a new app extension (`.appex`) or helper binary that is not defined in `configs/tasks.toml`.
-- **Fix**: Add a new `[[tasks.signing.bundles]]` entry in `tasks.toml` mapping the new `source_bundle_id`, desired `target_bundle_id`, and required capabilities.
-
----
-
-## 3. Apple Developer & Provisioning Issues
-
-### App Group Association Required (`manual-required`)
-- **Cause**: Apple's public API cannot automatically associate an App Group with an App ID without Admin intervention in certain configurations.
-- **Fix**: Open the Apple Developer Portal web interface, assign the App Group to the specified App ID, and add the alias to `manual_app_group_associations = ["<alias>"]` under `[tasks.signing]`.
-
-### `apple.profile-entitlement-unauthorized`
-- **Cause**: An entitlement requested in `tasks.toml` (or custom template) is not authorized by the current provisioning profile.
-- **Fix**:
-  1. Check that the required capability is enabled for that App ID in the Developer Portal.
-  2. Run `sideloadedipa sync --apply` to generate an updated provisioning profile.
-
----
-
-## 4. Signing & Verification Failures
-
-### 128 Keychain Groups Missing (LiveContainer)
-- **Cause**: LiveContainer requires 128 sequential keychain access groups (`.shared` through `.127`). If fewer groups are present, signing fell back to profile defaults.
-- **Fix**: Ensure `entitlement_mode = "template"` is set for both the root and `LiveProcess` bundles, pointing to `configs/signing/livecontainer/root-process.plist`.
-
-### XML and DER Entitlement Disagreement
-- **Cause**: The Mach-O code signature contains inconsistent XML and DER entitlement blocks.
-- **Fix**: Stop publication and re-run backend qualification (`sideloadedipa-qualify-backend`) to check `zsign` behavior against the macOS codesign oracle.
-
-### Nested Signature Verification Failure
-- **Cause**: An embedded framework or extension was signed with the wrong certificate, invalid profile, or out of order.
-- **Fix**: Check the deepest failing path in the verification report. Ensure the signing order signs all child frameworks and extensions before the main root executable.
-
+Run focused offline regressions for the failing boundary using
+[Development](development.md). Live recovery/qualification procedures are in
+[Operations](operator-runbook.md) and [Publication](publication.md).

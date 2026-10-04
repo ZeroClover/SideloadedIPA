@@ -1,7 +1,7 @@
 # toolchain-reproducibility Specification
 
 ## Purpose
-TBD - created by archiving change harden-and-streamline-project-foundation. Update Purpose after archive.
+Define pinned and verified toolchains, dependency health and signing-backend qualification.
 ## Requirements
 ### Requirement: Explicit supported runtime toolchain
 The repository SHALL declare and install the Python, Node.js, and uv versions used by local development and consolidated CI validation instead of selecting an arbitrary compatible runtime.

@@ -132,33 +132,22 @@ The workflow SHALL install supported zsign and App Store Connect CLI releases fr
 - **WHEN** the downloaded bytes or runtime version differ from configuration
 - **THEN** the workflow SHALL stop before credentials, Apple mutations, or signing are attempted
 
-### Requirement: CLI and workflow migration compatibility
+### Requirement: Package-owned CLI and workflow execution
+Production commands SHALL execute through the supported package CLI and one package-owned orchestration engine, without obsolete standalone signing scripts or operational compatibility aliases.
 
-The system SHALL retain an operational compatibility wrapper only while it has a supported caller or parity acceptance remains incomplete.
+#### Scenario: Invoke a supported stage
+- **WHEN** a caller runs inspect, plan, sync, sign, verify, publish or run
+- **THEN** the package CLI SHALL dispatch to the typed application and production stage composition
+- **AND** documented environment inputs, exit behavior and canonical evidence gates SHALL apply
 
-#### Scenario: Supported caller uses a legacy entry point
+#### Scenario: Remove an obsolete operational path
+- **WHEN** an operational script, selector or delegator has no supported production caller
+- **THEN** that path and tests existing solely to preserve it SHALL be removed rather than kept as a compatibility layer
+- **AND** cache decisions SHALL remain package-owned
 
-- **WHEN** an operational caller still uses a legacy script path during migration
-- **THEN** the wrapper SHALL delegate to package use cases without duplicating business rules
-- **AND** SHALL preserve documented environment inputs and exit behavior or provide an explicit migration diagnostic
-
-#### Scenario: Production parity is accepted
-
-- **WHEN** all configured tasks pass production parity and repository searches show no supported caller for a legacy selector
-- **THEN** that selector, its compatibility alias, and obsolete characterization contract SHALL be removed
-- **AND** production SHALL continue to use only package-owned cache decisions
-
-#### Scenario: Migration debt reaches its end state
-
-- **WHEN** repository searches show no supported caller for a remaining legacy delegator, superseded command layer, fixture-only orchestration engine, or unused protocol seam
-- **THEN** those modules, their delegator scripts, and the tests that exist only to keep them covered SHALL be removed together
-- **AND** production SHALL execute through exactly one package-owned orchestration engine
-
-#### Scenario: Production code depends on an exempt module
-
-- **WHEN** production orchestration, signing, or publication imports a module excluded from strict typing or the coverage gate
-- **THEN** that module SHALL be promoted into a gated package location
-- **AND** the typing and coverage exemptions SHALL be removed with the promotion
+#### Scenario: Production code must remain gated
+- **WHEN** production orchestration, signing or publication depends on a module
+- **THEN** it SHALL live in the typed and coverage-gated package instead of a legacy exempt script
 
 ### Requirement: Production acceptance for new multi-bundle tasks
 The system SHALL allow a reviewed new multi-bundle task to use the verified production publication path as its end-to-end acceptance environment.
@@ -227,14 +216,20 @@ Production execution SHALL retain canonical stage manifests, one schema-versione
 
 ### Requirement: Compensating cleanup for failed publication
 
-The publication transaction SHALL remove newly uploaded immutable objects that are not referenced after the transaction fails.
+The publication transaction SHALL safely remove newly uploaded unreferenced immutable objects, retaining potentially advertised uploads through the retirement grace period.
 
 #### Scenario: Batch upload or registry promotion fails
-
-- **WHEN** one or more new IPA or icon objects were uploaded but the batch registry was not successfully promoted and revalidated
+- **WHEN** new IPA or icon objects were uploaded but the batch registry was not successfully promoted and revalidated
 - **THEN** the previous registry SHALL remain or be restored
-- **AND** the gateway SHALL attempt deletion of only the unreferenced keys uploaded by that attempt
-- **AND** any cleanup failure SHALL report every remaining IPA and icon key without masking the original publication failure
+- **AND** immediate compensation SHALL delete only unreferenced keys uploaded before any registry write was attempted
+- **AND** potentially advertised keys SHALL instead remain through the retirement grace period
+- **AND** cleanup failures SHALL report remaining keys without masking the original failure
+
+#### Scenario: Registry promotion or revalidation fails
+- **WHEN** a registry write was attempted and publication fails
+- **THEN** the previous registry SHALL be restored when possible and its cache expiry attempted
+- **AND** potentially advertised objects SHALL remain available until normal retirement cleanup
+- **AND** rollback failure SHALL preserve all potentially referenced artifacts and be reported explicitly
 
 ### Requirement: Secret-safe credential transport
 
@@ -272,6 +267,12 @@ A production apply transaction SHALL compute the read-only resource plan it appl
 
 - **WHEN** an operator runs plan mode without apply
 - **THEN** the same plan document SHALL be emitted without Apple, R2, registry, or cache-success mutation
+
+#### Scenario: Sync without apply is read-only
+- **WHEN** an operator invokes sync without --apply
+- **THEN** the production stage SHALL execute the read-only plan path
+- **AND** a ready plan SHALL record only resource-plan evidence, not resource-apply success
+- **AND** a blocked plan SHALL fail before apply, signing, publication or cache-success mutation
 
 ### Requirement: In-run derived-input reuse
 
@@ -374,3 +375,67 @@ Apple profile synchronization MUST reuse one normalized account profile snapshot
 - **WHEN** downloading a selected profile fails or its bytes no longer match the normalized snapshot
 - **THEN** synchronization SHALL fail closed or create a validated additive replacement according to the existing reconciliation policy
 - **AND** stale snapshot evidence SHALL NOT be stored as a successful profile manifest
+
+### Requirement: Durable retired artifact retention
+
+The publisher SHALL retain managed IPA and icon objects for at least 48 hours after first observing them unreferenced, and SHALL persist retirement state across runs.
+
+#### Scenario: Replace an old published artifact
+- **WHEN** a successful publication replaces an artifact regardless of its upload age
+- **THEN** the current and previous registry references SHALL survive that publication sweep
+- **AND** subsequent unreferenced observations SHALL start a fresh retirement grace period
+
+#### Scenario: Complete retirement on a later scheduled run
+- **WHEN** an object remains unreferenced for at least 48 hours and revalidation succeeds
+- **THEN** cleanup SHALL remove it even when selected artifacts were reused from verified signing cache
+- **AND** current references and unrelated objects SHALL remain untouched
+
+#### Scenario: Reference returns or cleanup is interrupted
+- **WHEN** a retired object becomes referenced again
+- **THEN** its retirement mark SHALL be cleared
+- **AND** state-write, listing, or per-object deletion failures SHALL NOT be reported as successful cleanup
+
+#### Scenario: Revived historical artifact is briefly advertised
+- **WHEN** an old content-addressed object is advertised again and publication subsequently rolls back
+- **THEN** its previous retirement timestamp SHALL NOT permit early deletion
+- **AND** a fresh grace period SHALL begin when it is next observed unreferenced
+
+### Requirement: Complete artifact content identity
+
+Immutable IPA URLs SHALL include the complete signed artifact SHA-256, and verification of remote content SHALL use bounded memory.
+
+#### Scenario: Re-sign the same release
+- **WHEN** signing produces different bytes for the same application version
+- **THEN** the new artifact SHALL have a distinct immutable URL
+- **AND** retries of identical bytes SHALL reuse the same identity
+
+### Requirement: Single-sourced signing primitives
+Well-known entitlement key names, canonical JSON serialization with digesting, and immutable-JSON thawing used by signing policy, profile validation, cache fingerprinting, and entitlement verification SHALL each have exactly one shared definition that consumers import rather than re-declare.
+
+#### Scenario: Entitlement key referenced by multiple layers
+- **WHEN** domain entitlement policy, provisioning-profile validation, signing planning, or entitlement comparison references a well-known entitlement key such as `application-identifier`
+- **THEN** it SHALL import the shared domain-owned constant for that key
+- **AND** no production module SHALL re-declare a private copy of the same key literal
+
+#### Scenario: JSON document digested for a durable contract
+- **WHEN** any pipeline, cache, manifest, or verification component computes a SHA-256 over a JSON document
+- **THEN** it SHALL use the shared canonical serialization and digest helper
+- **AND** digest output for existing documents SHALL remain byte-identical across the refactor, proven by golden-value tests
+
+#### Scenario: Frozen JSON values returned to mutable form
+- **WHEN** a component converts immutable domain JSON value pairs back into a dictionary
+- **THEN** it SHALL use the shared thaw helper
+- **AND** no module SHALL carry a private copy of the thaw comprehension
+
+### Requirement: Cohesive stage module ownership
+Production signing and publication stage logic SHALL live in the `pipeline/stages/` package without parallel flat stage modules, and the stage import graph SHALL remain acyclic under the architecture-guard tests.
+
+#### Scenario: Signing stage support code is needed
+- **WHEN** fingerprint construction or cached-report restoration logic is required by the signing stage
+- **THEN** it SHALL reside in `pipeline/stages/` alongside its only consumer
+- **AND** no `pipeline/sign_stage.py` or `pipeline/publish_stage.py` flat module SHALL exist
+
+#### Scenario: Stage modules import each other
+- **WHEN** the architecture-guard test analyzes `pipeline/stages/`
+- **THEN** the import graph SHALL be acyclic
+- **AND** no stage module SHALL import `pipeline.production` or use bucket imports from `sideloadedipa.domain`

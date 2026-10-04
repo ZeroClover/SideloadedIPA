@@ -1,70 +1,39 @@
 # github-release-tracking Specification
 
 ## Purpose
-TBD - created by archiving change add-ci-caching-optimization. Update Purpose after archive.
+Define deterministic GitHub release/asset selection, bounded transport and source evidence verification.
 ## Requirements
 ### Requirement: GitHub API Integration
+The system SHALL fetch release evidence through bounded GitHub REST reads and deterministic selection of one matching asset.
 
-The system SHALL integrate with GitHub API to fetch release information and download IPA assets.
+#### Scenario: Latest stable release
+- **WHEN** use_prerelease is false
+- **THEN** it SHALL request the repository's releases/latest endpoint and validate its release object
 
-#### Scenario: Fetch latest stable release
+#### Scenario: Prerelease selection
+- **WHEN** use_prerelease is true
+- **THEN** it SHALL request the first releases page with per_page=100
+- **AND** choose the first non-draft prerelease in API order, or the first non-draft release if no prerelease is present
+- **AND** an empty or malformed selection SHALL fail explicitly
 
-- **WHEN** a task uses GitHub release tracking with `use_prerelease` set to `false`
-- **THEN** the system SHALL call the GitHub API `/repos/{owner}/{repo}/releases/latest` endpoint
-- **AND** the system SHALL extract release version, published timestamp, and asset download URLs
-
-#### Scenario: Fetch latest prerelease
-
-- **WHEN** a task uses GitHub release tracking with `use_prerelease` set to `true`
-- **THEN** the system SHALL call the GitHub API `/repos/{owner}/{repo}/releases` endpoint
-- **AND** the system SHALL select the most recent release where `prerelease` is `true`
-- **AND** if no prerelease exists, the system SHALL fall back to the latest stable release
-
-#### Scenario: Authenticate with GitHub token
-
-- **WHEN** making GitHub API requests
-- **THEN** the system SHALL use the `GITHUB_TOKEN` environment variable for authentication
-- **AND** the system SHALL include the token in the `Authorization: Bearer` header
-- **AND** the system SHALL respect GitHub API rate limit headers
-
-#### Scenario: Handle GitHub API rate limits
-
-- **WHEN** GitHub API returns a 403 with rate limit exceeded
-- **THEN** the system SHALL log the rate limit reset time
-- **AND** the system SHALL fail the workflow with a clear error message
-- **AND** the system SHALL suggest checking rate limit status
+#### Scenario: GitHub read fails
+- **WHEN** transport, HTTP, oversized response or JSON decoding prevents release evidence from being read
+- **THEN** intake SHALL fail with a redacted adapter diagnostic before signing or publication
+- **AND** HTTP error bodies SHALL be closed
+- **AND** failure SHALL NOT be described as a successful unchanged-release cache hit
 
 ### Requirement: Authenticated API Access
+The production workflow SHALL provide its repository token for GitHub release reads; the reusable source adapter SHALL attach Bearer authentication when a token is supplied without exposing it in retained evidence.
 
-The system SHALL use authenticated GitHub API access to leverage GitHub Actions built-in token advantages and avoid shared IP rate limiting.
+#### Scenario: Production workflow supplies credentials
+- **WHEN** a production stage reads a GitHub source
+- **THEN** its environment SHALL receive GITHUB_TOKEN from the workflow secret
+- **AND** authentication SHALL use a request header rather than a URL
 
-#### Scenario: Use GitHub Actions built-in token
-
-- **WHEN** the workflow runs in GitHub Actions environment
-- **THEN** the system SHALL use the automatically provided `GITHUB_TOKEN` secret
-- **AND** the system SHALL NOT require manual token configuration
-- **AND** the token SHALL be available via `secrets.GITHUB_TOKEN` in the workflow
-
-#### Scenario: Achieve higher rate limits through authentication
-
-- **WHEN** making authenticated API requests with `GITHUB_TOKEN`
-- **THEN** the system SHALL benefit from authenticated rate limit of 1,000 requests per hour per repository
-- **AND** the system SHALL avoid unauthenticated rate limit of 60 requests per hour per IP
-- **AND** the system SHALL log current rate limit status in debug mode
-
-#### Scenario: Avoid shared runner IP rate limiting
-
-- **WHEN** multiple workflows run on GitHub-hosted runners with shared IP addresses
-- **THEN** authenticated requests SHALL be counted separately per repository
-- **AND** the system SHALL NOT be affected by rate limits from other repositories on the same runner IP
-- **AND** the system SHALL NOT exhaust the shared IP pool's unauthenticated quota
-
-#### Scenario: Verify token availability
-
-- **WHEN** the workflow starts GitHub API integration
-- **THEN** the system SHALL verify `GITHUB_TOKEN` is present in environment
-- **AND** if the token is missing, the system SHALL fail with a clear error message
-- **AND** the error message SHALL indicate workflow permissions may need adjustment
+#### Scenario: Local read without token
+- **WHEN** a local caller omits a token
+- **THEN** the adapter SHALL perform the supported unauthenticated read subject to GitHub access and rate limits
+- **AND** it SHALL NOT claim a fixed authenticated quota or proactively reject the caller merely because a token is absent
 
 ### Requirement: Asset Matching and Download
 
@@ -96,32 +65,21 @@ The system SHALL locate exactly one IPA file from GitHub release assets using th
 - **AND** the system SHALL use only that downloaded file for signing
 
 ### Requirement: Version Comparison
+The system SHALL bind release tag, publication timestamp and selected asset evidence into the complete signing fingerprint; version equality alone SHALL NOT authorize skipping correctness or publication stages.
 
-The system SHALL compare cached release versions with current versions to detect updates.
+#### Scenario: Release or asset identity changes
+- **WHEN** release tag, published_at, selected asset identity, URL or downloaded bytes changes the complete fingerprint
+- **THEN** the affected selected task SHALL rebuild from current validated inputs
 
-#### Scenario: Detect version change by tag
+#### Scenario: Complete signing identity unchanged
+- **WHEN** release and asset evidence match within the complete verified signing fingerprint
+- **THEN** the task MAY reuse signing output through current-prerequisite and independent artifact verification
+- **AND** authorized publication and retirement progression SHALL still execute
 
-- **WHEN** the cached version tag differs from the current release tag
-- **THEN** the system SHALL mark the task for rebuild
-- **AND** the system SHALL log the version change (old → new)
-
-#### Scenario: Detect version change by publish timestamp
-
-- **WHEN** the release tag is the same but `published_at` timestamp differs
-- **THEN** the system SHALL mark the task for rebuild
-- **AND** the system SHALL log that the release was republished
-
-#### Scenario: No version change detected
-
-- **WHEN** both tag and `published_at` match the cached values
-- **THEN** the system SHALL skip the task (no rebuild needed)
-- **AND** the system SHALL log that the version is up to date
-
-#### Scenario: Missing cached version
-
-- **WHEN** no cached version exists for a task
-- **THEN** the system SHALL mark the task for rebuild
-- **AND** the system SHALL log that this is the first run for the task
+#### Scenario: No complete cache record
+- **WHEN** the selected task lacks a complete signing-cache record
+- **THEN** it SHALL require initial signing and independent verification
+- **AND** a standalone release-version entry SHALL NOT replace that evidence
 
 ### Requirement: Bounded HTTPS asset transport
 The system MUST download a selected GitHub release asset over HTTPS within a package-owned resource policy before inventory or signing can begin.

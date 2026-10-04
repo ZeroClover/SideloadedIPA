@@ -296,13 +296,15 @@ def test_default_coverage_is_terminal_only_and_html_is_explicit() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     addopts = project["tool"]["pytest"]["ini_options"]["addopts"]
     runbook = (ROOT / "docs" / "operator-runbook.md").read_text()
+    development = (ROOT / "docs" / "development.md").read_text()
 
     assert "--cov=sideloadedipa" in addopts
     assert "--cov-report=term-missing" in addopts
     assert "--cov-report=html" not in addopts
     assert project["tool"]["coverage"]["run"]["source"] == ["sideloadedipa"]
     assert project["tool"]["coverage"]["report"]["fail_under"] == 95
-    assert "uv run pytest --cov-report=term-missing --cov-report=html" in runbook
+    assert "development.md" in runbook
+    assert "uv run --frozen pytest --cov-report=term-missing --cov-report=html" in development
 
 
 def test_actions_aware_validation_replaces_generic_yaml_shape_check() -> None:

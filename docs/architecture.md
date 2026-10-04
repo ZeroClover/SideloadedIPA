@@ -1,80 +1,71 @@
-# Architecture Overview
+# Architecture and invariants
 
-SideloadedIPA is an automated pipeline that downloads, provisions, signs, verifies, and distributes iOS IPAs. It is designed to handle complex applications containing nested app extensions, custom entitlement policies, and shared App Groups.
+Read for boundaries, orchestration, cache identity, or evidence flow.
+CLI operations are in [Operations](operator-runbook.md).
 
-```mermaid
-flowchart TD
-    A[Source IPA: GitHub / Direct URL] --> B[1. Inspect]
-    B -->|Bundle Graph & Source Hash| C[2. Plan]
-    C -->|Required App IDs & Profiles| D[3. Sync]
-    D -->|Provisioning Profiles| E[4. Sign]
-    E -->|Signed IPA| F[5. Verify]
-    F -->|Verified IPA & Icon| G[6. Publish]
-    G --> H[(Cloudflare R2: IPAs & apps.json)]
-    G --> I[Vercel Web App: OTA Install Portal]
-```
+## Module responsibilities
 
----
+All Python paths below are relative to src/sideloadedipa/.
 
-## Pipeline Stages
+| Layer | Responsibility |
+| --- | --- |
+| domain/ | Immutable values, identifier/entitlement/capability rules, reconciliation |
+| ports.py | Signing, verification and external service contracts |
+| adapters/ | Apple ASC CLI, patched zsign and R2 implementations |
+| config/, sources/, ipa/ | Validate task policy, acquire source, safely inventory bundles |
+| apple/ | Resource intents and plan/apply coordination |
+| signing/ | Validate inputs/profiles, transform bundles, plan order, execute signing |
+| verification/ | Independent output signatures, profiles and entitlement checks |
+| cache/ | Fingerprints, decisions, storage and reuse |
+| pipeline/production.py | Compose stages and reuse prepared inputs within one transaction |
+| pipeline/stages/ | Source inventory, Apple, signing, verification, publication and evidence |
+| pipeline/publication_service.py | Verified publication transaction and retention |
+| util/ | Atomic I/O, subprocess boundary, retry and workspace primitives |
+| tools/ | Manually invoked backend qualification; not a production stage |
 
-The pipeline executes in six ordered stages. Each stage produces a structured manifest in `work/pipeline/<run-id>/` that validates the inputs and guarantees deterministic execution.
+cli.py maps commands to application requests. scripts/ contains the dependency-audit
+helper, not legacy signing wrappers. Keep business logic out of CLI/orchestrator.
+Check tests/test_production_stage_architecture.py and
+tests/test_production_reachability.py when moving responsibilities.
 
-### 1. Inspect (`inspect`)
-- Downloads the source IPA from a direct HTTPS URL (validated against a pinned SHA-256) or the latest matching asset from a GitHub release.
-- Validates the ZIP archive against traversal attacks and corruption.
-- Recursively scans the bundle hierarchy to detect the root app, app extensions (`.appex`), and embedded frameworks.
-- Extracts existing Info.plist metadata and original entitlements.
+## Evidence flow
 
-### 2. Plan (`plan`)
-- Evaluates the bundle graph against `configs/tasks.toml` configuration.
-- Calculates target bundle identifiers and required Apple capabilities (e.g., App Groups, HealthKit, Increased Memory Limit).
-- Inspects the Apple Developer Portal (via App Store Connect API) to determine which App IDs, capabilities, and provisioning profiles need to be created or updated.
-- **Read-only**: makes no changes to Apple Developer resources.
+Source → inventory → Apple plan/apply → sign/cache reuse → independent verify → publish.
+Persisted stage/input manifests under work/pipeline/<run-id>/ bind inputs and reports
+by digest. They support cross-process commands; in-process run reuses prepared
+immutable inputs without repeating unchanged reads. A manifest is evidence, not a
+guarantee that external Apple or R2 state can never change.
 
-### 3. Sync (`sync --apply`)
-- Automatically creates missing App IDs and enables required capabilities in the Apple Developer Portal.
-- Generates and downloads iOS development provisioning profiles for each profile-bearing bundle.
-- **Safe & Additive**: Only creates missing resources; never deletes existing App IDs or revokes certificates.
+A profile-bearing root/nested app or extension gets one explicit target App ID and
+validated development profile. Frameworks/dylibs are profile-free but still signed
+and verified. Unknown profile-bearing nodes fail closed. Sign deepest children
+first and the containing app last; preserve the planned executable graph.
 
-### 4. Sign (`sign`)
-- Generates tailored entitlement plists for each bundle based on configured entitlement modes (`profile`, `template`, or `preserve-source`).
-- Signs the bundle hierarchy in **bottom-up order** (deepest nested extensions/frameworks first, root application last) using patched `zsign`.
-- Supports smart caching: if source bytes, bundle rules, and profile fingerprints are unchanged, re-signing is skipped.
+Apple reconciliation uses a held transaction snapshot and merges verified additive
+mutation responses. Manual capability/App Group prerequisites remain distinct from
+automatable intents. Profile authorization, exact certificate identity, device
+eligibility and entitlement policy must agree before signing.
 
-### 5. Verify (`verify`)
-- Reopens the newly signed (or cached) IPA in an isolated workspace.
-- Validates Mach-O code signatures for every binary and framework in the bundle tree.
-- Verifies that embedded provisioning profiles match the signing certificate and team.
-- Checks consistency between XML and DER entitlement representations.
+## Cache and independent verification
 
-### 6. Publish (`publish`)
-- Uploads verified IPAs and extracted app icons to Cloudflare R2 under immutable, versioned keys (`apps/<slug>/<version>/...`).
-- Atomically updates the central `site/apps.json` registry file on R2.
-- Triggers on-demand cache revalidation on the Next.js web application via `/api/revalidate`.
-- Safely cleans up obsolete IPA and icon versions from R2 after successful publication.
+cache/fingerprint.py and pipeline/stages/signing_cache.py own signing identity:
+source/inventory, policy/templates, Apple/profile/certificate inputs and qualified
+backend identity. Compare semantic/digest contracts before changing serialization.
 
----
+A cache hit is not acceptance. verification/service.py independently checks the
+cached or newly signed IPA. Reuse evidence only for the same bytes, plan, policies
+and required rigor. Avoid a duplicate pass within one unchanged transaction; do not
+replace the one independent pass with signing-tool self-report. See the
+signed-ipa-verification and multi-bundle-signing baseline specs.
 
-## Caching Model
+## Web and publication boundary
 
-SideloadedIPA uses content-addressed caching to avoid unnecessary signing in CI:
+R2 site/apps.json is the catalog source; web/lib/apps.ts validates it before page
+or plist use. Fixture data is explicit, never a production fallback.
+web/lib/itms-route.ts and web/lib/plist.ts own safe manifest generation.
 
-1. **Fingerprint Calculation**: A SHA-256 fingerprint is computed from:
-   - Source IPA digest and bundle graph structure.
-   - Signing policy and entitlement templates.
-   - Apple provisioning profile IDs and certificate serial numbers.
-   - Patched `zsign` binary version and checksum.
-2. **Cache Verification**: When a cache entry matches, the pipeline checks that the certificate and profiles are still valid, then runs the full independent `verify` stage on the cached IPA.
-3. **Publication Gate**: Cached builds are only published after passing the complete verification gate.
-
----
-
-## Web Distribution & OTA Portal
-
-The repository includes a Next.js front-end in `web/` that provides an Over-The-Air (OTA) installation portal:
-
-- **Data Source**: Reads the validated `site/apps.json` registry from Cloudflare R2.
-- **OTA Manifests**: Serves dynamic `/apps/[slug]/itms.plist` endpoints formatted for iOS Safari's `itms-services://` protocol.
-- **Cache & Revalidation**: Uses Next.js data cache tagged with `apps`. When the pipeline publishes new builds, it sends POST `/api/revalidate` with `X-Revalidate-Secret` to expire the catalog cache immediately without full site redeploys.
-
+Publication exposes verified immutable objects by updating the registry, then
+expires the Next apps cache. Advertised objects need delayed retirement, not
+immediate deletion. Timing, single-publisher assumptions and rollback limits live
+in [Publication](publication.md). The transaction does not supply distributed
+locking or compare-and-swap against other publishers.
