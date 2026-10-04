@@ -104,7 +104,7 @@ export function decodeAppsRegistry(value: unknown): AppEntry[] {
     fail("apps", "application registry apps field must be an array");
   }
   const slugs = new Set<string>();
-  return Object.freeze(root.apps.map((entry, index) => decodeEntry(entry, index, slugs))).slice();
+  return root.apps.map((entry, index) => decodeEntry(entry, index, slugs));
 }
 
 function dataMode(env: Record<string, string | undefined>): "fixture" | "origin" {

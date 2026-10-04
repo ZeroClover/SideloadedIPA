@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import tempfile
@@ -31,16 +32,25 @@ class DownloadPolicy:
     backoff_seconds: float
 
     def __post_init__(self) -> None:
-        if isinstance(self.maximum_bytes, bool) or self.maximum_bytes <= 0:
-            raise ValueError("maximum_bytes must be positive")
-        if isinstance(self.timeout_seconds, bool) or self.timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
-        if isinstance(self.chunk_bytes, bool) or self.chunk_bytes <= 0:
-            raise ValueError("chunk_bytes must be positive")
-        if isinstance(self.maximum_attempts, bool) or self.maximum_attempts <= 0:
-            raise ValueError("maximum_attempts must be positive")
-        if isinstance(self.backoff_seconds, bool) or self.backoff_seconds < 0:
-            raise ValueError("backoff_seconds must not be negative")
+        for name, count in (
+            ("maximum_bytes", self.maximum_bytes),
+            ("chunk_bytes", self.chunk_bytes),
+            ("maximum_attempts", self.maximum_attempts),
+        ):
+            if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        for name, seconds in (
+            ("timeout_seconds", self.timeout_seconds),
+            ("backoff_seconds", self.backoff_seconds),
+        ):
+            if (
+                isinstance(seconds, bool)
+                or not isinstance(seconds, (int, float))
+                or not math.isfinite(seconds)
+                or seconds < 0
+                or (name == "timeout_seconds" and seconds == 0)
+            ):
+                raise ValueError(f"{name} must be finite and within its valid range")
 
 
 DEFAULT_DOWNLOAD_POLICY = DownloadPolicy(
@@ -195,6 +205,13 @@ def _stream_to_file(
             handle.flush()
             os.fsync(handle.fileno())
 
+        if declared is not None and size != declared:
+            raise DomainError(
+                ErrorCode.SOURCE_ADVERTISED_SIZE_MISMATCH,
+                "downloaded source size differs from HTTP Content-Length",
+                remediation="start a new inspect run and review the source response",
+                safe_details=(("expected_bytes", declared), ("actual_bytes", size)),
+            )
         if expected_size is not None and size != expected_size:
             raise DomainError(
                 ErrorCode.SOURCE_ADVERTISED_SIZE_MISMATCH,
@@ -213,9 +230,9 @@ def _stream_to_file(
                 remediation="verify the release asset and update the reviewed digest",
                 safe_details=(("expected", expected_sha256), ("actual", actual)),
             )
+        temporary_path.chmod(0o444)
         os.replace(temporary_path, destination)
         temporary_path = None
-        destination.chmod(0o444)
         return DownloadedSource(path=destination, size=size, sha256=actual)
     finally:
         if temporary_path is not None:
@@ -300,6 +317,7 @@ def download_source_asset(
         except (DomainError, AdapterError):
             raise
         except HTTPError as error:
+            error.close()
             if error.code not in _RETRYABLE_HTTP_STATUS:
                 raise _transport_failure(error.code) from error
             if attempt == policy.maximum_attempts:

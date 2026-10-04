@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from collections.abc import Callable
@@ -27,7 +28,19 @@ class RetryPolicy:
 
     def __post_init__(self) -> None:
         if (
-            self.max_attempts < 1
+            isinstance(self.max_attempts, bool)
+            or not isinstance(self.max_attempts, int)
+            or self.max_attempts < 1
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in (
+                    self.base_delay_seconds,
+                    self.max_delay_seconds,
+                    self.jitter_ratio,
+                )
+            )
             or self.base_delay_seconds < 0
             or self.max_delay_seconds < self.base_delay_seconds
             or not 0 <= self.jitter_ratio <= 1
@@ -61,5 +74,5 @@ def retry_call(
                 policy.base_delay_seconds * (2 ** (attempt - 1)),
             )
             jitter = 1 + policy.jitter_ratio * ((2 * random_unit()) - 1)
-            sleep(base * jitter)
+            sleep(min(policy.max_delay_seconds, base * jitter))
     raise AssertionError("retry loop exhausted without returning or raising")

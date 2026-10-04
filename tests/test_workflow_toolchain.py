@@ -24,9 +24,9 @@ DEPENDENCY_AUDIT = ROOT / "scripts" / "check_dependency_audits.py"
 ASC_SHA256 = "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
 ZSIGN_SOURCE_COMMIT = "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
 ZSIGN_SOURCE_SHA256 = "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
-PYTHON_VERSION = "3.11.15"
-NODE_VERSION = "22.23.1"
-UV_VERSION = "0.11.31"
+PYTHON_VERSION = "3.11.17"
+NODE_VERSION = "22.23.3"
+UV_VERSION = "0.12.23"
 
 
 def workflow_text() -> str:
@@ -239,6 +239,7 @@ def test_pr_workflow_uses_one_complete_debuggable_validation_job() -> None:
         "uv run isort --check-only",
         "uv run mypy src/sideloadedipa",
         "uv run mypy scripts/",
+        "uv build",
         "actionlint",
         "uv run zizmor --strict-collection --min-severity high .",
         "npm ci",
@@ -309,7 +310,7 @@ def test_actions_aware_validation_replaces_generic_yaml_shape_check() -> None:
     project = (ROOT / "pyproject.toml").read_text()
     lock = (ROOT / "uv.lock").read_text()
 
-    assert '"zizmor==1.28.0"' in project
+    assert '"zizmor==1.30.1"' in project
     assert 'name = "zizmor"' in lock
     assert "--strict-collection --min-severity high ." in pull_request
     assert "YAML.safe_load_file" not in pull_request

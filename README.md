@@ -15,9 +15,9 @@ SideloadedIPA is an automated pipeline that downloads, signs, verifies, and dist
 
 ### 1. Prerequisites
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) package manager
-- Node.js 20+ (for the web app in `web/`)
+- Python 3.11+ (local and CI runtime pinned in `.python-version`)
+- [uv](https://docs.astral.sh/uv/) package manager (exact version required by `pyproject.toml`)
+- Node.js 22 (use the patch version in `web/.node-version` for the web app)
 
 ### 2. Setup
 
@@ -65,9 +65,10 @@ Run Python tests, linting, and type checking:
 
 ```bash
 uv run --frozen pytest
-uv run --frozen black --check src tests scripts
-uv run --frozen isort --check-only src tests scripts
+uv run --frozen black --check src scripts
+uv run --frozen isort --check-only src scripts
 uv run --frozen mypy src/sideloadedipa scripts
+uv build
 ```
 
 Test and build the Next.js web application:
@@ -86,5 +87,6 @@ APPS_DATA_MODE=fixture npm run build
 - [Operator Runbook](docs/operator-runbook.md) — Step-by-step instructions for running, debugging, qualifying backends, and handling rollbacks.
 - [Security Model](docs/security.md) — Credential scoping, sandbox boundaries, and dependency integrity.
 - [Troubleshooting](docs/troubleshooting.md) — Solutions for common bundle, profile, entitlement, and signing errors.
+- [Project Review (2026-10-04)](docs/project-review-2026-10-04.md) — Reliability fixes, stable dependency upgrades, validation evidence, and deferred risks.
 - [Migration Guide](MIGRATION.md) — Instructions for upgrading configs and command invocations.
 

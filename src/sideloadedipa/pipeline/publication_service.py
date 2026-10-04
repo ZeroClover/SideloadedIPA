@@ -50,6 +50,13 @@ def _validate_candidate(candidate: PublicationCandidate) -> None:
         raise _publication_error(candidate, "artifact did not pass the verified publication gate")
 
 
+def _registry_apps(current: Mapping[str, object] | None) -> list[dict[str, object]]:
+    raw_apps = (current or {}).get("apps", [])
+    if not isinstance(raw_apps, list) or any(not isinstance(app, dict) for app in raw_apps):
+        raise DomainError(ErrorCode.PUBLICATION_FAILED, "registry apps value is not an object list")
+    return raw_apps
+
+
 def _merge_registry(
     current: Mapping[str, object] | None,
     candidates: Sequence[PublicationCandidate],
@@ -57,9 +64,7 @@ def _merge_registry(
     *,
     now: datetime,
 ) -> dict[str, object]:
-    raw_apps = (current or {}).get("apps", [])
-    if not isinstance(raw_apps, list) or any(not isinstance(app, dict) for app in raw_apps):
-        raise DomainError(ErrorCode.PUBLICATION_FAILED, "registry apps value is not an object list")
+    raw_apps = _registry_apps(current)
     updates: dict[str, dict[str, object]] = {
         candidate.slug: {
             "slug": candidate.slug,
@@ -158,6 +163,8 @@ class VerifiedPublicationService:
             _validate_candidate(candidate)
 
         current = self.gateway.read_registry()
+        # Reject a malformed snapshot before uploading anything that cannot be merged.
+        _registry_apps(current)
         previous_keys = _referenced_keys(self.gateway, current or {})
         new_icon_keys = tuple(
             key

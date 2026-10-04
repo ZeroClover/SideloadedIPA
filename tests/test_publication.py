@@ -148,6 +148,23 @@ class RecordingGateway:
         return ("apps/example/1.0/Example.ipa",)
 
 
+@pytest.mark.parametrize("apps", [None, "invalid", ["invalid"]])
+def test_malformed_registry_blocks_uploads(tmp_path: Path, apps: object) -> None:
+    artifact = tmp_path / "Example.ipa"
+    artifact.write_bytes(b"verified")
+
+    class InvalidRegistryGateway(RecordingGateway):
+        def read_registry(self) -> dict[str, object]:
+            self.calls.append("read")
+            return {"apps": apps}
+
+    gateway = InvalidRegistryGateway()
+    with pytest.raises(DomainError) as caught:
+        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+    assert caught.value.code is ErrorCode.PUBLICATION_FAILED
+    assert gateway.calls == ["read"]
+
+
 def test_verified_publication_uses_strict_atomic_order(tmp_path: Path) -> None:
     artifact = tmp_path / "Example.ipa"
     artifact.write_bytes(b"verified")

@@ -59,6 +59,8 @@ def _read_json(request: Request, *, timeout_seconds: float) -> object:
             payload = response.read(_MAX_RESPONSE_BYTES + 1)
     except (HTTPError, URLError, OSError) as error:
         status = error.code if isinstance(error, HTTPError) else None
+        if isinstance(error, HTTPError):
+            error.close()
         details = (("status", status),) if status is not None else ()
         raise AdapterError(
             ErrorCode.ADAPTER_RESPONSE_INVALID,

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import tomllib
 from importlib.metadata import entry_points
+from pathlib import Path
 
 import pytest
 
 from sideloadedipa import __version__
 from sideloadedipa.cli import main
+
+
+def test_sdist_uses_an_explicit_package_boundary() -> None:
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    included = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
+    assert set(included) == {"/src/sideloadedipa", "/pyproject.toml", "/README.md", "/LICENSE"}
 
 
 def test_distribution_exposes_console_entry_point() -> None:

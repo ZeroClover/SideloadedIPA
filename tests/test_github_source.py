@@ -17,10 +17,7 @@ from sideloadedipa.sources import (
     fetch_github_release,
 )
 from sideloadedipa.sources import github as github_source
-from sideloadedipa.sources import (
-    github_repository_name,
-    select_release_asset,
-)
+from sideloadedipa.sources import github_repository_name, select_release_asset
 
 FIXTURES = Path(__file__).parent / "fixtures" / "baseline"
 
@@ -109,6 +106,18 @@ def test_repository_name_and_adapter_failures_are_safe(monkeypatch: pytest.Monke
         ("status", 403),
     )
     assert "private-token" not in str(caught.value)
+
+
+def test_github_closes_http_error_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = BytesIO(b"private response")
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise HTTPError("https://api.github.com/", 403, "failure", None, body)
+
+    monkeypatch.setattr(github_source, "urlopen", fail)
+    with pytest.raises(AdapterError):
+        github_source.fetch_github_release("https://github.com/example/application")
+    assert body.closed
 
 
 def test_selects_one_asset_and_records_complete_evidence() -> None:

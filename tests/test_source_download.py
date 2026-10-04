@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import stat
 from email.message import Message
+from io import BytesIO
 from pathlib import Path
 from types import TracebackType
 from urllib.error import HTTPError, URLError
@@ -85,6 +86,36 @@ def policy(
         maximum_attempts=maximum_attempts,
         backoff_seconds=backoff_seconds,
     )
+
+
+@pytest.mark.parametrize("expected_size", [None, 3])
+def test_truncated_http_body_is_never_committed(tmp_path: Path, expected_size: int | None) -> None:
+    destination = tmp_path / "source.ipa"
+    with pytest.raises(DomainError) as caught:
+        download_source_asset(
+            "https://example.com/App.ipa",
+            destination,
+            expected_size=expected_size,
+            policy=policy(),
+            open_url=FakeTransport(FakeResponse(b"abc", headers={"Content-Length": "8"})),
+        )
+    assert caught.value.code is ErrorCode.SOURCE_ADVERTISED_SIZE_MISMATCH
+    assert dict(caught.value.safe_details) == {"expected_bytes": 8, "actual_bytes": 3}
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("status", [404, 503])
+def test_download_closes_http_error_body(tmp_path: Path, status: int) -> None:
+    body = BytesIO(b"private response")
+    error = HTTPError("https://example.com/App.ipa", status, "failure", None, body)
+    with pytest.raises(AdapterError):
+        download_source_asset(
+            "https://example.com/App.ipa",
+            tmp_path / "source.ipa",
+            policy=policy(),
+            open_url=FakeTransport(error),
+        )
+    assert body.closed
 
 
 def test_streams_verifies_and_marks_source_read_only(tmp_path: Path) -> None:
@@ -334,6 +365,13 @@ def test_refuses_to_overwrite_workspace_source(tmp_path: Path) -> None:
         {"chunk_bytes": 0},
         {"maximum_attempts": 0},
         {"backoff_seconds": -1},
+        {"maximum_bytes": 1.5},
+        {"chunk_bytes": 1.5},
+        {"maximum_attempts": 1.5},
+        {"timeout_seconds": float("nan")},
+        {"timeout_seconds": float("inf")},
+        {"backoff_seconds": float("nan")},
+        {"backoff_seconds": float("inf")},
     ],
 )
 def test_download_policy_requires_bounded_positive_values(override: dict[str, object]) -> None:

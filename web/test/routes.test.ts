@@ -38,6 +38,24 @@ describe("registry revalidation request", () => {
     assert.deepEqual(calls, []);
   });
 
+  for (const suppliedSecret of ["reviewed-secrex", "x", "é".repeat(15)]) {
+    it("rejects unequal secret bytes without throwing or caching", async () => {
+      let calls = 0;
+      const response = await handleRevalidation(
+        new Request("https://site.example/api/revalidate", {
+          method: "POST",
+          headers: { "x-revalidate-secret": suppliedSecret },
+        }),
+        "reviewed-secret",
+        () => { calls += 1; },
+      );
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(calls, 0);
+      assert.doesNotMatch(await response.text(), /reviewed-secret/);
+    });
+  }
+
   it("expires only the apps tag immediately", async () => {
     const calls: Array<[string, { expire: 0 }]> = [];
     const response = await handleRevalidation(
