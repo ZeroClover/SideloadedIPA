@@ -175,7 +175,7 @@ def extract_icon_from_ipa(ipa_path: Path) -> bytes:
 
         if best is None:
             raise IconError(f"No icon PNG matching {basenames} at {app_dir}/")
-        print(f"[info] Icon source: {best[1]} ({best[0]}x{best[0]})")
+        print(f"[info] Icon source: {best[1]} ({best[0]}x{best[0]})", file=sys.stderr)
         return zf.read(best[1])
 
 
@@ -361,12 +361,15 @@ def build_icon_png(
         data = extract_icon_from_ipa(ipa_path)
     else:
         url = resolve_icon_url(icon_path, repo_url, ref)
-        print(f"[info] Fetching icon: {url}")
+        print(f"[info] Fetching icon: {url}", file=sys.stderr)
         data = fetch_bytes(url)
 
     png = normalize_to_png(data, size=size)
     out_w, out_h = _png_dimensions(png)
-    print(f"[info] Icon normalised: {sniff_format(data)} -> PNG {out_w}x{out_h} ({len(png)} bytes)")
+    print(
+        f"[info] Icon normalised: {sniff_format(data)} -> PNG {out_w}x{out_h} ({len(png)} bytes)",
+        file=sys.stderr,
+    )
     return png
 
 

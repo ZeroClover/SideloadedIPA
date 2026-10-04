@@ -203,7 +203,7 @@ class R2Store:
             extra["ContentDisposition"] = content_disposition
         self._client.upload_file(str(local_path), self.bucket, key, ExtraArgs=extra)
         url = self.public_url(key)
-        print(f"[info] Uploaded: {url}")
+        print(f"[info] Uploaded: {url}", file=sys.stderr)
         return url
 
     def upload_ipa(self, local_path: Path, key: str) -> str:
@@ -227,7 +227,7 @@ class R2Store:
             CacheControl=ICON_CACHE_CONTROL,
         )
         url = self.public_url(key)
-        print(f"[info] Uploaded icon: {url} ({len(png_bytes)} bytes)")
+        print(f"[info] Uploaded icon: {url} ({len(png_bytes)} bytes)", file=sys.stderr)
         return url
 
     def upload_json(self, key: str, payload: dict[str, Any]) -> str:
@@ -241,7 +241,7 @@ class R2Store:
             CacheControl=JSON_CACHE_CONTROL,
         )
         url = self.public_url(key)
-        print(f"[info] Uploaded JSON: {url}")
+        print(f"[info] Uploaded JSON: {url}", file=sys.stderr)
         return url
 
     # ── downloads ────────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ class R2Store:
                     safe_details=(("attempted_keys", tuple(batch)),),
                 )
             for key in batch:
-                print(f"[info] Deleted object: {key}")
+                print(f"[info] Deleted object: {key}", file=sys.stderr)
 
 
 def main() -> int:  # pragma: no cover - manual smoke helper
