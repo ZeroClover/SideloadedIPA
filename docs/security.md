@@ -30,6 +30,7 @@ This document outlines the security architecture and protections built into the 
 ## 4. Supply Chain & Toolchain Integrity
 
 - **Locked Python Dependencies**: Python packages are strictly locked via `uv.lock` and installed with `uv sync --frozen`.
+- **Web Dependency Gate**: `npm ci` uses the reviewed lockfile; `scripts/check_dependency_audits.py` rejects unreviewed high/critical findings and expired exceptions. The updated lockfile needs no exceptions. Prefer patched upstream dependencies over obsolete overrides or extending exception deadlines.
 - **Checksum Verification**: External binaries (`zsign`, `asc`, `cloudflared`, and `actionlint`) are downloaded and verified against exact SHA-256 digests before execution.
 - **Pinned Actions**: GitHub Actions workflows reference immutable commit SHAs with automated security audits via `zizmor` and `actionlint`.
 

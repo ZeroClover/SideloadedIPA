@@ -49,24 +49,32 @@ def audit_report(*, advisory: str = "GHSA-f88m-g3jw-g9cj") -> dict[str, object]:
     }
 
 
-def test_current_reviewed_exception_is_complete_and_unexpired() -> None:
-    reviewed = load_reviewed_exceptions(
-        ROOT / ".github" / "dependency-audit-exceptions.json",
-        today=date(2026, 7, 23),
-    )
+def exception_document() -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "npm": [
+            {
+                "advisory": "GHSA-f88m-g3jw-g9cj",
+                "package": "sharp",
+                "severity": "high",
+                "affectedDependencyPath": "next > sharp",
+                "reachability": "The supported route does not invoke the vulnerable decoder.",
+                "owner": "@owner",
+                "remediationCondition": "Upgrade when the parent permits the fixed release.",
+                "expiresOn": "2026-08-23",
+            }
+        ],
+    }
 
-    assert reviewed == (
-        ReviewedException(
-            advisory="GHSA-f88m-g3jw-g9cj",
-            package="sharp",
-            severity="high",
-            affected_dependency_path="next@16.2.11 > sharp@0.34.5",
-            reachability=reviewed[0].reachability,
-            owner="@ZeroClover",
-            remediation_condition=reviewed[0].remediation_condition,
-            expires_on=date(2026, 8, 23),
-        ),
-    )
+
+def test_current_dependency_policy_has_no_exceptions() -> None:
+    assert load_reviewed_exceptions(ROOT / ".github" / "dependency-audit-exceptions.json") == ()
+
+
+def test_reviewed_exception_loader_accepts_complete_unexpired_fixture(tmp_path: Path) -> None:
+    path = tmp_path / "exceptions.json"
+    path.write_text(json.dumps(exception_document()))
+    assert load_reviewed_exceptions(path, today=date(2026, 7, 23)) == (exception(),)
 
 
 def test_exact_reviewed_advisory_is_accepted() -> None:
@@ -100,7 +108,7 @@ def test_exception_package_must_match_the_audit() -> None:
 
 
 def test_exception_loader_rejects_missing_review_fields(tmp_path: Path) -> None:
-    document = json.loads((ROOT / ".github" / "dependency-audit-exceptions.json").read_text())
+    document = exception_document()
     del document["npm"][0]["owner"]
     path = tmp_path / "exceptions.json"
     path.write_text(json.dumps(document))
@@ -110,7 +118,7 @@ def test_exception_loader_rejects_missing_review_fields(tmp_path: Path) -> None:
 
 
 def test_exception_loader_rejects_expiry(tmp_path: Path) -> None:
-    document = json.loads((ROOT / ".github" / "dependency-audit-exceptions.json").read_text())
+    document = exception_document()
     document["npm"][0]["expiresOn"] = "2026-07-22"
     path = tmp_path / "exceptions.json"
     path.write_text(json.dumps(document))
