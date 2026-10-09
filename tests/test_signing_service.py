@@ -284,6 +284,128 @@ def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) ->
     assert request.verifier.calls == 0
 
 
+@pytest.fixture
+def jego_fixture(tmp_path: Path) -> PackageSigningRequest:
+    task = next(
+        task
+        for task in load_configuration(Path("configs/tasks.toml")).tasks
+        if task.task_name == "Jego"
+    )
+    fixture = request_for(task, tmp_path)
+    source_bundle_id = "com.cmi.jego.enterprise"
+    source_sha256 = write_source(fixture.source_ipa, source_bundle_id)
+    source_entitlements = normalize_entitlements(
+        {
+            "application-identifier": f"SOURCETEAM.{source_bundle_id}",
+            "com.apple.developer.team-identifier": "SOURCETEAM",
+            "get-task-allow": False,
+            "keychain-access-groups": ["SOURCETEAM.com.cmi.jegotrip"],
+            "aps-environment": "production",
+            "com.apple.developer.associated-domains": ["applinks:cp.jegotrip.com.cn"],
+        }
+    )
+    profile_entitlements = normalize_entitlements(
+        {
+            "application-identifier": f"PREFIX.{task.bundle_id}",
+            "com.apple.developer.team-identifier": fixture.certificate.identity.team_id,
+            "get-task-allow": True,
+            "keychain-access-groups": ["PREFIX.com.cmi.jegotrip"],
+        }
+    )
+    return replace(
+        fixture,
+        graph=replace(
+            fixture.graph,
+            source_sha256=source_sha256,
+            nodes=(
+                replace(
+                    fixture.graph.nodes[0],
+                    source_bundle_id=source_bundle_id,
+                    entitlements=source_entitlements.values,
+                ),
+            ),
+        ),
+        profiles=(replace(fixture.profiles[0], entitlements=profile_entitlements.values),),
+    )
+
+
+def compose_jego_request(fixture: PackageSigningRequest) -> PackageSigningRequest:
+    return build_package_signing_request(
+        task=fixture.task,
+        graph=fixture.graph,
+        profile_manifest=fixture.profile_manifest,
+        profiles=fixture.profiles,
+        certificate=fixture.certificate,
+        backend_identity=fixture.backend_identity,
+        backend=fixture.backend,
+        verifier=fixture.verifier,
+        source_ipa=fixture.source_ipa,
+        destination_ipa=fixture.destination_ipa,
+        repository_root=Path.cwd(),
+    )
+
+
+def test_jego_template_preserves_keychain_suffix_and_only_drops_reviewed_features(
+    jego_fixture: PackageSigningRequest,
+) -> None:
+    request = compose_jego_request(jego_fixture)
+    expected = dict(request.expected_entitlements[0].values)
+
+    assert expected == {
+        "application-identifier": "PREFIX.io.zeroclover.app.jego",
+        "com.apple.developer.team-identifier": "TEAMID1234",
+        "get-task-allow": True,
+        "keychain-access-groups": ("PREFIX.com.cmi.jegotrip",),
+    }
+    plan = plan_package_signing(request)
+    assert plan.nodes[0].target_bundle_id == "io.zeroclover.app.jego"
+    assert plan.nodes[0].expected_entitlements == request.expected_entitlements[0].values
+
+
+def test_jego_rejects_new_unreviewed_source_entitlement_before_signing(
+    jego_fixture: PackageSigningRequest,
+) -> None:
+    node = jego_fixture.graph.nodes[0]
+    source = dict(node.entitlements)
+    source["com.apple.developer.healthkit"] = True
+    fixture = replace(
+        jego_fixture,
+        graph=replace(
+            jego_fixture.graph,
+            nodes=(replace(node, entitlements=normalize_entitlements(source).values),),
+        ),
+    )
+
+    with pytest.raises(DomainError) as caught:
+        compose_jego_request(fixture)
+
+    assert caught.value.code is ErrorCode.ENTITLEMENTS_UNDECLARED_DROP
+    assert caught.value.safe_details == (("keys", ("com.apple.developer.healthkit",)),)
+    assert isinstance(fixture.backend, CopyBackend)
+    assert fixture.backend.called is False
+    assert not fixture.destination_ipa.exists()
+
+
+def test_jego_rejects_profile_without_keychain_authorization_before_signing(
+    jego_fixture: PackageSigningRequest,
+) -> None:
+    profile = jego_fixture.profiles[0]
+    entitlements = dict(profile.entitlements)
+    del entitlements["keychain-access-groups"]
+    fixture = replace(
+        jego_fixture,
+        profiles=(replace(profile, entitlements=normalize_entitlements(entitlements).values),),
+    )
+    request = compose_jego_request(fixture)
+
+    with pytest.raises(DomainError):
+        plan_package_signing(request)
+
+    assert isinstance(fixture.backend, CopyBackend)
+    assert fixture.backend.called is False
+    assert not fixture.destination_ipa.exists()
+
+
 def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> None:
     task = load_configuration(Path("configs/tasks.toml")).tasks[0]
     fixture = request_for(task, tmp_path)
