@@ -62,7 +62,7 @@ class LiefMachOProbe:
                 and binary.header.magic in set(lief.MachO.MACHO_TYPES)
                 for binary in parsed
             )
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             return False
 
 
@@ -176,7 +176,7 @@ def _reject_unsupported_executable_bundles(
             continue
         try:
             document = plistlib.loads(info_path.read_bytes())
-        except (OSError, plistlib.InvalidFileException):
+        except OSError, plistlib.InvalidFileException:
             continue
         if not isinstance(document, Mapping):
             continue

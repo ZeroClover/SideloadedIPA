@@ -80,7 +80,7 @@ def write_side_effect_journal(path: Path, journal: SideEffectJournal) -> None:
 def record_cancellation(journal: SideEffectJournal, report_path: Path) -> Iterator[None]:
     try:
         yield
-    except (KeyboardInterrupt, CancelledError):
+    except KeyboardInterrupt, CancelledError:
         _write_atomic(report_path, journal.document())
         raise
 

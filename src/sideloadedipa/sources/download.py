@@ -314,7 +314,7 @@ def download_source_asset(
                     policy=policy,
                 )
                 return replace(downloaded, attempts=attempt)
-        except (DomainError, AdapterError):
+        except DomainError, AdapterError:
             raise
         except HTTPError as error:
             error.close()

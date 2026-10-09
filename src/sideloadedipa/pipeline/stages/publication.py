@@ -49,7 +49,7 @@ def _upload_icon(
             ipa_path=artifact,
         )
         return store.upload_icon(task.slug, png)
-    except (BotoCoreError, ClientError, IconError, OSError):
+    except BotoCoreError, ClientError, IconError, OSError:
         return None
 
 

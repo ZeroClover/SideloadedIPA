@@ -79,7 +79,7 @@ def _finding(
 def _info_bundle_id(path: Path) -> str | None:
     try:
         document = plistlib.loads(path.read_bytes())
-    except (OSError, plistlib.InvalidFileException, ValueError, TypeError):
+    except OSError, plistlib.InvalidFileException, ValueError, TypeError:
         return None
     if not isinstance(document, Mapping):
         return None

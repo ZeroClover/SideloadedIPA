@@ -254,7 +254,7 @@ class SigningStage:
                             retained_path=self.signing_report_path(request, task_name),
                         )
                         atomic_copy(artifact, value.request.destination_ipa)
-                    except (OSError, SideloadedIPAError):
+                    except OSError, SideloadedIPAError:
                         decision = RebuildDecision(
                             task_name,
                             True,

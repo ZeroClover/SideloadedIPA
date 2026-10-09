@@ -9,7 +9,7 @@ use [Architecture](architecture.md); credentials are in [Environment](environmen
 - Web scripts/dependencies/runtime: web/package.json, web/package-lock.json, web/.node-version.
 - Required CI gates: .github/workflows/pr-checks.yml.
 
-Python uses 3.11-compatible syntax, strict mypy, Black at 100 columns and isort's
+Python uses 3.14-compatible syntax, strict mypy, Black at 100 columns and isort's
 Black profile. Domain values are typed and immutable. Use pathlib and argv-list
 subprocesses; reuse existing JSON/digest, atomic-write, retry and redaction
 primitives. There is no configured Ruff gate.

@@ -8,11 +8,11 @@ inputs:
   cloudflared-version:
     description: cloudflared release version
     required: false
-    default: "2026.7.2"
+    default: "2026.10.0"
   cloudflared-sha256:
     description: Expected SHA-256 checksum for the cloudflared binary
     required: false
-    default: ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd
+    default: d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db
 
 runs:
   using: composite
@@ -98,7 +98,7 @@ runs:
         EOF
 
     - name: Save connection details
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ssh-debug-connection
         path: ${{ runner.temp }}/ssh-debug/connection.txt

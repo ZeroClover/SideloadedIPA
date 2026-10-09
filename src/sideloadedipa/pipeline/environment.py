@@ -94,7 +94,7 @@ def trigger_revalidation(environment: Mapping[str, str]) -> bool:
         with urllib.request.urlopen(request, timeout=30) as response:
             status = int(response.status)
             return 200 <= status < 300
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+    except urllib.error.HTTPError, urllib.error.URLError, OSError:
         return False
 
 
