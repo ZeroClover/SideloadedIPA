@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sideloadedipa.errors import DomainError, ErrorCode
+from sideloadedipa.ipa.archive import open_ipa_archive
 
 _ROOT_INFO_PATTERN = re.compile(r"^Payload/[^/]+\.app/Info\.plist$")
 
@@ -23,7 +24,7 @@ def read_ipa_metadata(path: Path) -> IpaMetadata:
     """Read the authoritative bundle identifier and version from the root app."""
 
     try:
-        with zipfile.ZipFile(path) as archive:
+        with open_ipa_archive(path) as archive:
             names = [name for name in archive.namelist() if _ROOT_INFO_PATTERN.fullmatch(name)]
             if len(names) != 1:
                 raise ValueError("IPA must contain exactly one root application Info.plist")

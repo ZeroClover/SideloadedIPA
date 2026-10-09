@@ -4,6 +4,7 @@ from sideloadedipa.ipa.archive import (
     ArchiveEntry,
     ArchiveLimits,
     extract_ipa_safely,
+    open_ipa_archive,
     validate_archive_entries,
 )
 from sideloadedipa.ipa.discovery import discover_root_app
@@ -38,6 +39,7 @@ __all__ = [
     "discover_bundle_graph",
     "discover_bundle_structure",
     "extract_ipa_safely",
+    "open_ipa_archive",
     "read_ipa_metadata",
     "discover_root_app",
     "validate_archive_entries",

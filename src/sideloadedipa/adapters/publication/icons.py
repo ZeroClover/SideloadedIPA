@@ -130,9 +130,10 @@ def extract_icon_from_ipa(ipa_path: Path) -> bytes:
     which needs Apple's CoreUI to read, so 152x152 is the practical ceiling.
     """
     import plistlib
-    import zipfile
 
-    with zipfile.ZipFile(ipa_path) as zf:
+    from sideloadedipa.ipa import open_ipa_archive
+
+    with open_ipa_archive(ipa_path) as zf:
         names = zf.namelist()
         plists = [n for n in names if re.match(r"^Payload/[^/]+\.app/Info\.plist$", n)]
         if not plists:

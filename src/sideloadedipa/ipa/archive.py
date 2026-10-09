@@ -176,6 +176,16 @@ def validate_archive_entries(
     return tuple(entries)
 
 
+def open_ipa_archive(ipa_path: Path) -> zipfile.ZipFile:
+    """Open an IPA reading member names as UTF-8 even without the ZIP UTF-8 flag.
+
+    iOS installs members under their raw name bytes, and zsign writes UTF-8 names
+    without setting the flag, so the CP437 fallback would rename those members.
+    """
+
+    return zipfile.ZipFile(ipa_path, metadata_encoding="utf-8")
+
+
 def extract_ipa_safely(
     ipa_path: Path,
     destination: Path,
@@ -191,7 +201,7 @@ def extract_ipa_safely(
             path=destination.name,
         )
     try:
-        with zipfile.ZipFile(ipa_path) as archive:
+        with open_ipa_archive(ipa_path) as archive:
             infos = archive.infolist()
             entries = validate_archive_entries(infos, limits)
             destination.mkdir(parents=True, exist_ok=True)
@@ -215,7 +225,13 @@ def extract_ipa_safely(
             return entries
     except DomainError:
         raise
-    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+    except (
+        OSError,
+        RuntimeError,
+        UnicodeDecodeError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+    ) as error:
         raise _archive_error(
             ErrorCode.ARCHIVE_INVALID,
             "IPA archive could not be read or extracted",

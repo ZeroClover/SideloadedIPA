@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import struct
 import zipfile
 from pathlib import Path
 
@@ -209,3 +210,49 @@ def test_rejects_bad_zip_and_non_empty_destination(tmp_path: Path) -> None:
     with pytest.raises(DomainError) as file_error:
         extract_ipa_safely(safe, file_destination)
     assert file_error.value.code is ErrorCode.WORKSPACE_INVALID
+
+
+def rewrite_member_names(path: Path, replacements: dict[bytes, bytes]) -> None:
+    """Rewrite names in place and clear the UTF-8 flag, as zsign's minizip writer emits them."""
+
+    data = bytearray(path.read_bytes())
+    for signature, flag_offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        index = data.find(signature)
+        while index != -1:
+            (flags,) = struct.unpack_from("<H", data, index + flag_offset)
+            struct.pack_into("<H", data, index + flag_offset, flags & ~0x800)
+            index = data.find(signature, index + 4)
+    for old, new in replacements.items():
+        assert len(old) == len(new)
+        data = bytearray(bytes(data).replace(old, new))
+    path.write_bytes(bytes(data))
+
+
+@pytest.mark.parametrize("utf8_flag", [True, False])
+def test_extracts_utf8_member_names_regardless_of_zip_flag(tmp_path: Path, utf8_flag: bool) -> None:
+    ipa = tmp_path / "names.ipa"
+    name = "Payload/App.app/custom_face/期待.png"
+    write_archive(ipa, [(info(name), b"face")])
+    if not utf8_flag:
+        rewrite_member_names(ipa, {})
+        with zipfile.ZipFile(ipa) as archive:
+            assert archive.namelist() != [name]
+
+    destination = tmp_path / "extract"
+    entries = extract_ipa_safely(ipa, destination)
+
+    assert [entry.path.as_posix() for entry in entries] == [name]
+    assert (destination / name).read_bytes() == b"face"
+
+
+def test_rejects_member_name_that_is_not_utf8(tmp_path: Path) -> None:
+    ipa = tmp_path / "invalid-name.ipa"
+    write_archive(ipa, [(info("Payload/App.app/XX.png"), b"data")])
+    rewrite_member_names(ipa, {b"XX.png": b"\xff\xfe.png"})
+    destination = tmp_path / "extract"
+
+    with pytest.raises(DomainError) as caught:
+        extract_ipa_safely(ipa, destination)
+
+    assert caught.value.code is ErrorCode.ARCHIVE_INVALID
+    assert not destination.exists()

@@ -6,7 +6,6 @@ import hashlib
 import json
 import plistlib
 import subprocess
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
@@ -17,6 +16,7 @@ from sideloadedipa.domain.entitlement_keys import (
     KEYCHAIN_ACCESS_GROUPS,
     TEAM_IDENTIFIER,
 )
+from sideloadedipa.ipa.archive import open_ipa_archive
 
 TARGETS = {
     "root": (
@@ -422,7 +422,7 @@ def exercise(args: ZsignExerciseRequest) -> dict[str, Any]:
         raise BackendExerciseError("backend did not report complete root-last signing order")
 
     extracted = args.output_dir / "extracted"
-    with zipfile.ZipFile(signed_ipa) as archive:
+    with open_ipa_archive(signed_ipa) as archive:
         archive.extractall(extracted)
 
     entitlements: dict[str, dict[str, Any]] = {}
