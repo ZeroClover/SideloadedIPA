@@ -44,6 +44,7 @@ def test_loads_current_production_configuration() -> None:
         "Reynard",
         "StikDebug",
         "AirCard-iOS",
+        "Jego",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
@@ -62,6 +63,7 @@ def test_loads_current_production_configuration() -> None:
     } == {
         "LiveContainer": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
         "Reynard": "413b9b8d80376d7025aa9b0221b6209b96afa966b28be76da804934a89365d93",
+        "Jego": "1bf6e54e6206efa4464e0d5b5417c4165ae9b23bebc60e1a057b62190cdff162",
     }
 
 
@@ -149,6 +151,39 @@ def test_production_aircard_tracks_unsigned_root_only_release() -> None:
     assert task.icon_path == "ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
     assert task.publication_enabled is True
     assert task.signing is None
+
+
+def test_production_jego_has_reviewed_keychain_and_entitlement_drops() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "Jego")
+
+    assert task.app_name == "Jego"
+    assert task.bundle_id == "io.zeroclover.app.jego"
+    assert task.source.kind is SourceKind.GITHUB_RELEASE
+    assert task.source.location == "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
+    assert task.source.release_glob == "Jego.ipa"
+    assert task.slug == "Jego"
+    assert task.icon_path == "ipa:"
+    assert task.publication_enabled is True
+    assert task.signing is not None
+    assert task.signing.app_groups == ()
+    assert len(task.signing.bundles) == 1
+    rule = task.signing.bundles[0]
+    assert rule.source_bundle_id == "com.cmi.jego.enterprise"
+    assert rule.target_bundle_id == task.bundle_id
+    assert rule.role == "root"
+    assert rule.required_capabilities == ("KEYCHAIN_SHARING",)
+    assert rule.entitlement_policy.mode is EntitlementMode.TEMPLATE
+    assert str(rule.entitlement_policy.template_path) == "configs/signing/jego/root.plist"
+    assert rule.entitlement_policy.allowed_drops == (
+        "aps-environment",
+        "com.apple.developer.associated-domains",
+    )
+    assert rule.entitlement_policy.drop_rationale
+    (intent,) = derive_bundle_resource_intents(task)
+    assert intent.target_bundle_id == task.bundle_id
+    assert intent.required_capabilities == ("KEYCHAIN_SHARING",)
+    assert intent.app_groups == ()
 
 
 def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:

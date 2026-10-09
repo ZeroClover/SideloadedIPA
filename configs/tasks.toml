@@ -166,3 +166,23 @@ release_glob = "AirCard-iOS.ipa"
 slug = "AirCard-iOS"
 icon_path = "ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
 publication_enabled = true
+
+[[tasks]]
+task_name = "Jego"
+app_name = "Jego"
+bundle_id = "io.zeroclover.app.jego"
+repo_url = "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
+release_glob = "Jego.ipa"
+slug = "Jego"
+icon_path = "ipa:"
+publication_enabled = true
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.cmi.jego.enterprise"
+target_bundle_id = "io.zeroclover.app.jego"
+role = "root"
+required_capabilities = ["KEYCHAIN_SHARING"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/jego/root.plist"
+allowed_entitlement_drops = ["aps-environment", "com.apple.developer.associated-domains"]
+drop_rationale = "Reviewed: this sideloaded build intentionally omits push notifications and Universal Links; retain keychain access under the signing identity App ID prefix."
