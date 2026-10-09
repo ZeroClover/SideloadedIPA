@@ -44,6 +44,7 @@ def test_loads_current_production_configuration() -> None:
         "Reynard",
         "StikDebug",
         "AirCard-iOS",
+        "Jego",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
@@ -150,6 +151,19 @@ def test_production_aircard_tracks_unsigned_root_only_release() -> None:
     assert task.publication_enabled is True
     assert task.signing is None
 
+def test_production_jego_tracks_unsigned_root_only_release() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "Jego")
+
+    assert task.app_name == "Jego"
+    assert task.bundle_id == "io.zeroclover.app.jego"
+    assert task.source.kind is SourceKind.GITHUB_RELEASE
+    assert task.source.location == "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
+    assert task.source.release_glob == "Jego.ipa"
+    assert task.slug == "Jego"
+    assert task.icon_path == "ipa:"
+    assert task.publication_enabled is True
+    assert task.signing is None
 
 def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:
     configuration = parse_configuration(
