@@ -166,3 +166,13 @@ release_glob = "AirCard-iOS.ipa"
 slug = "AirCard-iOS"
 icon_path = "ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
 publication_enabled = true
+
+[[tasks]]
+task_name = "Jego"
+app_name = "Jego"
+bundle_id = "io.zeroclover.app.jego"
+repo_url = "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
+release_glob = "Jego.ipa"
+slug = "Jego"
+icon_path = "ipa:"
+publication_enabled = true
