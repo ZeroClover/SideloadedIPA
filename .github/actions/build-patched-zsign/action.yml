@@ -10,7 +10,7 @@ inputs:
   version:
     description: Expected patched executable version
     required: false
-    default: 1.1.1+sideloadedipa.3
+    default: 1.1.2+sideloadedipa.1
 outputs:
   executable:
     description: Absolute path to the built zsign binary
@@ -57,9 +57,9 @@ runs:
         fi
         tar -xzf "$archive" --strip-components=1 -C "$source_dir"
         git -C "$source_dir" apply --check --unidiff-zero \
-          "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
+          "$GITHUB_WORKSPACE/patches/zsign/v1.1.2-per-profile-entitlements.patch"
         git -C "$source_dir" apply --unidiff-zero \
-          "$GITHUB_WORKSPACE/patches/zsign/v1.1.1-per-profile-entitlements.patch"
+          "$GITHUB_WORKSPACE/patches/zsign/v1.1.2-per-profile-entitlements.patch"
         make -C "$source_dir/$build_dir" clean
         make -C "$source_dir/$build_dir" VERSION="$ZSIGN_EXPECTED_VERSION" -j"$(getconf _NPROCESSORS_ONLN || sysctl -n hw.ncpu)"
         install -m 0755 "$source_dir/bin/zsign" "$RUNNER_TEMP/sideloadedipa-zsign/bin/zsign"
