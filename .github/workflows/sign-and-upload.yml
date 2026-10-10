@@ -34,8 +34,9 @@ jobs:
     env:
       ZSIGN_SOURCE_COMMIT: "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
       ZSIGN_SOURCE_SHA256: "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
-      ASC_VERSION: "3.1.1"
-      ASC_LINUX_AMD64_SHA256: "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+      ASC_VERSION: "5.14.0"
+      ASC_LINUX_AMD64_SHA256: "c55ecfbe02d4644bd2982681e1feeee3889e7c98a663bad9f467ae39c9fa8f7f"
+      ASC_TELEMETRY_DISABLED: "1"
       # Signing region pinned to the bucket's location hint.
       R2_REGION: apac
       VERCEL_REVALIDATE_URL: ${{ vars.VERCEL_REVALIDATE_URL || 'https://itms.zeroclover.io/api/revalidate' }}

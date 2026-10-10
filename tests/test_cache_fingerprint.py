@@ -130,7 +130,7 @@ def inputs() -> FixtureInputs:
         (profile,),
         plan,
         "9" * 64,
-        (ToolFingerprint("asc", "3.1.1", "a" * 64),),
+        (ToolFingerprint("asc", "5.14.0", "a" * 64),),
     )
 
 
@@ -181,7 +181,7 @@ def test_every_cache_input_category_changes_the_fingerprint() -> None:
     )
     mutations.append(replace(original, plan=replace(original.plan, certificate_sha256="0" * 64)))
     mutations.append(replace(original, device_set_sha256="0" * 64))
-    mutations.append(replace(original, tools=(ToolFingerprint("asc", "3.2.0", "a" * 64),)))
+    mutations.append(replace(original, tools=(ToolFingerprint("asc", "5.15.0", "a" * 64),)))
 
     assert len({build(value).sha256 for value in mutations}) == len(mutations)
     assert all(build(value).sha256 != baseline for value in mutations)
