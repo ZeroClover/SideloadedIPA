@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-07-21",
+  "recorded_at": "2026-10-09",
   "upstream": {
     "repository": "rorkai/App-Store-Connect-CLI",
-    "tag": "3.1.1",
-    "commit": "cf3457b313418457748dca26430c3a26c4b3a653",
-    "release_url": "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/3.1.1"
+    "tag": "5.14.0",
+    "commit": "1fffe67d19e838b6016d6980cb12eee9fa77bf62",
+    "release_url": "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/5.14.0"
   },
   "tools": {
-    "linux_amd64_sha256": "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd",
-    "macos_arm64_sha256": "47d9be058359ab29c4f562361abfed710b7f24acdaa79c78777bc6e25e118fef",
-    "version_output": "3.1.1 (commit: cf3457b, date: 2026-07-20T10:27:57Z)"
+    "linux_amd64_sha256": "c55ecfbe02d4644bd2982681e1feeee3889e7c98a663bad9f467ae39c9fa8f7f",
+    "macos_arm64_sha256": "d9c829b50814e7649b9d11f3c056cb8240368287c4d859ca35c17a5b009b7a78",
+    "version_output": "5.14.0 (commit: 1fffe67, date: 2026-10-09T00:07:11+09:00)"
   },
   "list_contract": {
     "argv": ["devices", "list", "--platform", "IOS", "--paginate", "--output", "json"],

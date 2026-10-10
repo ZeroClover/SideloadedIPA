@@ -17,11 +17,11 @@ PR_WORKFLOW = WORKFLOW_DIR / "pr-checks.yml"
 SSH_DEBUG_ACTION = ACTION_DIR / "ssh-debug" / "action.yml"
 ASC_ACTION = ACTION_DIR / "install-asc" / "action.yml"
 ZSIGN_ACTION = ACTION_DIR / "build-patched-zsign" / "action.yml"
-ASC_CONTRACT = ROOT / "tests" / "fixtures" / "asc" / "3.1.1-contract.json"
+ASC_CONTRACT = ROOT / "tests" / "fixtures" / "asc" / "5.14.0-contract.json"
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
 DEPENDENCY_AUDIT = ROOT / "scripts" / "check_dependency_audits.py"
 
-ASC_SHA256 = "57cca59153eda109faf18d72c8bb0989ed0ee6e0a3082ce73ffa08174afbf2fd"
+ASC_SHA256 = "c55ecfbe02d4644bd2982681e1feeee3889e7c98a663bad9f467ae39c9fa8f7f"
 ZSIGN_SOURCE_COMMIT = "d6e929c97b5b564c2cc1f82afe226a44da7149a0"
 ZSIGN_SOURCE_SHA256 = "d9b1577da22a766eabbe1eeb5fc17cc2c4f060e3411a20713f9814fc30f6a670"
 PYTHON_VERSION = "3.14.8"
@@ -92,10 +92,12 @@ def test_asc_adapter_contract_matches_workflow_release() -> None:
     contract = json.loads(ASC_CONTRACT.read_text())
     workflows = workflow_text()
 
-    assert SUPPORTED_ASC_VERSION == contract["upstream"]["tag"] == "3.1.1"
+    assert SUPPORTED_ASC_VERSION == contract["upstream"]["tag"] == "5.14.0"
     assert contract["upstream"]["repository"] == "rorkai/App-Store-Connect-CLI"
     assert contract["tools"]["linux_amd64_sha256"] == ASC_SHA256
     assert f'ASC_VERSION: "{SUPPORTED_ASC_VERSION}"' in workflows
+    for workflow in (SIGN_WORKFLOW.read_text(), PR_WORKFLOW.read_text()):
+        assert 'ASC_TELEMETRY_DISABLED: "1"' in workflow
 
 
 def test_production_workflow_has_one_job_and_two_manual_inputs() -> None:
