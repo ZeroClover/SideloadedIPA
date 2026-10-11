@@ -200,7 +200,7 @@ def test_provided_oracle_produces_self_contained_digest_bound_evidence(
     assert evidence["backend"]["executable_sha256"] == digest
     assert (
         evidence["plan"]["document"]["policy_sha256"]
-        == "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237"
+        == "cd1325cc0cfb268784eaaee9307e497bdaecff6832dd7b056caa97bae626ca32"
     )
     assert evidence["output"]["sha256"] == "f" * 64
     assert evidence["oracle"]["summary"] == oracle
