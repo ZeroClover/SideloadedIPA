@@ -55,13 +55,15 @@ def test_loads_current_production_configuration() -> None:
     )
     assert configuration.r2 == R2Config()
     assert configuration.publication == PublicationConfig()
-    assert all(task.publication_enabled for task in configuration.tasks)
+    assert {task.task_name for task in configuration.tasks if not task.publication_enabled} == {
+        "LiveContainer"
+    }
     assert {
         task.task_name: policy_sha256(task)
         for task in configuration.tasks
         if task.signing is not None
     } == {
-        "LiveContainer": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
+        "LiveContainer": "cd1325cc0cfb268784eaaee9307e497bdaecff6832dd7b056caa97bae626ca32",
         "Reynard": "413b9b8d80376d7025aa9b0221b6209b96afa966b28be76da804934a89365d93",
         "Jego": "1bf6e54e6206efa4464e0d5b5417c4165ae9b23bebc60e1a057b62190cdff162",
     }
@@ -76,14 +78,14 @@ def test_every_production_task_declares_publication_enabled_explicitly() -> None
     assert all("publication_enabled" in task for task in document["tasks"])
 
 
-def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
+def test_production_livecontainer_is_exactly_scoped_and_paused() -> None:
     configuration = load_configuration(Path("configs/tasks.toml"))
     task = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
 
     assert task.bundle_id == "io.zeroclover.app.livecontainer"
     assert task.source.release_glob == "LiveContainer.ipa"
     assert task.icon_path == "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
-    assert task.publication_enabled is True
+    assert task.publication_enabled is False
     assert task.signing is not None
     assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
     assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.livecontainer",)
