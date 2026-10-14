@@ -83,10 +83,7 @@ repo_url = "https://github.com/LiveContainer/LiveContainer"
 release_glob = "LiveContainer.ipa"
 slug = "LiveContainer"
 icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
-# Paused: the upstream repository returns 404 since 2026-10-10, and its failed
-# source preflight blocks every other task. The published catalog entry and its
-# advertised objects stay frozen until a source is restored.
-publication_enabled = false
+publication_enabled = true
 
 [tasks.signing]
 # The Account Holder confirmed this group is registered and assigned to every
