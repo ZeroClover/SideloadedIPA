@@ -17,7 +17,7 @@ from sideloadedipa.util.subprocesses import (
     SubprocessRunner,
 )
 
-SUPPORTED_ASC_VERSION = "5.14.0"
+SUPPORTED_ASC_VERSION = "5.17.1"
 _ASC_MAX_SUCCESS_OUTPUT_BYTES = 16 * 1024 * 1024
 
 _ASC_CREDENTIAL_ENV = frozenset(
