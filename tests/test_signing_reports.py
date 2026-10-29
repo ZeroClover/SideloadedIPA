@@ -34,7 +34,7 @@ def fixture_plan() -> SigningPlan:
     empty = normalize_entitlements({})
     backend = SigningBackendIdentity(
         "zsign",
-        "1.1.2+sideloadedipa.1",
+        "1.1.3+sideloadedipa.1",
         "a" * 64,
         "1",
         (

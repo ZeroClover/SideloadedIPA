@@ -2,11 +2,11 @@
   "backend": {
     "contract_version": "1",
     "name": "zsign",
-    "patch_path": "patches/zsign/v1.1.2-per-profile-entitlements.patch",
-    "patch_sha256": "cade496103a68b272b265f2e5d1c6f8750766c0ff896ec50dd5916a3359044b7",
-    "source_commit": "614caa8d1ca949e260e5746144aa52d27a4b08d6",
-    "source_sha256": "a373dc5ddbf81ba5c435a48c14b4a2857506c3dde02ec62e0136b6968797384b",
-    "version": "1.1.2+sideloadedipa.1"
+    "patch_path": "patches/zsign/v1.1.3-per-profile-entitlements.patch",
+    "patch_sha256": "24f9b599c517d952cd09e448bdaef38d667cb44296867107d01394a9e27d5853",
+    "source_commit": "9299685bab7ef99827e06e5dfda93af747386590",
+    "source_sha256": "97bcc2dbbc0dc5f092dc4a33cbe1f9fdbd5c83bdc291da23db45044d4396270e",
+    "version": "1.1.3+sideloadedipa.1"
   },
   "command_shape": {
     "adjacent_profile_entitlement_pairs": true,
