@@ -8,11 +8,11 @@ inputs:
   cloudflared-version:
     description: cloudflared release version
     required: false
-    default: "2026.10.0"
+    default: "2026.10.5"
   cloudflared-sha256:
     description: Expected SHA-256 checksum for the cloudflared binary
     required: false
-    default: d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db
+    default: e1bc0cf084fd9e590554fe769a86b1db46701c3f847a43d902f7b974a4e16298
 
 runs:
   using: composite
