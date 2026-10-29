@@ -24,9 +24,9 @@ DEPENDENCY_AUDIT = ROOT / "scripts" / "check_dependency_audits.py"
 ASC_SHA256 = "c55ecfbe02d4644bd2982681e1feeee3889e7c98a663bad9f467ae39c9fa8f7f"
 ZSIGN_SOURCE_COMMIT = "614caa8d1ca949e260e5746144aa52d27a4b08d6"
 ZSIGN_SOURCE_SHA256 = "a373dc5ddbf81ba5c435a48c14b4a2857506c3dde02ec62e0136b6968797384b"
-PYTHON_VERSION = "3.14.8"
+PYTHON_VERSION = "3.14.10"
 NODE_VERSION = "24.21.0"
-UV_VERSION = "0.12.24"
+UV_VERSION = "0.13.6"
 
 
 def workflow_text() -> str:
@@ -314,7 +314,7 @@ def test_actions_aware_validation_replaces_generic_yaml_shape_check() -> None:
     project = (ROOT / "pyproject.toml").read_text()
     lock = (ROOT / "uv.lock").read_text()
 
-    assert '"zizmor==1.30.1"' in project
+    assert '"zizmor==1.31.1"' in project
     assert 'name = "zizmor"' in lock
     assert "--strict-collection --min-severity high ." in pull_request
     assert "YAML.safe_load_file" not in pull_request
