@@ -24,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      ASC_VERSION: "5.14.0"
-      ASC_LINUX_AMD64_SHA256: "c55ecfbe02d4644bd2982681e1feeee3889e7c98a663bad9f467ae39c9fa8f7f"
+      ASC_VERSION: "5.17.1"
+      ASC_LINUX_AMD64_SHA256: "2a8f516f1b7f7afa9394e2f739990f82d5e8f6c0a851fa5d8bf16f682d6996b8"
       ASC_TELEMETRY_DISABLED: "1"
       ZSIGN_SOURCE_COMMIT: "614caa8d1ca949e260e5746144aa52d27a4b08d6"
       ZSIGN_SOURCE_SHA256: "a373dc5ddbf81ba5c435a48c14b4a2857506c3dde02ec62e0136b6968797384b"
