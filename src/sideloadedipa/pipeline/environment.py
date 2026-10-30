@@ -109,4 +109,8 @@ def publication_runtime(
         environment,
     )
     gateway = R2PublicationGateway(store, lambda: trigger_revalidation(environment))
-    return store, VerifiedPublicationService(gateway, configuration.publication.batch_policy)
+    return store, VerifiedPublicationService(
+        gateway,
+        frozenset(task.slug for task in configuration.tasks),
+        configuration.publication.batch_policy,
+    )

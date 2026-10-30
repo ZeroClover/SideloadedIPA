@@ -385,6 +385,11 @@ The publisher SHALL retain managed IPA and icon objects for at least 48 hours af
 - **THEN** the current and previous registry references SHALL survive that publication sweep
 - **AND** subsequent unreferenced observations SHALL start a fresh retirement grace period
 
+#### Scenario: Remove a task from configuration
+- **WHEN** the registry contains an app whose slug no longer matches any configured task
+- **THEN** a successful publication SHALL drop that app from the registry while keeping paused and unselected configured apps
+- **AND** its managed objects SHALL enter retirement in that publication sweep and survive at least the full grace period
+
 #### Scenario: Complete retirement on a later scheduled run
 - **WHEN** an object remains unreferenced for at least 48 hours and revalidation succeeds
 - **THEN** cleanup SHALL remove it even when selected artifacts were reused from verified signing cache
