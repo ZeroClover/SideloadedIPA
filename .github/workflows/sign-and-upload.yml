@@ -34,8 +34,8 @@ jobs:
     env:
       ZSIGN_SOURCE_COMMIT: "9299685bab7ef99827e06e5dfda93af747386590"
       ZSIGN_SOURCE_SHA256: "97bcc2dbbc0dc5f092dc4a33cbe1f9fdbd5c83bdc291da23db45044d4396270e"
-      ASC_VERSION: "5.17.1"
-      ASC_LINUX_AMD64_SHA256: "2a8f516f1b7f7afa9394e2f739990f82d5e8f6c0a851fa5d8bf16f682d6996b8"
+      ASC_VERSION: "6.0.0"
+      ASC_LINUX_AMD64_SHA256: "3a38757cc7e93e572f8da4b918aaed2ed70b3640393a5173ce059a404456b729"
       ASC_TELEMETRY_DISABLED: "1"
       # Signing region pinned to the bucket's location hint.
       R2_REGION: apac
