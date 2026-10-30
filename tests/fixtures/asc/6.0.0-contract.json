@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-10-29",
+  "recorded_at": "2026-10-30",
   "upstream": {
     "repository": "rorkai/App-Store-Connect-CLI",
-    "tag": "5.17.1",
-    "commit": "fc36e608deee3c970a4a99c724b873312b58852e",
-    "release_url": "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/5.17.1"
+    "tag": "6.0.0",
+    "commit": "3b268a3c62d767bae9ed1667885f56384a4827d5",
+    "release_url": "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/6.0.0"
   },
   "tools": {
-    "linux_amd64_sha256": "2a8f516f1b7f7afa9394e2f739990f82d5e8f6c0a851fa5d8bf16f682d6996b8",
-    "macos_arm64_sha256": "f7d9882127854f36aa2b00cd935d5f76a3a4faae955980d3c91f2c0158d688d8",
-    "version_output": "5.17.1 (commit: fc36e60, date: 2026-10-26T23:51:27-04:00)"
+    "linux_amd64_sha256": "3a38757cc7e93e572f8da4b918aaed2ed70b3640393a5173ce059a404456b729",
+    "macos_arm64_sha256": "783e81b1c85a02164b53428e5024f32fd140a034d272263be64e6e6bd5ca91ea",
+    "version_output": "6.0.0 (commit: 3b268a3, date: 2026-10-29T18:03:07-04:00)"
   },
   "list_contract": {
     "argv": ["devices", "list", "--platform", "IOS", "--paginate", "--output", "json"],

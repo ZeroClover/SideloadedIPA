@@ -14,7 +14,7 @@ from sideloadedipa.domain import thaw_json
 from sideloadedipa.errors import AdapterError, ConfigurationError, ErrorCode
 from sideloadedipa.util.subprocesses import SubprocessResult
 
-CONTRACT = Path(__file__).parent / "fixtures" / "asc" / "5.17.1-contract.json"
+CONTRACT = Path(__file__).parent / "fixtures" / "asc" / "6.0.0-contract.json"
 
 
 class RecordingRunner:
@@ -72,9 +72,9 @@ def command_error(exit_code: int) -> AdapterError:
 def test_contract_fixture_tracks_verified_release_and_has_no_credentials() -> None:
     contract = json.loads(CONTRACT.read_text())
 
-    assert contract["upstream"]["tag"] == "5.17.1"
+    assert contract["upstream"]["tag"] == "6.0.0"
     assert contract["tools"]["linux_amd64_sha256"] == (
-        "2a8f516f1b7f7afa9394e2f739990f82d5e8f6c0a851fa5d8bf16f682d6996b8"
+        "3a38757cc7e93e572f8da4b918aaed2ed70b3640393a5173ce059a404456b729"
     )
     assert contract["retry_contract"] == {
         "methods": ["GET", "HEAD"],
@@ -138,22 +138,22 @@ def test_versioned_paginated_json_command_is_canonical_and_redacted(
 
 
 def test_rejects_wrong_version_before_business_command() -> None:
-    runner = RecordingRunner((result("5.18.0 (commit: future)"),))
+    runner = RecordingRunner((result("6.1.0 (commit: future)"),))
 
     with pytest.raises(AdapterError) as caught:
         AscClient(runner=runner).run_json(("devices", "list"))
 
     assert caught.value.code is ErrorCode.ADAPTER_VERSION_MISMATCH
     assert caught.value.safe_details[-2:] == (
-        ("expected_version", "5.17.1"),
-        ("actual_version", "5.18.0"),
+        ("expected_version", "6.0.0"),
+        ("actual_version", "6.1.0"),
     )
     assert len(runner.calls) == 1
 
 
 @pytest.mark.parametrize("stdout", ("", "not json", "[]"))
 def test_rejects_empty_malformed_or_non_object_json(stdout: str) -> None:
-    runner = RecordingRunner((result("5.17.1"), result(stdout)))
+    runner = RecordingRunner((result("6.0.0"), result(stdout)))
 
     with pytest.raises(AdapterError) as caught:
         AscClient(runner=runner).run_json(("profiles", "list"))
@@ -162,7 +162,7 @@ def test_rejects_empty_malformed_or_non_object_json(stdout: str) -> None:
 
 
 def test_allows_explicitly_empty_delete_response() -> None:
-    runner = RecordingRunner((result("5.17.1"), result("")))
+    runner = RecordingRunner((result("6.0.0"), result("")))
 
     response = AscClient(runner=runner).run_json(
         ("profiles", "delete", "--id", "PROFILE", "--confirm"),
@@ -185,7 +185,7 @@ def test_allows_explicitly_empty_delete_response() -> None:
     ],
 )
 def test_maps_documented_asc_exit_codes(exit_code: int, expected_code: ErrorCode) -> None:
-    runner = RecordingRunner((result("5.17.1"), command_error(exit_code)))
+    runner = RecordingRunner((result("6.0.0"), command_error(exit_code)))
 
     with pytest.raises(AdapterError) as caught:
         AscClient(runner=runner).run_json(("devices", "list"), paginate=True)
@@ -197,7 +197,7 @@ def test_maps_documented_asc_exit_codes(exit_code: int, expected_code: ErrorCode
 
 
 def test_authorization_failure_directs_operator_to_roles_and_agreements() -> None:
-    runner = RecordingRunner((result("5.17.1"), command_error(3)))
+    runner = RecordingRunner((result("6.0.0"), command_error(3)))
 
     with pytest.raises(AdapterError) as caught:
         AscClient(runner=runner).run_json(("profiles", "list"), paginate=True)
