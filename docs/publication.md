@@ -23,6 +23,8 @@ Actions can overwrite another writer's catalog or invalidate rollback assumption
 ## Retention and deletion boundary
 
 - Protect both current and immediately preceding registry references after success.
+- Drop registry apps whose slug is no longer configured (paused tasks stay). Their
+  objects start retirement on the removing run, since no later sweep would scope them.
 - Record unreferenced managed IPA/icon keys in <registry-key>.gc.json.
 - Delete only after 48 hours from the **first observation as unreferenced**, not age
   of upload. Persist retirement timestamps before deletion.

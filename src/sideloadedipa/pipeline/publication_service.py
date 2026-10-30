@@ -57,14 +57,27 @@ def _registry_apps(current: Mapping[str, object] | None) -> list[dict[str, objec
     return raw_apps
 
 
+def _removed_apps(
+    current: Mapping[str, object] | None,
+    configured_slugs: frozenset[str],
+) -> list[dict[str, object]]:
+    return [
+        app
+        for app in _registry_apps(current)
+        if isinstance(slug := app.get("slug"), str) and slug not in configured_slugs
+    ]
+
+
 def _merge_registry(
     current: Mapping[str, object] | None,
     candidates: Sequence[PublicationCandidate],
     artifacts: Sequence[StoredArtifact],
     *,
+    configured_slugs: frozenset[str],
     now: datetime,
 ) -> dict[str, object]:
-    raw_apps = _registry_apps(current)
+    removed = _removed_apps(current, configured_slugs)
+    raw_apps = [app for app in _registry_apps(current) if app not in removed]
     updates: dict[str, dict[str, object]] = {
         candidate.slug: {
             "slug": candidate.slug,
@@ -134,6 +147,8 @@ def _unreferenced_upload_keys(
 @dataclass(frozen=True, slots=True)
 class VerifiedPublicationService:
     gateway: VerifiedPublicationGateway
+    # Every configured slug, paused tasks included; registry apps outside it are removed.
+    configured_slugs: frozenset[str]
     batch_policy: BatchPublicationPolicy = BatchPublicationPolicy.ATOMIC
 
     def publish(
@@ -210,7 +225,9 @@ class VerifiedPublicationService:
                 raise _publication_error(candidate, "uploaded artifact digest was not confirmed")
             artifacts.append(artifact)
 
-        document = _merge_registry(current, candidates, artifacts, now=now)
+        document = _merge_registry(
+            current, candidates, artifacts, configured_slugs=self.configured_slugs, now=now
+        )
         try:
             registry_key, registry_sha256 = self.gateway.publish_registry(document)
             self.gateway.revalidate()
@@ -240,9 +257,14 @@ class VerifiedPublicationService:
                 "registry publication failed and the previous snapshot was restored",
                 remediation="inspect the registry adapter error before retrying",
             ) from error
+        # A removed app's objects start retirement now: no later registry will reference
+        # them, so their slug would otherwise never re-enter the cleanup scope.
+        removed = _removed_apps(current, self.configured_slugs)
+        removed_keys = _referenced_keys(self.gateway, {"apps": removed})
         stale = self.gateway.cleanup_stale(
-            [candidate.slug for candidate in candidates],
-            _referenced_keys(self.gateway, document) | previous_keys,
+            [candidate.slug for candidate in candidates]
+            + sorted({str(app["slug"]) for app in removed}),
+            _referenced_keys(self.gateway, document) | (previous_keys - removed_keys),
         )
         return tuple(
             PublicationResult(

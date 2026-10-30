@@ -25,6 +25,7 @@ from sideloadedipa.pipeline.publication_service import VerifiedPublicationServic
 from sideloadedipa.verification import build_verification_result, required_verification_checks
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
+CONFIGURED_SLUGS = frozenset({"example", "other"})
 
 
 def signing_plan() -> SigningPlan:
@@ -160,7 +161,9 @@ def test_malformed_registry_blocks_uploads(tmp_path: Path, apps: object) -> None
 
     gateway = InvalidRegistryGateway()
     with pytest.raises(DomainError) as caught:
-        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
+            (candidate(artifact),), now=NOW
+        )
     assert caught.value.code is ErrorCode.PUBLICATION_FAILED
     assert gateway.calls == ["read"]
 
@@ -170,7 +173,9 @@ def test_verified_publication_uses_strict_atomic_order(tmp_path: Path) -> None:
     artifact.write_bytes(b"verified")
     gateway = RecordingGateway()
 
-    result = VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+    result = VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
+        (candidate(artifact),), now=NOW
+    )
 
     assert gateway.calls == ["read", "upload", "registry", "revalidate", "cleanup"]
     assert result[0].registry_key == "site/apps.json"
@@ -197,7 +202,7 @@ def test_invalid_candidate_blocks_every_publication_side_effect(
     gateway = RecordingGateway()
 
     with pytest.raises(DomainError) as caught:
-        VerifiedPublicationService(gateway).publish((value,), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish((value,), now=NOW)
 
     assert caught.value.code is ErrorCode.PUBLICATION_FAILED
     assert gateway.calls == []
@@ -215,7 +220,9 @@ def test_uploaded_digest_mismatch_stops_before_registry_mutation(tmp_path: Path)
     gateway.upload_artifact = mismatched  # type: ignore[method-assign]
 
     with pytest.raises(DomainError, match="digest"):
-        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
+            (candidate(artifact),), now=NOW
+        )
 
     assert gateway.calls == ["read", "upload", "delete-uploaded"]
     assert gateway.deleted_uploaded == (
@@ -230,7 +237,7 @@ def test_batch_atomic_policy_blocks_all_candidates_after_upstream_failure(tmp_pa
     gateway = RecordingGateway()
 
     with pytest.raises(DomainError, match="batch-atomic"):
-        VerifiedPublicationService(gateway).publish(
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
             (candidate(artifact),),
             now=NOW,
             failed_task_names=("Other",),
@@ -245,7 +252,7 @@ def test_disabled_task_is_rejected_before_registry_or_upload(tmp_path: Path) -> 
     gateway = RecordingGateway()
 
     with pytest.raises(DomainError, match="publication is disabled"):
-        VerifiedPublicationService(gateway).publish(
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
             (replace(candidate(artifact), publication_enabled=False),),
             now=NOW,
         )
@@ -267,7 +274,7 @@ def test_batch_validates_every_candidate_before_first_upload(tmp_path: Path) -> 
     gateway = RecordingGateway()
 
     with pytest.raises(DomainError):
-        VerifiedPublicationService(gateway).publish((first, invalid), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish((first, invalid), now=NOW)
 
     assert gateway.calls == []
 
@@ -279,9 +286,9 @@ def test_independent_policy_allows_verified_candidates_after_other_failure(
     artifact.write_bytes(b"verified")
     gateway = RecordingGateway()
 
-    result = VerifiedPublicationService(gateway, BatchPublicationPolicy.INDEPENDENT).publish(
-        (candidate(artifact),), now=NOW, failed_task_names=("Other",)
-    )
+    result = VerifiedPublicationService(
+        gateway, CONFIGURED_SLUGS, BatchPublicationPolicy.INDEPENDENT
+    ).publish((candidate(artifact),), now=NOW, failed_task_names=("Other",))
 
     assert len(result) == 1
     assert gateway.calls[-1] == "cleanup"
@@ -296,7 +303,9 @@ def test_failure_preserves_previous_registry_and_cleans_only_unadvertised_upload
     gateway = RecordingGateway(fail_at=failure)
 
     with pytest.raises(DomainError):
-        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
+            (candidate(artifact),), now=NOW
+        )
 
     assert "cleanup" not in gateway.calls
     if failure == "upload":
@@ -321,7 +330,9 @@ def test_cleanup_failure_reports_every_ipa_and_icon_key(tmp_path: Path) -> None:
     gateway.upload_artifact = mismatched  # type: ignore[method-assign]
 
     with pytest.raises(DomainError, match="cleanup was incomplete") as caught:
-        VerifiedPublicationService(gateway).publish((candidate(artifact),), now=NOW)
+        VerifiedPublicationService(gateway, CONFIGURED_SLUGS).publish(
+            (candidate(artifact),), now=NOW
+        )
 
     assert dict(caught.value.safe_details)["unreferenced_keys"] == (
         "apps/example/1.2.3/Example.ipa",
