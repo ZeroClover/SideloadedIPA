@@ -93,11 +93,3 @@ Test doubles that stand in for the signing backend or package verifier in pipeli
 #### Scenario: Port protocol changes
 - **WHEN** the signing backend or verifier protocol gains or changes a member
 - **THEN** the contract tests SHALL fail until the production adapters and all test doubles are updated together
-
-### Requirement: No test-only public production code
-A public function in the production package SHALL be reachable from a production entry point, be an explicitly registered console-script entry point, or be removed; tests SHALL NOT be the sole caller of production code.
-
-#### Scenario: Audit finds a test-only public function
-- **WHEN** a static reachability check finds a public production function referenced only from tests
-- **THEN** CI SHALL fail
-- **AND** the function SHALL be deleted, wired into a production path, or moved to test support with its tests

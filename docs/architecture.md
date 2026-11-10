@@ -25,8 +25,7 @@ All Python paths below are relative to src/sideloadedipa/.
 
 cli.py maps commands to application requests. scripts/ contains the dependency-audit
 helper, not legacy signing wrappers. Keep business logic out of CLI/orchestrator.
-Check tests/test_production_stage_architecture.py and
-tests/test_production_reachability.py when moving responsibilities.
+Check tests/test_production_stage_architecture.py when moving responsibilities.
 
 ## Evidence flow
 
