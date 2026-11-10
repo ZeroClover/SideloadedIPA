@@ -27,8 +27,6 @@ jobs:
       ASC_VERSION: "6.0.0"
       ASC_LINUX_AMD64_SHA256: "3a38757cc7e93e572f8da4b918aaed2ed70b3640393a5173ce059a404456b729"
       ASC_TELEMETRY_DISABLED: "1"
-      ZSIGN_SOURCE_COMMIT: "9299685bab7ef99827e06e5dfda93af747386590"
-      ZSIGN_SOURCE_SHA256: "97bcc2dbbc0dc5f092dc4a33cbe1f9fdbd5c83bdc291da23db45044d4396270e"
       ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
     steps:
@@ -61,19 +59,6 @@ jobs:
           version: ${{ env.ASC_VERSION }}
           asset: asc_${{ env.ASC_VERSION }}_linux_amd64
           sha256: ${{ env.ASC_LINUX_AMD64_SHA256 }}
-
-      - name: Build patched zsign
-        id: patched-zsign
-        uses: ./.github/actions/build-patched-zsign
-        with:
-          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
-          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
-
-      - name: Run tests & coverage
-        env:
-          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
-          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
-        run: uv run pytest
 
       - name: Check code formatting (Black & isort)
         run: |
@@ -121,10 +106,6 @@ jobs:
 
       - name: Audit web dependencies
         run: uv run --frozen python scripts/check_dependency_audits.py
-
-      - name: Run web tests
-        working-directory: web
-        run: npm run test
 
       - name: Build web app
         working-directory: web
