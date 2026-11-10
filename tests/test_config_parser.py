@@ -44,6 +44,7 @@ def test_loads_current_production_configuration() -> None:
         "Reynard",
         "StikDebug",
         "Jego",
+        "GestaltX",
     ]
     assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
     assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
@@ -63,6 +64,7 @@ def test_loads_current_production_configuration() -> None:
         "LiveContainer": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
         "Reynard": "413b9b8d80376d7025aa9b0221b6209b96afa966b28be76da804934a89365d93",
         "Jego": "1bf6e54e6206efa4464e0d5b5417c4165ae9b23bebc60e1a057b62190cdff162",
+        "GestaltX": "4e8799d8029bc1ea71347c8f5e5f20ca8c8e684a5b281358129ce62d8901ee44",
     }
 
 
@@ -136,6 +138,32 @@ def test_production_reynard_is_exactly_scoped_and_publishing() -> None:
         "com.minh-ton.Reynard.OpenIn": "io.zeroclover.app.reynard.OpenIn",
     }
     assert intents["com.minh-ton.Reynard"].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
+
+
+def test_production_gestaltx_shares_one_app_group_and_publishes() -> None:
+    configuration = load_configuration(Path("configs/tasks.toml"))
+    task = next(task for task in configuration.tasks if task.task_name == "GestaltX")
+
+    assert task.bundle_id == "io.zeroclover.app.gestaltx"
+    assert task.source.location == "https://github.com/huamidev/GestaltX"
+    assert task.source.release_glob == "GestaltX_*.ipa"
+    assert task.slug == "GestaltX"
+    assert task.icon_path == "GestaltX/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+    assert task.publication_enabled is True
+    assert task.signing is not None
+    assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.gestaltx"),)
+    assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.gestaltx",)
+    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
+        "com.huami.gestultx",
+        "com.huami.gestultx.ShareExtension",
+    ]
+    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
+    assert task.signing.bundles[0].role == "root"
+    assert all(
+        rule.required_capabilities == ("APP_GROUPS",)
+        and rule.entitlement_policy.mode is EntitlementMode.PROFILE
+        for rule in task.signing.bundles
+    )
 
 
 def test_production_jego_has_reviewed_keychain_and_entitlement_drops() -> None:

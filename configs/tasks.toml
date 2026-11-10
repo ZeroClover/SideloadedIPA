@@ -176,3 +176,40 @@ entitlement_mode = "template"
 entitlements_file = "configs/signing/jego/root.plist"
 allowed_entitlement_drops = ["aps-environment", "com.apple.developer.associated-domains"]
 drop_rationale = "Reviewed: this sideloaded build intentionally omits push notifications and Universal Links; retain keychain access under the signing identity App ID prefix."
+
+[[tasks]]
+task_name = "GestaltX"
+app_name = "GestaltX"
+bundle_id = "io.zeroclover.app.gestaltx"
+repo_url = "https://github.com/huamidev/GestaltX"
+# Upstream names the asset with its version (GestaltX_1.0.4.ipa).
+release_glob = "GestaltX_*.ipa"
+slug = "GestaltX"
+icon_path = "GestaltX/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+# Published without prior device acceptance (owner decision). It only works on
+# iOS 27: launch, MobileGestalt read, and share-extension plist import.
+publication_enabled = true
+
+[tasks.signing]
+# The Account Holder confirmed this group is registered and assigned to both
+# App IDs. Generated profiles still have to authorize the exact group.
+manual_app_group_associations = ["shared"]
+
+# The app refuses to run without an App Group shared by the root app and its
+# share extension. Keep this group dedicated: the app replaces Library/Caches
+# inside the group container with a symlink.
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.app.gestaltx"
+
+# "gestultx" is upstream's own spelling of its bundle identifiers.
+[[tasks.signing.bundles]]
+source_bundle_id = "com.huami.gestultx"
+target_bundle_id = "io.zeroclover.app.gestaltx"
+role = "root"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.huami.gestultx.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
