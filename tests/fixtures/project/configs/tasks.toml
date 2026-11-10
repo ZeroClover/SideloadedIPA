@@ -1,0 +1,159 @@
+[[tasks]]
+task_name = "JHenTai"
+app_name = "JHenTai"
+bundle_id = "io.zeroclover.app.jhentai"
+repo_url = "https://github.com/jiangtian616/JHenTai"
+slug = "JHenTai"
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
+publication_enabled = true
+
+[[tasks]]
+task_name = "Eros FE"
+app_name = "Eros FE"
+bundle_id = "io.zeroclover.apps.eros-fe"
+repo_url = "https://github.com/erosTeam/eros_fe"
+slug = "fehviewer"
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon.png"
+publication_enabled = true
+
+[[tasks]]
+task_name = "Asspp"
+app_name = "Asspp"
+bundle_id = "io.zeroclover.app.asspp"
+repo_url = "https://github.com/Lakr233/Asspp"
+slug = "Asspp"
+icon_path = "Asspp/App/Assets.xcassets/AppIcon.appiconset/asspp.png"
+publication_enabled = true
+
+[[tasks]]
+task_name = "PiliPlus"
+app_name = "PiliPlus"
+bundle_id = "io.zeroclover.app.piliplus"
+repo_url = "https://github.com/bggRGjQaUbCoE/PiliPlus"
+slug = "PiliPlus"
+icon_path = "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"
+publication_enabled = true
+
+[[tasks]]
+task_name = "LiveContainer"
+app_name = "LiveContainer"
+bundle_id = "io.zeroclover.app.livecontainer"
+repo_url = "https://github.com/LiveContainer/LiveContainer"
+release_glob = "LiveContainer.ipa"
+slug = "LiveContainer"
+icon_path = "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
+publication_enabled = true
+
+[tasks.signing]
+manual_app_group_associations = ["shared"]
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.app.livecontainer"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer"
+target_bundle_id = "io.zeroclover.app.livecontainer"
+role = "root"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LiveProcess"
+required_capabilities = ["APP_GROUPS", "HEALTHKIT", "INCREASED_MEMORY_LIMIT", "KEYCHAIN_SHARING", "CLINICAL_HEALTH_RECORDS", "HEALTHKIT_BACKGROUND_DELIVERY"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/livecontainer/root-process.plist"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.LaunchAppExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.kdt.livecontainer.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks]]
+task_name = "Reynard"
+app_name = "Reynard Browser"
+bundle_id = "io.zeroclover.app.reynard"
+repo_url = "https://github.com/minh-ton/reynard-browser"
+release_glob = "Reynard.ipa"
+slug = "Reynard"
+icon_path = "browser/Reynard/Resources/Assets.xcassets/AppIcon.appiconset/icon.png"
+publication_enabled = true
+
+[tasks.signing]
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard"
+target_bundle_id = "io.zeroclover.app.reynard"
+role = "root"
+required_capabilities = ["INCREASED_MEMORY_LIMIT"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard.Helper"
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.minh-ton.Reynard.OpenIn"
+entitlement_mode = "profile"
+
+[[tasks]]
+task_name = "StikDebug"
+app_name = "StikDebug"
+bundle_id = "io.zeroclover.app.stikdebug"
+repo_url = "https://github.com/StephenDev0/StikDebug"
+slug = "StikDebug"
+icon_path = "ipa:"
+publication_enabled = true
+
+[[tasks]]
+task_name = "Jego"
+app_name = "Jego"
+bundle_id = "io.zeroclover.app.jego"
+repo_url = "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
+release_glob = "Jego.ipa"
+slug = "Jego"
+icon_path = "ipa:"
+publication_enabled = true
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.cmi.jego.enterprise"
+target_bundle_id = "io.zeroclover.app.jego"
+role = "root"
+required_capabilities = ["KEYCHAIN_SHARING"]
+entitlement_mode = "template"
+entitlements_file = "configs/signing/jego/root.plist"
+allowed_entitlement_drops = ["aps-environment", "com.apple.developer.associated-domains"]
+drop_rationale = "Reviewed: this sideloaded build intentionally omits push notifications and Universal Links; retain keychain access under the signing identity App ID prefix."
+
+[[tasks]]
+task_name = "GestaltX"
+app_name = "GestaltX"
+bundle_id = "io.zeroclover.app.gestaltx"
+repo_url = "https://github.com/huamidev/GestaltX"
+release_glob = "GestaltX_*.ipa"
+slug = "GestaltX"
+icon_path = "GestaltX/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+publication_enabled = true
+
+[tasks.signing]
+manual_app_group_associations = ["shared"]
+
+[tasks.signing.app_groups]
+shared = "group.io.zeroclover.app.gestaltx"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.huami.gestultx"
+target_bundle_id = "io.zeroclover.app.gestaltx"
+role = "root"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"
+
+[[tasks.signing.bundles]]
+source_bundle_id = "com.huami.gestultx.ShareExtension"
+required_capabilities = ["APP_GROUPS"]
+entitlement_mode = "profile"

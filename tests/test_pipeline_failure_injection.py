@@ -18,7 +18,6 @@ import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
 import sideloadedipa.pipeline.stages.verification as production_verification_stage
 from sideloadedipa.application import CommandName, CommandResult
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
-from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     FrozenJsonObject,
     PipelineStage,
@@ -37,6 +36,7 @@ from tests.conftest import production_command as command
 from tests.conftest import production_dependencies as dependencies
 from tests.conftest import production_source_context as source_context
 from tests.fakes import FixtureCopyBackend as CopyBackend
+from tests.sample_project import sample_configuration
 
 
 @pytest.mark.parametrize("failed_stage", tuple(PipelineStage))
@@ -45,7 +45,7 @@ def test_failure_blocks_every_downstream_production_stage_and_side_effect(
     monkeypatch: pytest.MonkeyPatch,
     failed_stage: PipelineStage,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     signing_request = request_for(task, tmp_path)
     graph_document = json.loads(canonical_graph_json(signing_request.graph))
     graph_document.pop("graph_sha256")

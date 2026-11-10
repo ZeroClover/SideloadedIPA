@@ -10,7 +10,6 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
     PipelineStage,
@@ -26,6 +25,7 @@ from sideloadedipa.pipeline.stages.signing_cache import json_digest
 from sideloadedipa.sources import DownloadedSource
 from sideloadedipa.util import atomics
 from sideloadedipa.util.atomics import canonical_json
+from tests.sample_project import sample_configuration
 
 NOW = datetime(2026, 7, 23, tzinfo=timezone.utc)
 
@@ -60,7 +60,7 @@ def resign(document: dict[str, object]) -> bytes:
 
 
 def manifest_fixture(tmp_path: Path, *, run_id: str = "run-one"):
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     stages = FileStageManifestStore(tmp_path / "pipeline", run_id)
     inputs = CanonicalInputManifestStore(stages)
     path = inputs.source_path(task.task_name)
@@ -311,7 +311,7 @@ def test_atomic_manifest_write_does_not_expose_partial_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     stages = FileStageManifestStore(tmp_path / "pipeline", "interrupted")
     inputs = CanonicalInputManifestStore(stages)
     path = inputs.source_path(task.task_name)

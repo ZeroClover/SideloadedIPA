@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import sideloadedipa.pipeline.environment as commands
-from sideloadedipa.config import load_configuration
 from sideloadedipa.errors import ConfigurationError, ErrorCode
+from tests.sample_project import sample_configuration
 
 
 def test_revalidation_sends_secret_in_header_and_preserves_endpoint(
@@ -59,7 +57,7 @@ def test_revalidation_reports_transport_failure(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_publication_runtime_reports_missing_r2_credentials() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
+    configuration = sample_configuration()
 
     with pytest.raises(ConfigurationError, match="R2 credentials") as caught:
         commands.publication_runtime(

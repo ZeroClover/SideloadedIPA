@@ -36,6 +36,7 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import ConfigurationError
 from sideloadedipa.signing.profile_storage import profile_relative_path
+from tests.sample_project import CONFIG_PATH
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 TEAM_ID = "TEAMID1234"
@@ -74,7 +75,7 @@ def task(*, manual_capability: bool = False, manual_app_group: bool = False) -> 
 def request(command: CommandName, *, apply: bool = False) -> CommandRequest:
     return CommandRequest(
         command=command,
-        config_path=Path("configs/tasks.toml"),
+        config_path=CONFIG_PATH,
         task_names=(),
         output_format=OutputFormat.JSON,
         apply=apply,

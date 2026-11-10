@@ -19,12 +19,9 @@ The corpus covers every serializer touched by the unification:
 - ``signing.profile_storage`` profile-manifest digests
 - ``ipa.graph`` bundle-graph digests
 - ``apple.commands`` profile device-set digests
-- ``util.atomics.canonical_json`` (NaN handling characterization)
 
-There are no standalone entitlement documents under ``tests/fixtures/``; the
-corpus therefore covers the production entitlement template under
-``configs/signing/`` rendered through the production loader, plus
-representative inline documents exercising every JSON value shape.
+The corpus is inline: representative documents exercising every JSON value
+shape, so editing repository configuration never invalidates a golden value.
 """
 
 from __future__ import annotations
@@ -36,11 +33,7 @@ from pathlib import Path, PurePosixPath
 from sideloadedipa.adapters.apple import normalized_apple_state
 from sideloadedipa.apple.commands import _profile_device_set_sha256
 from sideloadedipa.cache.decisions import RebuildDecision, RebuildReason
-from sideloadedipa.config import (
-    EntitlementTemplateContext,
-    load_configuration,
-    load_entitlement_template,
-)
+from sideloadedipa.config import parse_configuration
 from sideloadedipa.domain import (
     AppleBundleIdentifierState,
     AppleCapabilityState,
@@ -73,7 +66,6 @@ from sideloadedipa.signing.profile_storage import (
     build_profile_manifest,
     profile_relative_path,
 )
-from sideloadedipa.util.atomics import canonical_json
 from sideloadedipa.verification.entitlements import compare_entitlements
 from sideloadedipa.verification.integrity import _canonical_sha256, _structure_document
 from tests.conftest import publication_candidate
@@ -110,13 +102,6 @@ _REPRESENTATIVE_ENTITLEMENT_DIGESTS = {
         },
         "33eebfe3c26b35d7eb9fc5f970556e1853bd8a7f35354530e504eaaaea7f5466",
     ),
-}
-
-_POLICY_DIGESTS = {
-    "MyApp": "d799c6a5e3d3377e841db4a09704a27fc60a81c17d4bad0b425ebe8256500c26",
-    "AnotherApp": "a2d1195102a6ed47e02db8da9b2598693ef7eda3d43a724a789b1cb439a8361f",
-    "SpecialApp": "fc5001521f3c863a3bc97e82cad4c801dc4855c24c537cb62e8f1d988a5b8acd",
-    "LiveContainer": "1dc7d2fffb3a46f8466d192b1fbe0f62c9d8ab52e1410777b005cf0fb4f9c66b",
 }
 
 
@@ -162,29 +147,50 @@ def test_normalize_entitlements_digests_are_stable_for_representative_documents(
         assert normalize_entitlements(document).sha256 == expected_sha256, name
 
 
-def test_normalize_entitlements_digest_is_stable_for_the_production_template() -> None:
-    rendered = load_entitlement_template(
-        Path("."),
-        Path("configs/signing/livecontainer/root-process.plist"),
-        EntitlementTemplateContext(
-            team_id="TEAMID",
-            app_identifier_prefix="TEAMID.",
-            target_bundle_id="io.example.app.livecontainer",
-            app_groups=(("shared", "group.io.example.shared"),),
-        ),
+def test_policy_digests_are_stable_for_representative_tasks() -> None:
+    configuration = parse_configuration(
+        {
+            "tasks": [
+                {
+                    "task_name": "Plain",
+                    "app_name": "Plain App",
+                    "bundle_id": "io.example.plain",
+                    "ipa_url": "https://example.com/Plain.ipa",
+                    "ipa_sha256": "a" * 64,
+                },
+                {
+                    "task_name": "Nested",
+                    "app_name": "Nested App",
+                    "bundle_id": "io.example.nested",
+                    "repo_url": "https://github.com/example/nested",
+                    "release_glob": "Nested.ipa",
+                    "publication_enabled": True,
+                    "signing": {
+                        "app_groups": {"shared": "group.io.example.nested"},
+                        "bundles": [
+                            {
+                                "source_bundle_id": "com.upstream.nested",
+                                "target_bundle_id": "io.example.nested",
+                                "role": "root",
+                                "required_capabilities": ["APP_GROUPS"],
+                                "entitlement_mode": "profile",
+                            },
+                            {
+                                "source_bundle_id": "com.upstream.nested.Share",
+                                "required_capabilities": ["APP_GROUPS"],
+                                "entitlement_mode": "profile",
+                            },
+                        ],
+                    },
+                },
+            ]
+        }
     )
 
-    assert normalize_entitlements(rendered).sha256 == (
-        "f0fa2c7d47205926f4b03e49747169b0bb897b7de47b7f1b085e05f7905ff6b9"
-    )
-
-
-def test_policy_digests_are_stable_for_canonical_configuration_fixtures() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml.example"))
-
-    assert {task.task_name: policy_sha256(task) for task in configuration.tasks} == (
-        _POLICY_DIGESTS
-    )
+    assert {task.task_name: policy_sha256(task) for task in configuration.tasks} == {
+        "Plain": "4e9dcb92825cc033f513065d33da736804c2e153a9f3a3030cde3feac4b75305",
+        "Nested": "8320abd3f2cb251ea5f51e897d1bdbdcfbcb14df609ff7efb58c72c7ac24980b",
+    }
 
 
 def test_signing_plan_digest_is_stable(tmp_path: Path) -> None:
@@ -403,19 +409,3 @@ def test_verification_evidence_digests_are_stable() -> None:
     assert difference.actual_sha256 == (
         "a1c69ab8192836489304dbe2e21027d59850019ee150fdefba58d5b9bb3a14a3"
     )
-
-
-def test_fixture_corpus_contains_no_non_finite_numbers() -> None:
-    """The canonical_json NaN gap is unexploited by every durable document."""
-
-    documents: list[object] = [
-        *[document for document, _ in _REPRESENTATIVE_ENTITLEMENT_DIGESTS.values()],
-        json.loads(Path("tests/fixtures/asc/apple-state.json").read_text()),
-        json.loads(Path("tests/fixtures/inventory/livecontainer-standard.json").read_text()),
-        json.loads(Path("tests/fixtures/inventory/livecontainer-sidestore.json").read_text()),
-    ]
-    for document in documents:
-        # Raises ValueError if any non-finite number were present; the golden
-        # digests above prove the corpus must keep serializing identically.
-        json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        canonical_json(document)

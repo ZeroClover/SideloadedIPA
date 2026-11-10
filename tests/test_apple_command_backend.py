@@ -31,6 +31,7 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import ConfigurationError, DomainError, ErrorCode
 from sideloadedipa.signing.profile_storage import profile_relative_path
+from tests.sample_project import CONFIG_PATH
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -155,7 +156,7 @@ def test_builds_exact_profile_request_from_public_apple_identity(
         ),
         certificate=certificate(),
         bundle=bundle(),
-        config_path=Path("configs/tasks.toml"),
+        config_path=CONFIG_PATH,
     )
 
     request = captured["request"]
@@ -192,7 +193,7 @@ def test_profile_request_fails_closed_without_prefix_devices_or_materialized_sou
             snapshot=snapshot(device("DEVICE", "hash")),
             certificate=certificate(),
             bundle=bundle(None),
-            config_path=Path("configs/tasks.toml"),
+            config_path=CONFIG_PATH,
         )
     assert missing_prefix.value.code is ErrorCode.APPLE_RESOURCE_CONFLICT
 
@@ -203,7 +204,7 @@ def test_profile_request_fails_closed_without_prefix_devices_or_materialized_sou
             snapshot=snapshot(device("DISABLED", "hash", status="DISABLED")),
             certificate=certificate(),
             bundle=bundle(),
-            config_path=Path("configs/tasks.toml"),
+            config_path=CONFIG_PATH,
         )
     assert no_devices.value.code is ErrorCode.APPLE_RESOURCE_NOT_FOUND
 
@@ -214,7 +215,7 @@ def test_profile_request_fails_closed_without_prefix_devices_or_materialized_sou
             snapshot=snapshot(device("DEVICE", "hash")),
             certificate=certificate(),
             bundle=bundle(),
-            config_path=Path("configs/tasks.toml"),
+            config_path=CONFIG_PATH,
         )
     assert preserve_source.value.code is ErrorCode.CONFIG_INVALID
 
@@ -318,7 +319,7 @@ def test_expected_entitlement_inputs_fail_closed_and_resolve_repository_root(
             intent=missing_template,
             team_id="TEAMID1234",
             app_identifier_prefix="PREFIX9876.",
-            config_path=Path("configs/tasks.toml"),
+            config_path=CONFIG_PATH,
         )
     assert missing.value.code is ErrorCode.ENTITLEMENTS_TEMPLATE_MISSING
 

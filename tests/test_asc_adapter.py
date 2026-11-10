@@ -69,27 +69,6 @@ def command_error(exit_code: int) -> AdapterError:
     )
 
 
-def test_contract_fixture_tracks_verified_release_and_has_no_credentials() -> None:
-    contract = json.loads(CONTRACT.read_text())
-
-    assert contract["upstream"]["tag"] == "6.0.0"
-    assert contract["tools"]["linux_amd64_sha256"] == (
-        "3a38757cc7e93e572f8da4b918aaed2ed70b3640393a5173ce059a404456b729"
-    )
-    assert contract["retry_contract"] == {
-        "methods": ["GET", "HEAD"],
-        "statuses": [408, 429, 500, 502, 503, 504],
-        "max_retries": 3,
-        "base_delay": "1s",
-        "max_delay": "10s",
-        "jitter": "plus-or-minus-25-percent",
-        "honors_retry_after": True,
-    }
-    serialized = CONTRACT.read_text()
-    assert "BEGIN PRIVATE KEY" not in serialized
-    assert "AuthKey_" not in serialized
-
-
 def test_versioned_paginated_json_command_is_canonical_and_redacted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

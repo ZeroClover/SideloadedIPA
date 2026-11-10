@@ -25,6 +25,7 @@ from sideloadedipa.application import (
 )
 from sideloadedipa.cli import main
 from sideloadedipa.domain import FrozenJsonObject
+from tests.sample_project import CONFIG_PATH
 
 
 @dataclass
@@ -198,7 +199,7 @@ def test_publication_json_stdout_excludes_adapter_logs(
 def test_default_application_returns_typed_error() -> None:
     stderr = io.StringIO()
 
-    exit_code = main(["sign", "--json"], stderr=stderr)
+    exit_code = main(["sign", "--json", "--config", str(CONFIG_PATH)], stderr=stderr)
 
     assert exit_code == 2
     assert json.loads(stderr.getvalue())["code"] == "config.missing"

@@ -12,7 +12,6 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
     BundleNode,
@@ -47,6 +46,7 @@ from sideloadedipa.signing.service import (
     verify_package_artifact,
 )
 from sideloadedipa.verification import build_verification_result, required_verification_checks
+from tests.sample_project import PROJECT_ROOT, sample_configuration
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 BACKEND_IDENTITY = SigningBackendIdentity(
@@ -210,11 +210,7 @@ def request_for(task: Task, tmp_path: Path) -> PackageSigningRequest:
 def test_current_root_only_tasks_run_through_package_planner_and_executor(
     tmp_path: Path, task_name: str
 ) -> None:
-    task = next(
-        value
-        for value in load_configuration(Path("configs/tasks.toml")).tasks
-        if value.task_name == task_name
-    )
+    task = next(value for value in sample_configuration().tasks if value.task_name == task_name)
     request = request_for(task, tmp_path)
 
     result = execute_package_signing(request)
@@ -235,7 +231,7 @@ def test_current_root_only_tasks_run_through_package_planner_and_executor(
 def test_reconstructs_plan_and_verifies_existing_artifact_without_backend(
     tmp_path: Path,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     request = request_for(task, tmp_path)
     execution = execute_package_signing(request)
     backend = request.backend
@@ -253,11 +249,7 @@ def test_reconstructs_plan_and_verifies_existing_artifact_without_backend(
 
 
 def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) -> None:
-    task = next(
-        value
-        for value in load_configuration(Path("configs/tasks.toml")).tasks
-        if value.task_name == "JHenTai"
-    )
+    task = next(value for value in sample_configuration().tasks if value.task_name == "JHenTai")
     fixture = request_for(task, tmp_path)
 
     request = build_package_signing_request(
@@ -286,11 +278,7 @@ def test_composes_current_root_task_from_profile_entitlements(tmp_path: Path) ->
 
 @pytest.fixture
 def jego_fixture(tmp_path: Path) -> PackageSigningRequest:
-    task = next(
-        task
-        for task in load_configuration(Path("configs/tasks.toml")).tasks
-        if task.task_name == "Jego"
-    )
+    task = next(task for task in sample_configuration().tasks if task.task_name == "Jego")
     fixture = request_for(task, tmp_path)
     source_bundle_id = "com.cmi.jego.enterprise"
     source_sha256 = write_source(fixture.source_ipa, source_bundle_id)
@@ -341,7 +329,7 @@ def compose_jego_request(fixture: PackageSigningRequest) -> PackageSigningReques
         verifier=fixture.verifier,
         source_ipa=fixture.source_ipa,
         destination_ipa=fixture.destination_ipa,
-        repository_root=Path.cwd(),
+        repository_root=PROJECT_ROOT,
     )
 
 
@@ -407,7 +395,7 @@ def test_jego_rejects_profile_without_keychain_authorization_before_signing(
 
 
 def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     fixture = request_for(task, tmp_path)
     source_bundle_id = fixture.graph.nodes[0].source_bundle_id
     assert source_bundle_id is not None
@@ -453,7 +441,7 @@ def test_composes_reviewed_template_with_typed_placeholders(tmp_path: Path) -> N
 
 
 def test_rejects_template_policy_without_template_path(tmp_path: Path) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     fixture = request_for(task, tmp_path)
     source_bundle_id = fixture.graph.nodes[0].source_bundle_id
     assert source_bundle_id is not None
@@ -490,7 +478,7 @@ def test_rejects_template_policy_without_template_path(tmp_path: Path) -> None:
 
 
 def test_profile_authorization_failure_precedes_backend_and_workspace(tmp_path: Path) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     request = request_for(task, tmp_path)
     profile = replace(request.profiles[0], entitlements=normalize_entitlements({}).values)
     backend = request.backend

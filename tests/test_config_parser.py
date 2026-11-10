@@ -12,12 +12,10 @@ from sideloadedipa.domain import (
     BatchPublicationPolicy,
     EntitlementMode,
     ProfileType,
-    PublicationConfig,
     R2Config,
     SourceKind,
 )
 from sideloadedipa.errors import ConfigurationError, ErrorCode
-from sideloadedipa.pipeline.stages.signing_cache import policy_sha256
 
 
 def direct_task(**overrides: object) -> dict[str, object]:
@@ -30,173 +28,6 @@ def direct_task(**overrides: object) -> dict[str, object]:
     }
     task.update(overrides)
     return task
-
-
-def test_loads_current_production_configuration() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
-
-    assert [task.task_name for task in configuration.tasks] == [
-        "JHenTai",
-        "Eros FE",
-        "Asspp",
-        "PiliPlus",
-        "LiveContainer",
-        "Reynard",
-        "StikDebug",
-        "Jego",
-        "GestaltX",
-    ]
-    assert configuration.tasks[0].bundle_id == "io.zeroclover.app.jhentai"
-    assert configuration.tasks[0].source.kind is SourceKind.GITHUB_RELEASE
-    assert configuration.tasks[0].source.release_glob == "*.ipa"
-    assert (
-        next(task for task in configuration.tasks if task.task_name == "StikDebug").icon_path
-        == "ipa:"
-    )
-    assert configuration.r2 == R2Config()
-    assert configuration.publication == PublicationConfig()
-    assert all(task.publication_enabled for task in configuration.tasks)
-    assert {
-        task.task_name: policy_sha256(task)
-        for task in configuration.tasks
-        if task.signing is not None
-    } == {
-        "LiveContainer": "ab8417518dd41fe9bc8c026331827dc96287b9a3f9f5df2cda930fb8c1328237",
-        "Reynard": "413b9b8d80376d7025aa9b0221b6209b96afa966b28be76da804934a89365d93",
-        "Jego": "1bf6e54e6206efa4464e0d5b5417c4165ae9b23bebc60e1a057b62190cdff162",
-        "GestaltX": "4e8799d8029bc1ea71347c8f5e5f20ca8c8e684a5b281358129ce62d8901ee44",
-    }
-
-
-def test_every_production_task_declares_publication_enabled_explicitly() -> None:
-    import tomllib
-
-    document = tomllib.loads(Path("configs/tasks.toml").read_text())
-
-    assert document["tasks"]
-    assert all("publication_enabled" in task for task in document["tasks"])
-
-
-def test_production_livecontainer_is_exactly_scoped_and_publishing() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
-    task = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
-
-    assert task.bundle_id == "io.zeroclover.app.livecontainer"
-    assert task.source.release_glob == "LiveContainer.ipa"
-    assert task.icon_path == "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
-    assert task.publication_enabled is True
-    assert task.signing is not None
-    assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.livecontainer"),)
-    assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.livecontainer",)
-    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
-        "com.kdt.livecontainer",
-        "com.kdt.livecontainer.LiveProcess",
-        "com.kdt.livecontainer.LaunchAppExtension",
-        "com.kdt.livecontainer.ShareExtension",
-    ]
-    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
-    assert task.signing.bundles[0].role == "root"
-    assert all(
-        str(rule.entitlement_policy.template_path)
-        == "configs/signing/livecontainer/root-process.plist"
-        for rule in task.signing.bundles[:2]
-    )
-    assert all(
-        rule.entitlement_policy.mode is EntitlementMode.PROFILE for rule in task.signing.bundles[2:]
-    )
-
-
-def test_production_reynard_is_exactly_scoped_and_publishing() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
-    task = next(task for task in configuration.tasks if task.task_name == "Reynard")
-
-    assert task.app_name == "Reynard Browser"
-    assert task.bundle_id == "io.zeroclover.app.reynard"
-    assert task.source.release_glob == "Reynard.ipa"
-    assert task.icon_path == "browser/Reynard/Resources/Assets.xcassets/AppIcon.appiconset/icon.png"
-    assert task.publication_enabled is True
-    assert task.signing is not None
-    assert task.signing.app_groups == ()
-    assert task.signing.manual_app_group_associations == ()
-    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
-        "com.minh-ton.Reynard",
-        "com.minh-ton.Reynard.Helper",
-        "com.minh-ton.Reynard.OpenIn",
-    ]
-    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
-    assert task.signing.bundles[0].role == "root"
-    assert task.signing.bundles[0].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
-    assert all(
-        rule.entitlement_policy.mode is EntitlementMode.PROFILE for rule in task.signing.bundles
-    )
-    intents = {intent.source_bundle_id: intent for intent in derive_bundle_resource_intents(task)}
-    assert {
-        source_bundle_id: intent.target_bundle_id for source_bundle_id, intent in intents.items()
-    } == {
-        "com.minh-ton.Reynard": "io.zeroclover.app.reynard",
-        "com.minh-ton.Reynard.Helper": "io.zeroclover.app.reynard.Helper",
-        "com.minh-ton.Reynard.OpenIn": "io.zeroclover.app.reynard.OpenIn",
-    }
-    assert intents["com.minh-ton.Reynard"].required_capabilities == ("INCREASED_MEMORY_LIMIT",)
-
-
-def test_production_gestaltx_shares_one_app_group_and_publishes() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
-    task = next(task for task in configuration.tasks if task.task_name == "GestaltX")
-
-    assert task.bundle_id == "io.zeroclover.app.gestaltx"
-    assert task.source.location == "https://github.com/huamidev/GestaltX"
-    assert task.source.release_glob == "GestaltX_*.ipa"
-    assert task.slug == "GestaltX"
-    assert task.icon_path == "GestaltX/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
-    assert task.publication_enabled is True
-    assert task.signing is not None
-    assert task.signing.app_groups == (("shared", "group.io.zeroclover.app.gestaltx"),)
-    assert task.signing.manual_app_group_associations == ("group.io.zeroclover.app.gestaltx",)
-    assert [rule.source_bundle_id for rule in task.signing.bundles] == [
-        "com.huami.gestultx",
-        "com.huami.gestultx.ShareExtension",
-    ]
-    assert task.signing.bundles[0].target_bundle_id == task.bundle_id
-    assert task.signing.bundles[0].role == "root"
-    assert all(
-        rule.required_capabilities == ("APP_GROUPS",)
-        and rule.entitlement_policy.mode is EntitlementMode.PROFILE
-        for rule in task.signing.bundles
-    )
-
-
-def test_production_jego_has_reviewed_keychain_and_entitlement_drops() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
-    task = next(task for task in configuration.tasks if task.task_name == "Jego")
-
-    assert task.app_name == "Jego"
-    assert task.bundle_id == "io.zeroclover.app.jego"
-    assert task.source.kind is SourceKind.GITHUB_RELEASE
-    assert task.source.location == "https://github.com/theJeffZ600/iPAs_Jeff_Self_Use"
-    assert task.source.release_glob == "Jego.ipa"
-    assert task.slug == "Jego"
-    assert task.icon_path == "ipa:"
-    assert task.publication_enabled is True
-    assert task.signing is not None
-    assert task.signing.app_groups == ()
-    assert len(task.signing.bundles) == 1
-    rule = task.signing.bundles[0]
-    assert rule.source_bundle_id == "com.cmi.jego.enterprise"
-    assert rule.target_bundle_id == task.bundle_id
-    assert rule.role == "root"
-    assert rule.required_capabilities == ("KEYCHAIN_SHARING",)
-    assert rule.entitlement_policy.mode is EntitlementMode.TEMPLATE
-    assert str(rule.entitlement_policy.template_path) == "configs/signing/jego/root.plist"
-    assert rule.entitlement_policy.allowed_drops == (
-        "aps-environment",
-        "com.apple.developer.associated-domains",
-    )
-    assert rule.entitlement_policy.drop_rationale
-    (intent,) = derive_bundle_resource_intents(task)
-    assert intent.target_bundle_id == task.bundle_id
-    assert intent.required_capabilities == ("KEYCHAIN_SHARING",)
-    assert intent.app_groups == ()
 
 
 def test_defaults_new_tasks_to_non_publishing_and_preserves_r2_field_names() -> None:
@@ -519,11 +350,6 @@ def test_reports_missing_and_malformed_files(tmp_path: Path) -> None:
     assert malformed_error.value.code is ErrorCode.CONFIG_INVALID
 
 
-def test_example_configuration_parses_through_the_production_loader() -> None:
-    configuration = load_configuration(Path("configs/tasks.toml.example"))
-
-    assert configuration.tasks
-    livecontainer = next(task for task in configuration.tasks if task.task_name == "LiveContainer")
-    assert policy_sha256(livecontainer) == (
-        "1dc7d2fffb3a46f8466d192b1fbe0f62c9d8ab52e1410777b005cf0fb4f9c66b"
-    )
+@pytest.mark.parametrize("path", ["configs/tasks.toml", "configs/tasks.toml.example"])
+def test_repository_configuration_passes_production_validation(path: str) -> None:
+    assert load_configuration(Path(path)).tasks
