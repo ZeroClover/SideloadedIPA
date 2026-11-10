@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 import plistlib
-import struct
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -15,7 +14,6 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import Encoding, pkcs7, pkcs12
-from cryptography.x509.oid import NameOID
 
 from sideloadedipa.adapters.signing.zsign import ZsignBackend
 from sideloadedipa.domain import (
@@ -41,90 +39,29 @@ from sideloadedipa.tools.exercise_zsign_backend import (
     zsign_command,
 )
 from sideloadedipa.verification import inspect_signed_entitlements, verify_signed_signatures
+from tests.sample_project import CONFIG_PATH
+from tests.signing_fixtures import generate_development_identity, unsigned_macho
 
 HELPER = PurePosixPath("Payload/Qualification.app/Frameworks/helper")
-
-
-def _unsigned_macho() -> bytes:
-    """Arm64 MH_EXECUTE with an entitlement slot and replaceable signature command."""
-
-    xml = plistlib.dumps({}, fmt=plistlib.FMT_XML, sort_keys=True)
-    entitlement_blob = struct.pack(">II", 0xFADE7171, len(xml) + 8) + xml
-    signature = b"".join(
-        (
-            struct.pack(">III", 0xFADE0CC0, 20 + len(entitlement_blob), 1),
-            struct.pack(">II", 5, 20),
-            entitlement_blob,
-        )
-    )
-    header = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, 88, 0, 0)
-    signature_offset = len(header) + 88
-    segment = struct.pack(
-        "<II16sQQQQIIII",
-        0x19,
-        72,
-        b"__LINKEDIT",
-        0,
-        len(signature),
-        signature_offset,
-        len(signature),
-        1,
-        1,
-        0,
-        0,
-    )
-    command = struct.pack("<IIII", 0x1D, 16, signature_offset, len(signature))
-    return header + segment + command + signature
 
 
 def _generated_signing_material(
     root: Path,
 ) -> tuple[Path, Path, x509.Certificate, rsa.RSAPrivateKey]:
-    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Fixture Issuing CA")])
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = x509.Name(
-        [
-            x509.NameAttribute(NameOID.COMMON_NAME, "zsign integration fixture"),
-            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "TEAMID1234"),
-        ]
-    )
-    now = datetime.now(timezone.utc)
-    ca_certificate = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_key.public_key())
-        .serial_number(1)
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(days=1))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
-    certificate = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(ca_name)
-        .public_key(key.public_key())
-        .serial_number(2)
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(days=1))
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
+    identity = generate_development_identity()
     private_key = root / "private-key.p12"
     certificate_path = root / "certificate.pem"
     private_key.write_bytes(
         pkcs12.serialize_key_and_certificates(
             b"zsign integration fixture",
-            key,
-            certificate,
-            [ca_certificate],
+            identity.key,
+            identity.certificate,
+            [identity.issuer_certificate],
             serialization.NoEncryption(),
         )
     )
-    certificate_path.write_bytes(certificate.public_bytes(Encoding.PEM))
-    return private_key, certificate_path, certificate, key
+    certificate_path.write_bytes(identity.certificate.public_bytes(Encoding.PEM))
+    return private_key, certificate_path, identity.certificate, identity.key
 
 
 def _profile(
@@ -187,8 +124,8 @@ def _fixture_ipa(path: Path) -> None:
                     sort_keys=True,
                 ),
             )
-            archive.writestr(f"{bundle}/{executable}", _unsigned_macho())
-        archive.writestr(HELPER.as_posix(), _unsigned_macho())
+            archive.writestr(f"{bundle}/{executable}", unsigned_macho())
+        archive.writestr(HELPER.as_posix(), unsigned_macho())
 
 
 def profile_entitlements(bundle_identifier: str) -> dict:
@@ -363,7 +300,7 @@ def test_canary_materializes_production_template_from_profile_authorization() ->
         "keychain-access-groups": ["TEAM.*"],
     }
 
-    values = configured_entitlements(Path("configs/tasks.toml"), "process", profile)
+    values = configured_entitlements(CONFIG_PATH, "process", profile)
 
     assert values["application-identifier"] == f"TEAM.{target}"
     assert values["com.apple.security.application-groups"] == [
@@ -385,7 +322,7 @@ def test_canary_uses_profile_policy_for_launch_extension() -> None:
         "get-task-allow": True,
     }
 
-    assert configured_entitlements(Path("configs/tasks.toml"), "launch", profile) == profile
+    assert configured_entitlements(CONFIG_PATH, "launch", profile) == profile
 
 
 @pytest.mark.integration
