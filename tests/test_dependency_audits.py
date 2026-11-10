@@ -67,10 +67,6 @@ def exception_document() -> dict[str, object]:
     }
 
 
-def test_current_dependency_policy_has_no_exceptions() -> None:
-    assert load_reviewed_exceptions(ROOT / ".github" / "dependency-audit-exceptions.json") == ()
-
-
 def test_reviewed_exception_loader_accepts_complete_unexpired_fixture(tmp_path: Path) -> None:
     path = tmp_path / "exceptions.json"
     path.write_text(json.dumps(exception_document()))

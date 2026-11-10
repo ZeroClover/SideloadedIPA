@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>${APP_IDENTIFIER_PREFIX}${TARGET_BUNDLE_ID}</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>${TEAM_ID}</string>
+	<key>get-task-allow</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<!-- Preserve the source keychain group suffix, not the application bundle ID. -->
+		<string>${APP_IDENTIFIER_PREFIX}com.cmi.jegotrip</string>
+	</array>
+</dict>
+</plist>

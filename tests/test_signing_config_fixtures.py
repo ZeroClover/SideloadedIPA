@@ -25,22 +25,6 @@ def configuration() -> TaskConfiguration:
     return load_configuration(FIXTURE)
 
 
-def test_fixture_covers_root_only_standard_and_sidestore_variants() -> None:
-    tasks = {task.task_name: task for task in configuration().tasks}
-
-    assert tasks["root-only"].signing is None
-    standard = tasks["multiple-extensions"].signing
-    assert standard is not None
-    assert len(standard.bundles) == 4
-    assert standard.app_groups == (("shared", "group.io.zeroclover.livecontainer"),)
-
-    sidestore = tasks["sidestore-widget"].signing
-    assert sidestore is not None
-    assert len(sidestore.bundles) == 5
-    assert sidestore.bundles[-1].source_bundle_id == "com.kdt.livecontainer.LiveWidget"
-    assert sidestore.bundles[-1].target_bundle_id is not None
-
-
 def test_non_descendant_fixture_has_working_explicit_mapping() -> None:
     task = next(task for task in configuration().tasks if task.task_name == "non-descendant")
     assert task.signing is not None

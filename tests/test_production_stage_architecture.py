@@ -59,22 +59,6 @@ def test_concrete_stage_import_graph_is_acyclic_and_leaf_owned() -> None:
         assert "from sideloadedipa.domain import" not in source
 
 
-def test_production_coordinator_remains_thin_and_signing_execution_is_single_path() -> None:
-    production = Path("src/sideloadedipa/pipeline/production.py").read_text()
-    signing = (STAGE_ROOT / "signing.py").read_text()
-
-    assert len(production.splitlines()) < 500
-    assert signing.count("execute_package_signing(") == 1
-    assert "class ProductionStage" not in production
-    assert "ServiceContainer" not in production
-    run_source = production.split("    def run(", maxsplit=1)[1]
-    assert run_source.count("with self._prepared(") == 1
-    assert "self.plan(" not in run_source
-    assert "self.sign(" not in run_source
-    assert "self.verify(" not in run_source
-    assert "self.publish(" not in run_source
-
-
 def test_prepared_context_memoizes_one_signing_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

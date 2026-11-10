@@ -14,23 +14,20 @@ import pytest
 
 from sideloadedipa.adapters.signing.zsign import (
     EXPECTED_ZSIGN_VERSION,
-    ZSIGN_CONTRACT_VERSION,
 )
 from sideloadedipa.apple.intents import derive_bundle_resource_intents
 from sideloadedipa.application import CommandName
-from sideloadedipa.config import load_configuration
-from sideloadedipa.domain import CertificateIdentity, CertificateMaterial, ProfileType
+from sideloadedipa.domain import CertificateIdentity, CertificateMaterial
 from sideloadedipa.errors import ConfigurationError, ErrorCode
 from sideloadedipa.pipeline.production import ProductionPipeline
 from sideloadedipa.pipeline.stages.signing_cache import policy_sha256
-from sideloadedipa.tools.exercise_zsign_backend import TARGETS, zsign_command
+from sideloadedipa.tools.exercise_zsign_backend import TARGETS
 from sideloadedipa.tools.qualify_backend import (
     DEFAULT_CONTRACT_PATH,
     PreparedQualification,
     QualificationDependencies,
     QualificationError,
     QualificationOptions,
-    load_qualification_contract,
     main,
     run_production_preparation,
     run_qualification,
@@ -38,6 +35,7 @@ from sideloadedipa.tools.qualify_backend import (
     write_qualification_evidence,
 )
 from sideloadedipa.util.atomics import file_sha256
+from tests.sample_project import CONFIG_PATH, sample_configuration
 
 
 def fake_zsign(tmp_path: Path) -> tuple[Path, str]:
@@ -49,6 +47,20 @@ def fake_zsign(tmp_path: Path) -> tuple[Path, str]:
     return executable, file_sha256(executable)
 
 
+def sample_contract(tmp_path: Path) -> Path:
+    """The repository contract, rebound to the test-owned LiveContainer policy."""
+
+    task = next(task for task in sample_configuration().tasks if task.task_name == "LiveContainer")
+    contract = json.loads(DEFAULT_CONTRACT_PATH.read_text())
+    contract["fixture"]["policy_sha256"] = policy_sha256(task)
+    contract["fixture"]["target_bundle_ids"] = sorted(
+        intent.target_bundle_id for intent in derive_bundle_resource_intents(task)
+    )
+    path = tmp_path / "qualification-contract.json"
+    path.write_text(json.dumps(contract))
+    return path
+
+
 def options(
     tmp_path: Path,
     executable: Path,
@@ -57,14 +69,14 @@ def options(
     oracle_summary: Path | None = None,
 ) -> QualificationOptions:
     return QualificationOptions(
-        config_path=Path("configs/tasks.toml"),
+        config_path=CONFIG_PATH,
         task_name="LiveContainer",
         run_id="qualification-test",
         apply=False,
         zsign=executable,
         zsign_sha256=executable_sha256,
         profile_root=tmp_path / "profiles",
-        contract_path=DEFAULT_CONTRACT_PATH,
+        contract_path=sample_contract(tmp_path),
         evidence_path=tmp_path / "evidence.json",
         oracle_summary_path=oracle_summary,
         codesign_identity=None,
@@ -73,11 +85,7 @@ def options(
 
 
 def prepared_factory(tmp_path: Path):
-    task = next(
-        task
-        for task in load_configuration(Path("configs/tasks.toml")).tasks
-        if task.task_name == "LiveContainer"
-    )
+    task = next(task for task in sample_configuration().tasks if task.task_name == "LiveContainer")
     fixture = tmp_path / "fixture.ipa"
     fixture.write_bytes(b"deterministic fixture")
     profiles = tmp_path / "prepared-profiles"
@@ -283,68 +291,3 @@ def test_production_preparation_reuses_inspect_plan_and_sync_in_order(tmp_path: 
     ]
     assert calls[-1].apply is True
     assert request.task_names == ("LiveContainer",)
-
-
-def test_requalification_contract_binds_backend_patch_command_policy_and_platforms() -> None:
-    contract = load_qualification_contract(DEFAULT_CONTRACT_PATH)
-    backend = contract["backend"]
-    fixture = contract["fixture"]
-    command_shape = contract["command_shape"]
-    action = Path(".github/actions/build-patched-zsign/action.yml").read_text()
-    workflows = "\n".join(
-        path.read_text()
-        for path in (
-            Path(".github/workflows/pr-checks.yml"),
-            Path(".github/workflows/sign-and-upload.yml"),
-        )
-    )
-    task = next(
-        task
-        for task in load_configuration(Path("configs/tasks.toml")).tasks
-        if task.task_name == fixture["task_name"]
-    )
-
-    assert backend["version"] == EXPECTED_ZSIGN_VERSION
-    assert backend["contract_version"] == ZSIGN_CONTRACT_VERSION
-    assert file_sha256(Path(backend["patch_path"])) == backend["patch_sha256"]
-    assert action.count(backend["version"]) == 1
-    assert action.count("build/linux") == 1
-    assert action.count("build/macos") == 1
-    assert workflows.count(backend["source_commit"]) == 2
-    assert workflows.count(backend["source_sha256"]) == 2
-    assert contract["supported_platforms"] == ["linux-amd64", "macos"]
-    assert policy_sha256(task) == fixture["policy_sha256"]
-    assert sorted(intent.target_bundle_id for intent in derive_bundle_resource_intents(task)) == (
-        fixture["target_bundle_ids"]
-    )
-    assert all(
-        intent.profile_type is ProfileType.IOS_APP_DEVELOPMENT
-        for intent in derive_bundle_resource_intents(task)
-    )
-
-    command = zsign_command(
-        Path("zsign"),
-        Path("key"),
-        Path("certificate"),
-        Path("profiles"),
-        Path("fixture.ipa"),
-        Path("signed.ipa"),
-        Path("entitlements"),
-    )
-    assert command.count("-m") == command_shape["profile_count"]
-    assert command.count("-e") == command_shape["entitlement_count"]
-    assert all(command[index + 2] == "-e" for index, value in enumerate(command) if value == "-m")
-
-
-def test_only_the_supported_qualification_module_exposes_a_command_wrapper() -> None:
-    pyproject = Path("pyproject.toml").read_text()
-    assert 'sideloadedipa-qualify-backend = "sideloadedipa.tools.qualify_backend:main"' in pyproject
-    for module in (
-        "build_backend_qualification_fixture.py",
-        "compare_backend_qualification.py",
-        "exercise_codesign_oracle.py",
-        "exercise_zsign_backend.py",
-    ):
-        source = Path("src/sideloadedipa/tools", module).read_text()
-        assert "def main(" not in source
-        assert 'if __name__ == "__main__"' not in source

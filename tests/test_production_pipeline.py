@@ -23,7 +23,6 @@ import sideloadedipa.pipeline.stages.source_inventory as source_inventory_stage
 from sideloadedipa.application import CommandName, CommandRequest, CommandResult, OutputFormat
 from sideloadedipa.cache.decisions import RebuildDecision, RebuildReason
 from sideloadedipa.cache.fingerprint import SigningCacheFingerprint
-from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
     Diagnostic,
@@ -55,6 +54,7 @@ from sideloadedipa.util.atomics import canonical_json
 from tests.conftest import package_request as request_for
 from tests.fakes import FixtureCopyBackend as CopyBackend
 from tests.fakes import FixturePassingVerifier
+from tests.sample_project import PROJECT_ROOT, sample_configuration
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
 
@@ -166,7 +166,7 @@ def materialize_source(
 def test_optional_icon_absence_or_processing_failure_is_non_blocking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    configured = sample_configuration().tasks[0]
     context = source_context(tmp_path, configured)
 
     class Store:
@@ -225,7 +225,7 @@ def test_cache_decision_promotion_is_atomic(
 
 
 def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monkeypatch) -> None:
-    tasks = load_configuration(Path("configs/tasks.toml")).tasks[:2]
+    tasks = sample_configuration().tasks[:2]
     pipeline = ProductionPipeline(dependencies(tmp_path))
     contexts = {task.task_name: source_context(tmp_path, task) for task in tasks}
     apple_called = False
@@ -279,7 +279,7 @@ def test_preflight_aggregates_all_tasks_before_apple_calls(tmp_path: Path, monke
 
 
 def test_source_failure_is_retained_as_preflight_evidence(tmp_path: Path, monkeypatch) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     pipeline = ProductionPipeline(dependencies(tmp_path))
     monkeypatch.setattr(
         production,
@@ -337,7 +337,7 @@ def test_source_intake_errors_stop_inventory_and_later_side_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     pipeline = ProductionPipeline(dependencies(tmp_path))
     monkeypatch.setattr(
         production,
@@ -381,7 +381,7 @@ def test_source_intake_errors_stop_inventory_and_later_side_effects(
 def test_sync_without_apply_only_records_read_only_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocked: bool
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     pipeline = ProductionPipeline(dependencies(tmp_path))
     context = source_context(tmp_path, task)
     request = replace(command(tmp_path, CommandName.SYNC, task.task_name), apply=False)
@@ -422,7 +422,7 @@ def test_sync_without_apply_only_records_read_only_plan(
 
 
 def test_visible_commands_extend_one_valid_manifest_chain(tmp_path: Path, monkeypatch) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     pipeline = ProductionPipeline(replace(dependencies(tmp_path), clock=IncrementingClock()))
     context = source_context(tmp_path, task)
     monkeypatch.setattr(
@@ -489,7 +489,7 @@ def test_invalid_canonical_inputs_stop_downstream_side_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     pipeline = ProductionPipeline(dependencies(tmp_path))
     context = source_context(tmp_path, task)
     monkeypatch.setattr(
@@ -576,7 +576,7 @@ def test_unchanged_direct_source_cache_hit_reopens_artifact_without_resigning(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    configured = sample_configuration().tasks[0]
     task = replace(
         configured,
         source=SourceConfig(
@@ -695,7 +695,7 @@ def test_cache_rejection_keeps_decisions_bound_to_non_alphabetical_tasks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tasks = load_configuration(Path("configs/tasks.toml")).tasks[:2]
+    tasks = sample_configuration().tasks[:2]
     assert tuple(task.task_name for task in tasks) != tuple(
         sorted(task.task_name for task in tasks)
     )
@@ -815,7 +815,7 @@ def test_default_stage_wrapper_records_created_resources_on_cancellation(
 def test_run_rejects_publication_disabled_task_before_signing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
+    configuration = sample_configuration()
     task = replace(configuration.tasks[0], publication_enabled=False)
     monkeypatch.setattr(
         production,
@@ -845,7 +845,7 @@ def test_run_rejects_publication_disabled_task_before_signing(
 def test_default_production_selection_ignores_publication_disabled_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
+    configuration = sample_configuration()
     enabled = configuration.tasks[0]
     disabled = replace(configuration.tasks[1], publication_enabled=False)
     monkeypatch.setattr(
@@ -871,7 +871,7 @@ def test_default_production_selection_ignores_publication_disabled_tasks(
 def test_default_production_selection_rejects_an_empty_publication_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
+    configuration = sample_configuration()
     disabled = tuple(replace(task, publication_enabled=False) for task in configuration.tasks)
     monkeypatch.setattr(
         production,
@@ -895,7 +895,7 @@ def test_publish_consumes_retained_verification_once_and_promotes_cache(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     signing_request = request_for(task, tmp_path)
     context = SourceContext(
         task,
@@ -1038,7 +1038,7 @@ def test_publish_consumes_retained_verification_once_and_promotes_cache(
 
 def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monkeypatch) -> None:
     pipeline = ProductionPipeline(dependencies(tmp_path))
-    configuration = TaskConfiguration((load_configuration(Path("configs/tasks.toml")).tasks[0],))
+    configuration = TaskConfiguration((sample_configuration().tasks[0],))
     calls: list[tuple[str, bool, bool]] = []
     configuration_loads = 0
     prepared_entries = 0
@@ -1150,7 +1150,7 @@ def test_run_composes_visible_stages_and_supports_plan_only(tmp_path: Path, monk
 def test_run_defaults_every_stage_to_publication_enabled_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    configuration = load_configuration(Path("configs/tasks.toml"))
+    configuration = sample_configuration()
     enabled = configuration.tasks[0]
     disabled = replace(configuration.tasks[1], publication_enabled=False)
     monkeypatch.setattr(
@@ -1213,7 +1213,7 @@ def test_run_defaults_every_stage_to_publication_enabled_tasks(
 
 
 def test_run_rejects_unknown_task_before_stages(tmp_path: Path, monkeypatch) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     monkeypatch.setattr(
         production,
         "load_configuration",
@@ -1233,7 +1233,7 @@ def test_run_rejects_unknown_task_before_stages(tmp_path: Path, monkeypatch) -> 
 
 
 def test_source_resolution_persists_current_asset_for_the_run(tmp_path: Path, monkeypatch) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     graph = BundleGraph(PurePosixPath("Payload/App.app"), (), "a" * 64, "b" * 64)
     resolved = ResolvedSource(
         "https://example.invalid/app.ipa",
@@ -1297,7 +1297,7 @@ def test_direct_source_digest_flows_through_download_and_canonical_evidence(
 ) -> None:
     content = b"reviewed direct IPA"
     digest = hashlib.sha256(content).hexdigest()
-    configured = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    configured = sample_configuration().tasks[0]
     task = replace(
         configured,
         source=SourceConfig(
@@ -1337,7 +1337,7 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     signing_request = request_for(task, tmp_path)
     context = SourceContext(
         task,
@@ -1377,10 +1377,8 @@ def test_prepared_context_builds_private_signing_inputs_and_complete_fingerprint
     assert signing_cache.device_set_sha256(signing_request)
     assert observed["graph"] is context.graph
     livecontainer = next(
-        value
-        for value in load_configuration(Path("configs/tasks.toml")).tasks
-        if value.task_name == "LiveContainer"
+        value for value in sample_configuration().tasks if value.task_name == "LiveContainer"
     )
-    template_digests = signing_cache.template_digests(livecontainer, Path.cwd())
+    template_digests = signing_cache.template_digests(livecontainer, PROJECT_ROOT)
     assert len(template_digests) == 2
     assert len({path for path, _ in template_digests}) == 1

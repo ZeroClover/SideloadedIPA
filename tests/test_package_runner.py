@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 
 import sideloadedipa.pipeline.package_runner as runner
-from sideloadedipa.config import load_configuration
 from sideloadedipa.domain import (
     BundleGraph,
     CertificateIdentity,
@@ -23,6 +22,7 @@ from sideloadedipa.domain import (
 )
 from sideloadedipa.errors import DomainError, ErrorCode
 from sideloadedipa.signing.profile_storage import build_profile_manifest, profile_relative_path
+from tests.sample_project import sample_configuration
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
 
@@ -58,7 +58,7 @@ def material(tmp_path: Path) -> CertificateMaterial:
 
 
 def test_requires_source_entitlements_only_for_preserve_source_policy() -> None:
-    tasks = load_configuration(Path("configs/tasks.toml")).tasks
+    tasks = sample_configuration().tasks
     legacy = tasks[0]
     livecontainer = next(task for task in tasks if task.task_name == "LiveContainer")
     assert livecontainer.signing is not None
@@ -99,7 +99,7 @@ def test_inspects_exact_source_digest_in_temporary_workspace(tmp_path: Path, mon
 
 
 def test_wires_synced_inputs_to_one_prepared_package_request(tmp_path: Path, monkeypatch) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     stored_manifest = manifest("CERT_ONE")
     certificate = material(tmp_path)
     graph = BundleGraph(PurePosixPath("Payload/App.app"), (), "a" * 64, "b" * 64)
@@ -173,7 +173,7 @@ def test_wires_synced_inputs_to_one_prepared_package_request(tmp_path: Path, mon
 def test_rejects_mixed_certificate_manifest_before_private_key_load(
     tmp_path: Path, monkeypatch
 ) -> None:
-    task = load_configuration(Path("configs/tasks.toml")).tasks[0]
+    task = sample_configuration().tasks[0]
     monkeypatch.setattr(
         runner,
         "load_profile_manifest",
