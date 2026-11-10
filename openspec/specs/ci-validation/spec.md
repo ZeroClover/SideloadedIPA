@@ -4,18 +4,51 @@
 Define reproducible PR/manual validation gates, workflow security analysis and the supported CI surface.
 ## Requirements
 ### Requirement: Consolidated pull-request validation
-Pull-request and manually dispatched CI SHALL execute Python, configuration, signing-backend, workflow, composite-action, and web validation in one reproducible job.
+Pull-request and manually dispatched CI SHALL execute Python, workflow, composite-action, and web static validation in one reproducible job, and SHALL execute every test suite in a separate test workflow.
 
 #### Scenario: Validate a repository change
 - **WHEN** PR validation runs
 - **THEN** it SHALL install the locked Python and web dependencies
-- **AND** SHALL execute pytest with its coverage gate, formatting checks, strict package and script typing, real patched-zsign coverage, web tests, and the production web build
+- **AND** SHALL execute dependency audits, formatting checks, strict package and script typing, the Python distribution build, and the production web build
+- **AND** SHALL NOT execute test suites
 - **AND** a failure in any validation boundary SHALL fail the job
+
+#### Scenario: Run the test suites
+- **WHEN** a pull request targets the default branch or the test workflow is manually dispatched
+- **THEN** the test workflow SHALL execute pytest with its coverage gate and real patched-zsign coverage, the pipeline end-to-end suite, the web unit tests, and the web end-to-end suite
+- **AND** it SHALL require no repository secret
+- **AND** a failure in any suite SHALL fail the workflow
 
 #### Scenario: Configuration examples change
 - **WHEN** production or example task configuration changes
-- **THEN** the normal Python test suite SHALL parse and validate both files
+- **THEN** the normal Python test suite SHALL pass both files through production validation
+- **AND** it SHALL NOT assert the configured values of individual tasks
 - **AND** CI SHALL NOT maintain a duplicate command-only parsing job
+
+### Requirement: Behavioural tests and end-to-end coverage
+Unit tests SHALL NOT pin production task configuration, workflow definitions, or project metadata; the composed pipeline and the delivery site SHALL each be covered by an end-to-end suite that enters through the interface an operator or client uses.
+
+#### Scenario: Production task configuration changes
+- **WHEN** a production task is added, removed, or edited, including its publication flag, signing rules, or entitlement template
+- **THEN** no unit test SHALL fail because it asserted or borrowed the previous production values
+- **AND** unit tests SHALL take sample tasks and entitlement templates from test-owned fixtures
+
+#### Scenario: Workflow or project metadata changes
+- **WHEN** a workflow definition or project metadata field changes
+- **THEN** workflow-aware static analysis and the build SHALL be the gates
+- **AND** no unit test SHALL assert the text of those files
+
+#### Scenario: Pipeline end-to-end suite runs
+- **WHEN** the pipeline end-to-end suite executes
+- **THEN** it SHALL run the installed command-line entry point in a child process through source intake, inventory, Apple reconciliation, signing with the real patched backend, and independent verification
+- **AND** it SHALL replace only unreachable external services, at a process or network boundary, without test-only production configuration
+- **AND** it SHALL prove that a signed artifact modified after signing is not verified
+- **AND** a signing scenario SHALL fail rather than skip when the patched backend is unavailable
+
+#### Scenario: Delivery end-to-end suite runs
+- **WHEN** the web end-to-end suite executes
+- **THEN** it SHALL serve a production build over HTTP against a registry origin
+- **AND** SHALL cover the application page, the installation manifest, and secret-gated registry revalidation
 
 ### Requirement: GitHub Actions static analysis
 CI SHALL validate workflow files and composite action definitions with tools that understand their respective formats and security properties.
@@ -33,7 +66,7 @@ CI SHALL validate workflow files and composite action definitions with tools tha
 - **AND** a human-readable release version SHALL remain documented beside the digest
 
 ### Requirement: Debuggable validation environment
-Manual PR validation SHALL retain one public-key-authenticated SSH debug entry point in the same runner environment that performed all checks.
+Manual PR validation SHALL retain one public-key-authenticated SSH debug entry point in the same runner environment that performed the static validation.
 
 #### Scenario: Operator enables PR debug
 - **WHEN** a manually dispatched validation run sets `debug=true`
@@ -42,7 +75,7 @@ Manual PR validation SHALL retain one public-key-authenticated SSH debug entry p
 - **AND** CI SHALL NOT start multiple competing SSH sessions for one validation run
 
 ### Requirement: Minimal recurring CI surface
-The repository SHALL use recurring automation only for PR validation and the production signing schedule.
+The repository SHALL use recurring automation only for PR validation, the PR test workflow, and the production signing schedule.
 
 #### Scenario: Checksum-pinned external fixture needs inspection
 - **WHEN** an operator needs to re-run the historical real-IPA inventory contract

@@ -1,0 +1,93 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Signing pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ZSIGN_SOURCE_COMMIT: "9299685bab7ef99827e06e5dfda93af747386590"
+      ZSIGN_SOURCE_SHA256: "97bcc2dbbc0dc5f092dc4a33cbe1f9fdbd5c83bdc291da23db45044d4396270e"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python & uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: "pyproject.toml"
+          python-version: "3.14.10"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          test "$(uv --version | awk '{print $2}')" = "0.13.6"
+          test "$(uv run --frozen python -c 'import platform; print(platform.python_version())')" = "$(tr -d '\n' < .python-version)"
+
+      - name: Build patched zsign
+        id: patched-zsign
+        uses: ./.github/actions/build-patched-zsign
+        with:
+          source-commit: ${{ env.ZSIGN_SOURCE_COMMIT }}
+          source-sha256: ${{ env.ZSIGN_SOURCE_SHA256 }}
+
+      - name: Run unit tests & coverage
+        env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
+        run: uv run --frozen pytest
+
+      - name: Run end-to-end tests
+        env:
+          ZSIGN_BIN: ${{ steps.patched-zsign.outputs.executable }}
+          ZSIGN_SHA256: ${{ steps.patched-zsign.outputs.sha256 }}
+        run: uv run --frozen pytest e2e --no-cov
+
+  delivery:
+    name: Download site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: "web/.node-version"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v$(tr -d '\n' < .node-version)"
+          npm ci
+
+      - name: Run unit tests
+        working-directory: web
+        run: npm run test
+
+      - name: Run end-to-end tests
+        working-directory: web
+        run: npm run test:e2e
