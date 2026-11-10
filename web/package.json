@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test test/*.test.ts && tsx scripts/check-plist-golden.ts"
+    "test": "tsx --test test/*.test.ts && tsx scripts/check-plist-golden.ts",
+    "test:e2e": "tsx --test e2e/*.test.ts"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
